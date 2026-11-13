@@ -1,10 +1,10 @@
--- Memuat Orion Library menggunakan CDN JSDelivr (Anti-Block Delta)
-local success, OrionLib = pcall(function()
-    return loadstring(game:HttpGet('https://cdn.jsdelivr.net/gh/shlexware/Orion@main/source'))()
+-- Memuat Rayfield UI Library (Anti-Block Delta)
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
 
-if not success or not OrionLib then
-    warn("Gagal memuat Orion Library! Periksa koneksi internet.")
+if not success or not Rayfield then
+    warn("Gagal memuat Rayfield UI!")
     return
 end
 
@@ -14,18 +14,22 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Membuat Jendela Utama Panel (Orion Window)
-local Window = OrionLib:MakeWindow({
-    Name = "BimSakSin Hub | Pro Survival Panel",
-    HidePremium = false,
-    SaveConfig = true,
-    ConfigFolder = "BimSakSinConfig",
-    IntroEnabled = true,
-    IntroText = "Memuat BimSakSin Hub..."
+-- Membuat Jendela Utama Panel
+local Window = Rayfield:CreateWindow({
+   Name = "BimSakSin Hub | Pro Survival Panel",
+   LoadingTitle = "Memuat BimSakSin Hub...",
+   LoadingSubtitle = "By Bima Sakti - RGB Edition",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "BimSakSinConfig",
+      FileName = "UltimateHub"
+   },
+   Discord = { Enabled = false },
+   KeySystem = false,
 })
 
 ---------------------------------------------------------
--- SISTEM RGB HALUS UNTUK JUDUL PANEL
+-- SISTEM RGB HALUS UNTUK JUDUL & TOMBOL MINIMIZE
 ---------------------------------------------------------
 task.spawn(function()
     while true do
@@ -37,8 +41,13 @@ task.spawn(function()
             for _, gui in ipairs(game.CoreGui:GetChildren()) do
                 if gui:IsA("ScreenGui") then
                     for _, desc in ipairs(gui:GetDescendants()) do
-                        if desc:IsA("TextLabel") and (desc.Text:find("BimSakSin Hub") or desc.Text:find("Pro Survival")) then
-                            desc.TextColor3 = rgbColor
+                        if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+                            if desc.Text == "Show Rayfield" or desc.Text:find("Show Rayfield") then
+                                desc.Text = "BimSakSin Hub"
+                                desc.TextColor3 = rgbColor
+                            elseif desc.Text:find("BimSakSin Hub") or desc.Text:find("Pro Survival") then
+                                desc.TextColor3 = rgbColor
+                            end
                         end
                     end
                 end
@@ -48,54 +57,46 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------
--- MEMBUAT TAB MENU
+-- TAB 1: SECURITY & ANTI-BAN
 ---------------------------------------------------------
-local TabSecurity = Window:MakeTab({Name = "Anti-Ban", Icon = "rbxassetid://4483362458", PremiumOnly = false})
-local TabESP = Window:MakeTab({Name = "Visual & ESP", Icon = "rbxassetid://4483362458", PremiumOnly = false})
-local TabCombat = Window:MakeTab({Name = "Combat", Icon = "rbxassetid://4483362458", PremiumOnly = false})
-local TabAuto = Window:MakeTab({Name = "Automation", Icon = "rbxassetid://4483362458", PremiumOnly = false})
-local TabMove = Window:MakeTab({Name = "Movement", Icon = "rbxassetid://4483362458", PremiumOnly = false})
-local TabTeleport = Window:MakeTab({Name = "Teleport", Icon = "rbxassetid://4483362458", PremiumOnly = false})
-
----------------------------------------------------------
--- 1. TAB ANTI-BAN & KEAMANAN
----------------------------------------------------------
+local TabSecurity = Window:CreateTab("Anti-Ban", 4483362458)
 local SecurityConfig = { AntiBanEnabled = false }
 
-TabSecurity:AddToggle({
-    Name = "Anti-Ban / Bypass Dev Map",
-    Default = false,
-    Callback = function(Value)
-        SecurityConfig.AntiBanEnabled = Value
-        if Value then
-            pcall(function()
-                local oldNameCall
-                oldNameCall = hookmetamethod(game, "__namecall", function(self, ...)
-                    local method = getnamecallmethod()
-                    if SecurityConfig.AntiBanEnabled and (method:lower() == "kick" or method:lower() == "ban") then
-                        OrionLib:MakeNotification({Title = "Anti-Ban", Content = "Berhasil memblokir Kick/Ban server!", Image = "rbxassetid://4483362458", Time = 3})
-                        return
-                    end
-                    return oldNameCall(self, ...)
-                end)
-            end)
-            OrionLib:MakeNotification({Title = "Proteksi Aktif", Content = "Anti-Ban menyala dengan aman.", Image = "rbxassetid://4483362458", Time = 3})
-        else
-            OrionLib:MakeNotification({Title = "Proteksi Mati", Content = "Anti-Ban dimatikan.", Image = "rbxassetid://4483362458", Time = 3})
-        end
-    end
+TabSecurity:CreateToggle({
+   Name = "Anti-Ban / Bypass Deteksi Dev Map",
+   CurrentValue = false,
+   Callback = function(Value)
+      SecurityConfig.AntiBanEnabled = Value
+      if Value then
+          pcall(function()
+              local oldNameCall
+              oldNameCall = hookmetamethod(game, "__namecall", function(self, ...)
+                  local method = getnamecallmethod()
+                  if SecurityConfig.AntiBanEnabled and (method:lower() == "kick" or method:lower() == "ban") then
+                      Rayfield:Notify({Title = "Anti-Ban Aktif", Content = "Berhasil memblokir Kick/Ban server!", Duration = 3})
+                      return
+                  end
+                  return oldNameCall(self, ...)
+              end)
+          end)
+          Rayfield:Notify({Title = "Proteksi Nyala", Content = "Sistem Anti-Ban & Bypass aktif!", Duration = 3})
+      else
+          Rayfield:Notify({Title = "Proteksi Mati", Content = "Anti-Ban dimatikan.", Duration = 3})
+      end
+   end,
 })
 
-TabSecurity:AddButton({
-    Name = "Reset Character (Jika Bug)",
-    Callback = function()
-        pcall(function() LocalPlayer.Character:BreakJoints() end)
-    end
+TabSecurity:CreateButton({
+   Name = "Reset Character / Bersihkan Error",
+   Callback = function()
+      pcall(function() LocalPlayer.Character:BreakJoints() end)
+   end,
 })
 
 ---------------------------------------------------------
--- 2. TAB VISUAL & ESP (Survivor Hijau, Killer Merah, Gen Kuning)
+-- TAB 2: VISUAL & ESP (Survivor, Killer, Generator)
 ---------------------------------------------------------
+local TabESP = Window:CreateTab("Visual & ESP", 4483362458)
 local ESPConfig = { SurvivorESP = false, KillerESP = false, GenESP = false }
 local ESPObjects = {}
 
@@ -125,198 +126,198 @@ local function createHighlight(obj, fillColor, outlineColor)
     label.BackgroundTransparency = 1
     label.TextColor3 = Color3.fromRGB(255, 255, 255)
     label.TextStrokeTransparency = 0
-    label.TextSize = 13
+    label.TextSize = 14
     label.Font = Enum.Font.SourceSansBold
     label.Parent = bg
 
     table.insert(ESPObjects, {Highlight = highlight, Billboard = bg, Target = obj})
 end
 
-TabESP:AddToggle({
-    Name = "ESP Survivor (Hijau | Jarak Putih)",
-    Default = false,
-    Callback = function(v) ESPConfig.SurvivorESP = v end
+TabESP:CreateToggle({
+   Name = "ESP Survivor (Hijau | Jarak Putih)",
+   CurrentValue = false,
+   Callback = function(Value) ESPConfig.SurvivorESP = Value end,
 })
 
-TabESP:AddToggle({
-    Name = "ESP Killer (Merah | Jarak Putih)",
-    Default = false,
-    Callback = function(v) ESPConfig.KillerESP = v end
+TabESP:CreateToggle({
+   Name = "ESP Killer / Monster (Merah | Jarak Putih)",
+   CurrentValue = false,
+   Callback = function(Value) ESPConfig.KillerESP = Value end,
 })
 
-TabESP:AddToggle({
-    Name = "ESP Generator (Kuning | Jarak Putih)",
-    Default = false,
-    Callback = function(v) ESPConfig.GenESP = v end
+TabESP:CreateToggle({
+   Name = "ESP Generator (Kuning | Jarak Putih)",
+   CurrentValue = false,
+   Callback = function(Value) ESPConfig.GenESP = Value end,
 })
 
 ---------------------------------------------------------
--- 3. TAB COMBAT (Aimbot & Auto Parry)
+-- TAB 3: COMBAT (Aimbot & Auto Parry)
 ---------------------------------------------------------
+local TabCombat = Window:CreateTab("Combat & Aim", 4483362458)
 local AimbotEnabled = false
 local AutoParryEnabled = false
 
-TabCombat:AddToggle({
-    Name = "Aimbot Otomatis Target",
-    Default = false,
-    Callback = function(v) AimbotEnabled = v end
+TabCombat:CreateToggle({
+   Name = "Aimbot Otomatis (Target Survivor/Killer)",
+   CurrentValue = false,
+   Callback = function(Value) AimbotEnabled = Value end,
 })
 
-TabCombat:AddToggle({
-    Name = "Auto Parry / Nangkis Otomatis",
-    Default = false,
-    Callback = function(v) AutoParryEnabled = v end
-})
-
----------------------------------------------------------
--- 4. TAB AUTOMATION (Auto Generator Perfect)
----------------------------------------------------------
-local AutoGenEnabled = false
-TabAuto:AddToggle({
-    Name = "Auto Generator (Perfect Skill Check)",
-    Default = false,
-    Callback = function(Value)
-        AutoGenEnabled = Value
-        task.spawn(function()
-            while AutoGenEnabled do
-                task.wait(0.3)
-                pcall(function()
-                    for _, prompt in ipairs(Workspace:GetDescendants()) do
-                        if prompt:IsA("ProximityPrompt") and prompt.Parent and prompt.Parent.Name:lower():find("generator") then
-                            fireproximityprompt(prompt)
-                        end
-                    end
-                end)
-            end
-        end)
-    end
+TabCombat:CreateToggle({
+   Name = "Auto Parry / Nangkis Serangan Otomatis",
+   CurrentValue = false,
+   Callback = function(Value) AutoParryEnabled = Value end,
 })
 
 ---------------------------------------------------------
--- 5. TAB MOVEMENT (Custom WalkSpeed, NoClip, Fly)
+-- TAB 4: AUTOMATION (Auto Generator Perfect)
 ---------------------------------------------------------
+local TabAuto = Window:CreateTab("Automation", 4483362458)
+
+TabAuto:CreateToggle({
+   Name = "Auto Generator (Selalu Perfect Skill Check)",
+   CurrentValue = false,
+   Callback = function(Value)
+      ESPConfig.AutoGenerator = Value
+      task.spawn(function()
+          while ESPConfig.AutoGenerator do
+              task.wait(0.3)
+              pcall(function()
+                  for _, prompt in ipairs(Workspace:GetDescendants()) do
+                      if prompt:IsA("ProximityPrompt") and prompt.Parent and prompt.Parent.Name:lower():find("generator") then
+                          fireproximityprompt(prompt)
+                      end
+                  end
+              end)
+          end
+      end)
+   end,
+})
+
+---------------------------------------------------------
+-- TAB 5: MOVEMENT (Custom Speed Survivor, NoClip, Fly)
+---------------------------------------------------------
+local TabMove = Window:CreateTab("Movement", 4483362458)
 local CustomSpeedEnabled = false
 local SurvivorSpeedValue = 16
 local NoClipEnabled = false
 local FlyEnabled = false
 local FlySpeed = 50
 
-TabMove:AddToggle({
-    Name = "Aktifkan Custom WalkSpeed Survivor",
-    Default = false,
-    Callback = function(v) CustomSpeedEnabled = v end
+TabMove:CreateToggle({
+   Name = "Aktifkan Custom Kecepatan Survivor",
+   CurrentValue = false,
+   Callback = function(Value) CustomSpeedEnabled = Value end,
 })
 
-TabMove:AddSlider({
-    Name = "Kecepatan Lari Survivor",
-    Min = 16,
-    Max = 100,
-    Default = 16,
-    Increment = 2,
-    ValueName = "Speed",
-    Callback = function(v) SurvivorSpeedValue = v end
+TabMove:CreateSlider({
+   Name = "Atur Kecepatan Lari Survivor",
+   Range = {16, 100},
+   Increment = 2,
+   Suffix = "WalkSpeed",
+   CurrentValue = 16,
+   Callback = function(Value) SurvivorSpeedValue = Value end,
 })
 
-TabMove:AddToggle({
-    Name = "NoClip (Tembus Tembok)",
-    Default = false,
-    Callback = function(v)
-        NoClipEnabled = v
-        OrionLib:MakeNotification({Title = "NoClip", Content = v and "Aktif" or "Mati", Image = "rbxassetid://4483362458", Time = 2})
-    end
+TabMove:CreateToggle({
+   Name = "NoClip (Tembus Tembok / Objek)",
+   CurrentValue = false,
+   Callback = function(Value)
+      NoClipEnabled = Value
+      Rayfield:Notify({Title = "NoClip Status", Content = Value and "Aktif (Tembus Tembok)" or "Mati", Duration = 2})
+   end,
 })
 
-TabMove:AddToggle({
-    Name = "Fly Halus (Admin Style)",
-    Default = false,
-    Callback = function(Value)
-        FlyEnabled = Value
-        local char = LocalPlayer.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        local hrp = char.HumanoidRootPart
-        
-        if FlyEnabled then
-            local bv = Instance.new("BodyVelocity")
-            bv.Name = "ProFlyVelocity"
-            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bv.Velocity = Vector3.new(0, 0, 0)
-            bv.Parent = hrp
-            
-            local bg = Instance.new("BodyGyro")
-            bg.Name = "ProFlyGyro"
-            bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-            bg.CFrame = hrp.CFrame
-            bg.Parent = hrp
+TabMove:CreateToggle({
+   Name = "Fly Halus (Admin Developer Style)",
+   CurrentValue = false,
+   Callback = function(Value)
+      FlyEnabled = Value
+      local char = LocalPlayer.Character
+      if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+      local hrp = char.HumanoidRootPart
+      
+      if FlyEnabled then
+          local bv = Instance.new("BodyVelocity")
+          bv.Name = "ProFlyVelocity"
+          bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+          bv.Velocity = Vector3.new(0, 0, 0)
+          bv.Parent = hrp
+          
+          local bg = Instance.new("BodyGyro")
+          bg.Name = "ProFlyGyro"
+          bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+          bg.CFrame = hrp.CFrame
+          bg.Parent = hrp
 
-            task.spawn(function()
-                while FlyEnabled and hrp and hrp.Parent do
-                    bv.Velocity = Camera.CFrame.LookVector * FlySpeed
-                    bg.CFrame = Camera.CFrame
-                    task.wait()
-                end
-                if bv then bv:Destroy() end
-                if bg then bg:Destroy() end
-            end)
-        end
-    end
+          task.spawn(function()
+              while FlyEnabled and hrp and hrp.Parent do
+                  bv.Velocity = Camera.CFrame.LookVector * FlySpeed
+                  bg.CFrame = Camera.CFrame
+                  task.wait()
+              end
+              if bv then bv:Destroy() end
+              if bg then bg:Destroy() end
+          end)
+      end
+   end,
 })
 
-TabMove:AddSlider({
-    Name = "Kecepatan Terbang",
-    Min = 10,
-    Max = 200,
-    Default = 50,
-    Increment = 10,
-    ValueName = "Speed",
-    Callback = function(v) FlySpeed = v end
+TabMove:CreateSlider({
+   Name = "Kecepatan Terbang (Fly Speed)",
+   Range = {10, 200},
+   Increment = 10,
+   Suffix = "Speed",
+   CurrentValue = 50,
+   Callback = function(Value) FlySpeed = Value end,
 })
 
 ---------------------------------------------------------
--- 6. TAB TELEPORT PLAYER
+-- TAB 6: TELEPORT MENU (Pilih Nama Player)
 ---------------------------------------------------------
+local TabTeleport = Window:CreateTab("Teleport Player", 4483362458)
 local playerNames = {}
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then table.insert(playerNames, p.Name) end
 end
 
 local SelectedTargetPlayer = playerNames[1] or ""
-
-local Dropdown = TabTeleport:AddDropdown({
-    Name = "Pilih Survivor / Killer",
-    Default = SelectedTargetPlayer,
-    Options = playerNames,
-    Callback = function(Value)
-        SelectedTargetPlayer = Value
-    end
+local PlayerDropdown = TabTeleport:CreateDropdown({
+   Name = "Pilih Survivor / Killer Tujuan",
+   Options = playerNames,
+   CurrentOption = SelectedTargetPlayer,
+   Flag = "TeleportPlayerDropdown",
+   Callback = function(Option) SelectedTargetPlayer = Option end,
 })
 
-TabTeleport:AddButton({
-    Name = "Refresh Daftar Player",
-    Callback = function()
-        playerNames = {}
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer then table.insert(playerNames, p.Name) end
-        end
-        Dropdown:Refresh(playerNames)
-        OrionLib:MakeNotification({Title = "Berhasil", Content = "Daftar player diperbarui!", Image = "rbxassetid://4483362458", Time = 2})
-    end
+TabTeleport:CreateButton({
+   Name = "Refresh Daftar Nama Player",
+   Callback = function()
+      playerNames = {}
+      for _, p in ipairs(Players:GetPlayers()) do
+          if p ~= LocalPlayer then table.insert(playerNames, p.Name) end
+      end
+      PlayerDropdown:Refresh(playerNames)
+      Rayfield:Notify({Title = "Berhasil", Content = "Daftar player diperbarui!", Duration = 2})
+   end,
 })
 
-TabTeleport:AddButton({
-    Name = "Teleport ke Player Terpilih",
-    Callback = function()
-        pcall(function()
-            local target = Players:FindFirstChild(SelectedTargetPlayer)
-            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                    LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
-                    OrionLib:MakeNotification({Title = "Teleport Sukses", Content = "Berpindah ke " .. SelectedTargetPlayer, Image = "rbxassetid://4483362458", Time = 3})
-                end
-            else
-                OrionLib:MakeNotification({Title = "Gagal", Content = "Player tidak ditemukan.", Image = "rbxassetid://4483362458", Time = 3})
-            end
-        end)
-    end
+TabTeleport:CreateButton({
+   Name = "Teleport ke Player Terpilih",
+   Callback = function()
+      pcall(function()
+          local target = Players:FindFirstChild(SelectedTargetPlayer)
+          if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+              if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                  LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                  Rayfield:Notify({Title = "Teleport Sukses", Content = "Berpindah ke " .. SelectedTargetPlayer, Duration = 3})
+              end
+          else
+              Rayfield:Notify({Title = "Gagal", Content = "Player tidak ditemukan atau mati.", Duration = 3})
+          end
+      end)
+   end,
 })
 
 ---------------------------------------------------------
@@ -387,5 +388,4 @@ RunService.RenderStepped:Connect(function()
     end)
 end)
 
--- Inisialisasi Orion
-OrionLib:Init()
+Rayfield:LoadConfiguration()

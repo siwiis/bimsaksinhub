@@ -1,6 +1,6 @@
--- Memuat Orion UI Library dengan proteksi error (pcall)
+-- Memuat Orion Library menggunakan CDN JSDelivr (Anti-Block Delta)
 local success, OrionLib = pcall(function()
-    return loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
+    return loadstring(game:HttpGet('https://cdn.jsdelivr.net/gh/shlexware/Orion@main/source'))()
 end)
 
 if not success or not OrionLib then
@@ -123,7 +123,7 @@ local function createHighlight(obj, fillColor, outlineColor)
     label.Name = "InfoLabel"
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(255, 255, 255) -- Jarak warna putih
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
     label.TextStrokeTransparency = 0
     label.TextSize = 13
     label.Font = Enum.Font.SourceSansBold

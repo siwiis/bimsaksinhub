@@ -3,18 +3,28 @@
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 -- Bersihkan UI lama agar tidak numpuk saat dieksekusi ulang
+if PlayerGui:FindFirstChild("BimSakSinHubGlass") then
+    PlayerGui.BimSakSinHubGlass:Destroy()
+end
 if CoreGui:FindFirstChild("BimSakSinHubGlass") then
     CoreGui.BimSakSinHubGlass:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BimSakSinHubGlass"
-ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+-- Gunakan gethui jika didukung executor, atau PlayerGui agar pasti muncul di HP
+if gethui then
+    ScreenGui.Parent = gethui()
+else
+    ScreenGui.Parent = PlayerGui
+end
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
@@ -43,6 +53,7 @@ ToggleStroke.Thickness = 1.5
 ToggleStroke.Parent = ToggleBtn
 
 -- Fitur Drag (Bisa digeser-geser pakai jari di HP)
+local UserInputService = game:GetService("UserInputService")
 local dragging, dragInput, dragStart, startPos
 ToggleBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -114,7 +125,7 @@ CloseCorner.CornerRadius = UDim.new(1, 0)
 CloseCorner.Parent = CloseBtn
 
 ---------------------------------------------------------
--- 3. CONTOH FITUR DALAM PANEL (Bisa Ditambah Sesuai Keinginan)
+-- 3. CONTOH FITUR DALAM PANEL
 ---------------------------------------------------------
 local SampleToggle = Instance.new("TextButton")
 SampleToggle.Size = UDim2.new(1, -30, 0, 42)

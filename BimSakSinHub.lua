@@ -1,5 +1,5 @@
 -- =========================================================
--- BIMSAKSIN HUB // DIRECT MENU + RGB TOP MINIMIZE BAR
+-- BIMSAKSIN HUB // ULTIMATE PRO FIXED EDITION
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -22,18 +22,18 @@ ScreenGui.Parent = gethui and gethui() or PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
--- 1. BAR MINIMIZE ATAS (Nangkring di atas layar saat diminimize)
+-- 1. BAR MINIMIZE ATAS (Bar RGB Kecil Saat Diminimize)
 ---------------------------------------------------------
 local MinBar = Instance.new("TextButton")
 MinBar.Name = "MinimizeBar"
-MinBar.Size = UDim2.new(0, 240, 0, 32)
-MinBar.Position = UDim2.new(0.5, -120, 0, 10) -- Pas di tengah atas layar
-MinBar.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+MinBar.Size = UDim2.new(0, 240, 0, 34)
+MinBar.Position = UDim2.new(0.5, -120, 0, 10)
+MinBar.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MinBar.Text = "BimSakSin Hub"
 MinBar.TextColor3 = Color3.fromRGB(255, 255, 255)
 MinBar.TextSize, MinBar.Font = 13, Enum.Font.GothamBold
-MinBar.Visible = false -- Sembunyi secara default (karena panel utama langsung terbuka)
-MinBar.ZIndex = 30
+MinBar.Visible = false -- Sembunyi saat panel utama terbuka
+MinBar.ZIndex = 50
 MinBar.Parent = ScreenGui
 
 local MinCorner = Instance.new("UICorner")
@@ -41,11 +41,11 @@ MinCorner.CornerRadius = UDim.new(0, 6)
 MinCorner.Parent = MinBar
 
 local MinStroke = Instance.new("UIStroke")
-MinStroke.Color = Color3.fromRGB(255, 255, 255)
-MinStroke.Thickness = 1.5
+MinStroke.Color = Color3.fromRGB(0, 255, 180)
+MinStroke.Thickness = 2
 MinStroke.Parent = MinBar
 
--- Animasi RGB Bergerak untuk Bar Minimize Atas
+-- Animasi RGB Bergerak untuk Bar Minimize
 task.spawn(function()
     while true do
         task.wait(0.03)
@@ -59,24 +59,27 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------
--- 2. PANEL UTAMA (Langsung Muncul Otomatis Begitu Dieksekusi)
+-- 2. PANEL UTAMA (Langsung Muncul Begitu Dieksekusi)
 ---------------------------------------------------------
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 620, 0, 360)
-MainFrame.Position = UDim2.new(0.5, -310, 0.5, -180)
-MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
-MainFrame.BackgroundTransparency = 0.05
-MainFrame.Visible = true -- Langsung muncul di layar!
+MainFrame.Size = UDim2.new(0, 600, 0, 350)
+MainFrame.Position = UDim2.new(0.5, -300, 0.5, -175)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+MainFrame.Visible = true
 MainFrame.ZIndex = 10
 MainFrame.Parent = ScreenGui
 
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
+
 local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(255, 255, 255)
-MainStroke.Thickness = 1.5
+MainStroke.Color = Color3.fromRGB(0, 255, 180)
+MainStroke.Thickness = 2
 MainStroke.Parent = MainFrame
 
--- Efek Animasi RGB Halus pada Border Panel Utama
+-- Efek Animasi RGB Border Panel Utama
 task.spawn(function()
     while true do
         task.wait(0.03)
@@ -88,60 +91,75 @@ task.spawn(function()
     end
 end)
 
--- Judul Atas "BimSakSin Hub"
-local TitleContainer = Instance.new("Frame")
-TitleContainer.Size = UDim2.new(0, 260, 0, 30)
-TitleContainer.Position = UDim2.new(0.5, -130, 0, -15)
-TitleContainer.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
-TitleContainer.ZIndex = 12
-TitleContainer.Parent = MainFrame
+---------------------------------------------------------
+-- 3. HEADER / TOP BAR (Judul & Tombol Minimize/Close)
+---------------------------------------------------------
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+TopBar.ZIndex = 11
+TopBar.Parent = MainFrame
+
+local TopBarCorner = Instance.new("UICorner")
+TopBarCorner.CornerRadius = UDim.new(0, 10)
+TopBarCorner.Parent = TopBar
+
+-- Tutup sudut bawah TopBar agar lurus
+local FixCover = Instance.new("Frame")
+FixCover.Size = UDim2.new(1, 0, 0, 10)
+FixCover.Position = UDim2.new(0, 0, 1, -10)
+FixCover.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+FixCover.BorderSizePixel = 0
+FixCover.ZIndex = 11
+FixCover.Parent = TopBar
 
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, 0, 1, 0)
+TitleLabel.Size = UDim2.new(1, -100, 1, 0)
+TitleLabel.Position = UDim2.new(0, 15, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "BIMSAKSIN HUB"
+TitleLabel.Text = "BIMSAKSIN HUB // PRO MENU"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleLabel.TextSize, TitleLabel.Font = 16, Enum.Font.GothamBold
-TitleLabel.ZIndex = 13
-TitleLabel.Parent = TitleContainer
+TitleLabel.TextSize, TitleLabel.Font = 14, Enum.Font.GothamBold
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.ZIndex = 12
+TitleLabel.Parent = TopBar
 
----------------------------------------------------------
--- 3. TOMBOL MINIMIZE (-) DAN CLOSE (✕) DI POJOK KANAN ATAS
----------------------------------------------------------
+-- Tombol Minimize (-)
 local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 32, 0, 28)
-MinBtn.Position = UDim2.new(1, -75, 0, -14)
-MinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+MinBtn.Size = UDim2.new(0, 32, 0, 26)
+MinBtn.Position = UDim2.new(1, -74, 0.5, -13)
+MinBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
 MinBtn.Text = "-"
 MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 MinBtn.TextSize, MinBtn.Font = 14, Enum.Font.GothamBold
-MinBtn.ZIndex = 13
-MinBtn.Parent = MainFrame
+MinBtn.ZIndex = 12
+MinBtn.Parent = TopBar
 
 local MinBtnCorner = Instance.new("UICorner")
 MinBtnCorner.CornerRadius = UDim.new(0, 6)
 MinBtnCorner.Parent = MinBtn
 
+-- Tombol Close (✕)
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 32, 0, 28)
-CloseBtn.Position = UDim2.new(1, -38, 0, -14)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 60)
+CloseBtn.Size = UDim2.new(0, 32, 0, 26)
+CloseBtn.Position = UDim2.new(1, -36, 0.5, -13)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 45, 65)
 CloseBtn.Text = "✕"
 CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 CloseBtn.TextSize, CloseBtn.Font = 12, Enum.Font.GothamBold
-CloseBtn.ZIndex = 13
-CloseBtn.Parent = MainFrame
+CloseBtn.ZIndex = 12
+CloseBtn.Parent = TopBar
 
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 6)
-CloseCorner.Parent = CloseBtn
+local CloseBtnCorner = Instance.new("UICorner")
+CloseBtnCorner.CornerRadius = UDim.new(0, 6)
+CloseBtnCorner.Parent = CloseBtn
 
 ---------------------------------------------------------
--- 4. SISTEM TAB MENU DI ATAS (VISUALS, COMBAT, MOVEMENT, MISC)
+-- 4. SISTEM TAB MENU DI BAWAH HEADER (VISUALS, COMBAT, DLL)
 ---------------------------------------------------------
 local TabsBar = Instance.new("Frame")
-TabsBar.Size = UDim2.new(1, -40, 0, 35)
-TabsBar.Position = UDim2.new(0, 20, 0, 30)
+TabsBar.Size = UDim2.new(1, -30, 0, 35)
+TabsBar.Position = UDim2.new(0, 15, 0, 48)
 TabsBar.BackgroundTransparency = 1
 TabsBar.ZIndex = 11
 TabsBar.Parent = MainFrame
@@ -150,7 +168,7 @@ local TabsLayout = Instance.new("UIListLayout")
 TabsLayout.FillDirection = Enum.FillDirection.Horizontal
 TabsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 TabsLayout.SortOrder = Enum.SortOrder.LayoutIndex
-TabsLayout.Padding = UDim.new(0, 25)
+TabsLayout.Padding = UDim.new(0, 20)
 TabsLayout.Parent = TabsBar
 
 local PagesContainer = Instance.new("Folder")
@@ -162,7 +180,7 @@ local pages = {}
 
 local function createTabButton(name)
     local tabBtn = Instance.new("TextButton")
-    tabBtn.Size = UDim2.new(0, 90, 1, 0)
+    tabBtn.Size = UDim2.new(0, 100, 1, 0)
     tabBtn.BackgroundTransparency = 1
     tabBtn.Text = name
     tabBtn.TextColor3 = Color3.fromRGB(140, 140, 140)
@@ -172,8 +190,8 @@ local function createTabButton(name)
 
     local pageFrame = Instance.new("ScrollingFrame")
     pageFrame.Name = name .. "Page"
-    pageFrame.Size = UDim2.new(1, -40, 1, -110)
-    pageFrame.Position = UDim2.new(0, 20, 0, 80)
+    pageFrame.Size = UDim2.new(1, -30, 1, -100)
+    pageFrame.Position = UDim2.new(0, 15, 0, 95)
     pageFrame.BackgroundTransparency = 1
     pageFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
     pageFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -184,7 +202,7 @@ local function createTabButton(name)
 
     local pageLayout = Instance.new("UIListLayout")
     pageLayout.SortOrder = Enum.SortOrder.LayoutIndex
-    pageLayout.Padding = UDim.new(0, 12)
+    pageLayout.Padding = UDim.new(0, 10)
     pageLayout.Parent = pageFrame
 
     pages[name] = pageFrame
@@ -213,13 +231,17 @@ end
 local function addOptionRow(parentPage, labelText, defaultState, callback)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, 42)
-    row.BackgroundTransparency = 1
+    row.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
     row.ZIndex = 12
     row.Parent = parentPage
 
+    local rowCorner = Instance.new("UICorner")
+    rowCorner.CornerRadius = UDim.new(0, 6)
+    rowCorner.Parent = row
+
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.6, 0, 1, 0)
-    label.Position = UDim2.new(0, 10, 0, 0)
+    label.Position = UDim2.new(0, 15, 0, 0)
     label.BackgroundTransparency = 1
     label.Text = labelText
     label.TextColor3 = Color3.fromRGB(220, 220, 220)
@@ -229,9 +251,9 @@ local function addOptionRow(parentPage, labelText, defaultState, callback)
     label.Parent = row
 
     local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 160, 0, 34)
-    toggleBtn.Position = UDim2.new(1, -170, 0.5, -17)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    toggleBtn.Size = UDim2.new(0, 140, 0, 30)
+    toggleBtn.Position = UDim2.new(1, -150, 0.5, -15)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     toggleBtn.ZIndex = 13
     toggleBtn.Parent = row
 
@@ -239,18 +261,13 @@ local function addOptionRow(parentPage, labelText, defaultState, callback)
     tCorner.CornerRadius = UDim.new(0, 6)
     tCorner.Parent = toggleBtn
 
-    local tStroke = Instance.new("UIStroke")
-    tStroke.Color = Color3.fromRGB(80, 80, 80)
-    tStroke.Thickness = 1
-    tStroke.Parent = toggleBtn
-
     local state = defaultState
     local function updateVisual()
         if state then
-            toggleBtn.Text = "<  ACTIVE  >"
+            toggleBtn.Text = "ACTIVE 🔥"
             toggleBtn.TextColor3 = Color3.fromRGB(100, 255, 150)
         else
-            toggleBtn.Text = "<   OFF   >"
+            toggleBtn.Text = "OFF"
             toggleBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
         end
     end
@@ -283,7 +300,7 @@ local miscPage = createTabButton("MISC")
 addOptionRow(miscPage, "Auto Generator Proximity", false, function(v) Config.AutoGenerator = v end)
 
 ---------------------------------------------------------
--- 6. INTERAKSI MINIMIZE / CLOSE
+-- 6. INTERAKSI MINIMIZE & CLOSE
 ---------------------------------------------------------
 MinBtn.Activated:Connect(function()
     MainFrame.Visible = false
@@ -300,7 +317,7 @@ MinBar.Activated:Connect(function()
 end)
 
 ---------------------------------------------------------
--- 7. CONFIG & LOGIKA FITUR UTAMA
+-- 7. CONFIG & LOGIKA UTAMA FITUR
 ---------------------------------------------------------
 Config = {
     SurvivorESP = false,
@@ -389,4 +406,4 @@ RunService.RenderStepped:Connect(function()
     end)
 end)
 
-print("BimSakSin Hub Direct Menu & RGB Bar Berhasil Dijalankan!")
+print("BimSakSin Hub Ultimate Fixed Berhasil Dijalankan!")

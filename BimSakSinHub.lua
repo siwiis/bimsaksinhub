@@ -1,23 +1,22 @@
 --// ==========================================
---// BimSakSin Hub - Edisi Distrik Sempurna
---// Kompatibel penuh dengan Delta Executor
+--// BimSakSin Hub - Edisi Distrik Sempurna v2.0
+--// Kompatibel Penuh dengan Delta Executor
 --// ==========================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Hapus GUI lama jika script dijalankan ulang
+-- Hapus GUI lama jika script dieksekusi ulang
 local function GetGuiParent()
     if gethui then
         return gethui()
-    elseif syn and syn.protect_gui then
-        return CoreGui
     else
         return CoreGui
     end
@@ -38,17 +37,21 @@ if syn and syn.protect_gui then
 end
 ScreenGui.Parent = GuiParent
 
--- Status Global Fitur (Untuk pembersihan rapi saat ditutup)
+-- Variabel Status Global
 local ScriptActive = true
 local ESPEnabled = false
 local GenESPEnabled = false
 local AutoGenEnabled = false
-local AntiHookEnabled = false
+local GodModeEnabled = false
+local NoclipEnabled = false
+local SpeedEnabled = false
+local JumpEnabled = false
 local Flying = false
 local FlySpeed = 50
+local ActiveDanceTrack = nil
 local Connections = {}
 
--- Fungsi Helper Drag Halus (Mendukung Touch HP & Mouse PC)
+-- Fungsi Drag Halus (Mendukung Layar Sentuh HP & Mouse PC)
 local function MakeDraggable(dragHandle, targetFrame, onClickCallback)
     local dragging = false
     local dragInput, dragStart, startPos
@@ -99,8 +102,8 @@ end
 --// ==========================================
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 540, 0, 410)
-MainFrame.Position = UDim2.new(0.5, -270, 0.5, -205)
+MainFrame.Size = UDim2.new(0, 550, 0, 420)
+MainFrame.Position = UDim2.new(0.5, -275, 0.5, -210)
 MainFrame.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
 MainFrame.BackgroundTransparency = 0.25
 MainFrame.BorderSizePixel = 0
@@ -139,7 +142,6 @@ TopBarFix.BackgroundTransparency = 0.2
 TopBarFix.BorderSizePixel = 0
 TopBarFix.Parent = TopBar
 
--- Judul Panel Utama di Tengah Atas
 local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Name = "TitleLabel"
 TitleLabel.Size = UDim2.new(0, 280, 1, 0)
@@ -152,7 +154,6 @@ TitleLabel.TextSize = 17
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Center
 TitleLabel.Parent = TopBar
 
--- Tombol Perkecil (-) & Tutup (x) ala Browser
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 36, 0, 36)
 MinBtn.Position = UDim2.new(1, -80, 0, 6)
@@ -184,7 +185,7 @@ FloatingToggle.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
 FloatingToggle.BackgroundTransparency = 0.3
 FloatingToggle.AutoButtonColor = false
 FloatingToggle.Visible = false
-FloatingToggle.Font = Enum.Font.Gotham -- Font tipis tidak tebal
+FloatingToggle.Font = Enum.Font.Gotham
 FloatingToggle.Text = "BimSakSin Hub"
 FloatingToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
 FloatingToggle.TextSize = 14
@@ -199,7 +200,6 @@ FloatStroke.Color = Color3.fromRGB(255, 255, 255)
 FloatStroke.Thickness = 2
 FloatStroke.Parent = FloatingToggle
 
--- Aktifkan Drag untuk Panel Utama & Floating Toggle
 MakeDraggable(TopBar, MainFrame, nil)
 MakeDraggable(FloatingToggle, FloatingToggle, function()
     MainFrame.Visible = true
@@ -212,7 +212,7 @@ MinBtn.MouseButton1Click:Connect(function()
 end)
 
 --// ==========================================
---// NAVIGASI TAB MENU (BAHASA INDONESIA)
+--// NAVIGASI 5 TAB MENU (BAHASA INDONESIA)
 --// ==========================================
 local TabBar = Instance.new("Frame")
 TabBar.Size = UDim2.new(1, -20, 0, 34)
@@ -223,13 +223,13 @@ TabBar.Parent = MainFrame
 local UIListTab = Instance.new("UIListLayout")
 UIListTab.FillDirection = Enum.FillDirection.Horizontal
 UIListTab.SortOrder = Enum.SortOrder.LayoutOrder
-UIListTab.Padding = UDim.new(0, 8)
+UIListTab.Padding = UDim.new(0, 6)
 UIListTab.Parent = TabBar
 
 local TabList = {}
 local function CreateTab(tabName)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.25, -6, 1, 0)
+    btn.Size = UDim2.new(0.2, -5, 1, 0)
     btn.BackgroundColor3 = Color3.fromRGB(28, 28, 42)
     btn.BackgroundTransparency = 0.25
     btn.AutoButtonColor = false
@@ -258,9 +258,8 @@ local function CreateTab(tabName)
     list.Padding = UDim.new(0, 8)
     list.Parent = scrolling
 
-    -- Otomatis menyesuaikan tinggi scroll sesuai jumlah fitur
     list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        scrolling.CanvasSize = UDim2.new(0, 0, 0, list.AbsoluteContentSize.Y + 12)
+        scrolling.CanvasSize = UDim2.new(0, 0, 0, list.AbsoluteContentSize.Y + 14)
     end)
 
     table.insert(TabList, {Button = btn, Frame = scrolling})
@@ -270,7 +269,8 @@ end
 local TabVisual    = CreateTab("Visual (ESP)")
 local TabKarakter  = CreateTab("Karakter")
 local TabDistrik   = CreateTab("Fitur Distrik")
-local TabPengaturan = CreateTab("Pengaturan")
+local TabDance     = CreateTab("Dance")
+local TabInformasi = CreateTab("Informasi")
 
 for _, tabData in ipairs(TabList) do
     tabData.Button.MouseButton1Click:Connect(function()
@@ -314,7 +314,7 @@ task.spawn(function()
 end)
 
 --// ==========================================
---// KOMPONEN TOMBOL FITUR (TOGGLE, AKSI, PENGATUR)
+--// KOMPONEN PEMBUAT TOMBOL MENU
 --// ==========================================
 local function CreateToggle(parentTab, title, callback)
     local btn = Instance.new("TextButton")
@@ -392,8 +392,8 @@ local function CreateActionButton(parentTab, title, actionText, callback)
     stroke.Parent = btn
 
     local tag = Instance.new("TextLabel")
-    tag.Size = UDim2.new(0, 95, 1, 0)
-    tag.Position = UDim2.new(1, -105, 0, 0)
+    tag.Size = UDim2.new(0, 115, 1, 0)
+    tag.Position = UDim2.new(1, -125, 0, 0)
     tag.BackgroundTransparency = 1
     tag.Font = Enum.Font.GothamMedium
     tag.Text = "[ " .. actionText .. " ]"
@@ -403,18 +403,20 @@ local function CreateActionButton(parentTab, title, actionText, callback)
     tag.Parent = btn
 
     btn.MouseButton1Click:Connect(function()
-        btn.BackgroundColor3 = Color3.fromRGB(50, 25, 30)
-        task.delay(0.15, function()
+        btn.BackgroundColor3 = Color3.fromRGB(55, 25, 30)
+        task.delay(0.18, function()
             if btn and btn.Parent then
                 btn.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
             end
         end)
-        pcall(callback)
+        pcall(function()
+            callback(tag)
+        end)
     end)
 end
 
 --// ==========================================
---// FUNGSI DETEKSI KILLER / LAWAN
+--// FUNGSI DETEKSI KILLER / LAWAN AKURAT
 --// ==========================================
 local function IsPlayerKiller(player)
     if not player then return false end
@@ -422,18 +424,24 @@ local function IsPlayerKiller(player)
     pcall(function()
         if player.Team then
             local tName = string.lower(player.Team.Name)
-            if tName:find("killer") or tName:find("hunter") or tName:find("monster") or tName:find("pembunuh") or tName:find("lawan") then
+            if tName:find("killer") or tName:find("hunter") or tName:find("monster") or tName:find("pembunuh") or tName:find("lawan") or tName:find("slasher") then
+                isKiller = true
+            end
+        end
+        if not isKiller then
+            local roleVal = player:FindFirstChild("Role") or player:FindFirstChild("TeamRole") or (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Role"))
+            if roleVal and tostring(roleVal.Value):lower():find("killer") then
                 isKiller = true
             end
         end
         if not isKiller and player.Character then
-            if player.Character:GetAttribute("Killer") == true or player.Character:FindFirstChild("Killer") then
+            if player.Character:GetAttribute("Killer") == true or player.Character:GetAttribute("IsKiller") == true or player.Character:FindFirstChild("Killer") then
                 isKiller = true
             end
             for _, item in ipairs(player.Character:GetChildren()) do
                 if item:IsA("Tool") then
                     local iName = string.lower(item.Name)
-                    if iName:find("knife") or iName:find("sword") or iName:find("axe") or iName:find("weapon") or iName:find("pisau") or iName:find("senjata") then
+                    if iName:find("knife") or iName:find("sword") or iName:find("axe") or iName:find("machete") or iName:find("weapon") or iName:find("pisau") or iName:find("golok") then
                         isKiller = true
                     end
                 end
@@ -444,7 +452,7 @@ local function IsPlayerKiller(player)
 end
 
 --// ==========================================
---// TAB 1: VISUAL (ESP)
+--// TAB 1: VISUAL (ESP HIJAU PEMAIN, MERAH KILLER, GENERATOR)
 --// ==========================================
 local function ClearPlayerESP(player)
     if player and player.Character then
@@ -468,21 +476,24 @@ local function ApplyPlayerESP(player)
         if not root or not ESPEnabled then return end
 
         local isKiller = IsPlayerKiller(player)
+        local greenColor = Color3.fromRGB(40, 255, 110)
+        local redColor = Color3.fromRGB(255, 35, 35)
 
         local hl = Instance.new("Highlight")
         hl.Name = "BimSakSinESP"
         hl.Adornee = char
-        hl.FillColor = isKiller and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(168, 85, 247)
-        hl.OutlineColor = isKiller and Color3.fromRGB(255, 200, 200) or Color3.fromRGB(255, 255, 255)
-        hl.FillTransparency = 0.45
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.FillColor = isKiller and redColor or greenColor
+        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+        hl.FillTransparency = 0.5
         hl.OutlineTransparency = 0
         hl.Parent = char
 
         local bill = Instance.new("BillboardGui")
         bill.Name = "BimSakSinESPInfo"
         bill.Adornee = root
-        bill.Size = UDim2.new(0, 180, 0, 44)
-        bill.StudsOffset = Vector3.new(0, 3.2, 0)
+        bill.Size = UDim2.new(0, 190, 0, 44)
+        bill.StudsOffset = Vector3.new(0, 3.3, 0)
         bill.AlwaysOnTop = true
         bill.Parent = char
 
@@ -491,8 +502,8 @@ local function ApplyPlayerESP(player)
         label.BackgroundTransparency = 1
         label.Font = Enum.Font.GothamMedium
         label.TextSize = 12
-        label.TextColor3 = isKiller and Color3.fromRGB(255, 40, 40) or Color3.fromRGB(255, 255, 255)
-        label.TextStrokeTransparency = 0.2
+        label.TextColor3 = isKiller and redColor or greenColor
+        label.TextStrokeTransparency = 0.15
         label.Parent = bill
 
         task.spawn(function()
@@ -503,17 +514,17 @@ local function ApplyPlayerESP(player)
                         local dist = math.floor((myRoot.Position - root.Position).Magnitude)
                         local nowKiller = IsPlayerKiller(player)
                         if nowKiller then
-                            hl.FillColor = Color3.fromRGB(255, 0, 0)
-                            label.TextColor3 = Color3.fromRGB(255, 40, 40)
-                            label.Text = "[KILLER / LAWAN] " .. player.Name .. "\nJarak: " .. dist .. "m"
+                            hl.FillColor = redColor
+                            label.TextColor3 = redColor
+                            label.Text = "[KILLER] " .. player.Name .. "\nJarak: " .. dist .. "m"
                         else
-                            hl.FillColor = Color3.fromRGB(168, 85, 247)
-                            label.TextColor3 = Color3.fromRGB(255, 255, 255)
+                            hl.FillColor = greenColor
+                            label.TextColor3 = greenColor
                             label.Text = "[PEMAIN] " .. player.Name .. "\nJarak: " .. dist .. "m"
                         end
                     end
                 end)
-                task.wait(0.3)
+                task.wait(0.25)
             end
         end)
     end
@@ -523,7 +534,6 @@ local function ApplyPlayerESP(player)
     end
 end
 
--- Pantau pemain yang baru masuk server agar otomatis kena ESP
 table.insert(Connections, Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         if ESPEnabled then
@@ -544,7 +554,7 @@ for _, p in ipairs(Players:GetPlayers()) do
     end
 end
 
-CreateToggle(TabVisual, "ESP Pemain & Killer (Nama + Jarak)", function(state)
+CreateToggle(TabVisual, "ESP Pemain (Hijau) & Killer (Merah)", function(state)
     ESPEnabled = state
     if ESPEnabled then
         for _, p in ipairs(Players:GetPlayers()) do
@@ -557,7 +567,7 @@ CreateToggle(TabVisual, "ESP Pemain & Killer (Nama + Jarak)", function(state)
     end
 end)
 
--- ESP Generator & Jarak
+-- ESP Generator (Highlight Tembus Tembok + Jarak)
 local function ClearAllGenESP()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj.Name == "BimSakSinGenESP" or obj.Name == "BimSakSinGenHL" then
@@ -566,44 +576,72 @@ local function ClearAllGenESP()
     end
 end
 
-CreateToggle(TabVisual, "ESP Generator & Jarak", function(state)
+local function IsGeneratorObject(obj)
+    local nameLower = string.lower(obj.Name)
+    if nameLower:find("generator") or nameLower == "gen" or nameLower:find("gen_") or nameLower:find("mesin") then
+        return true
+    end
+    for _, desc in ipairs(obj:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") then
+            local act = string.lower(desc.ActionText .. " " .. desc.ObjectText)
+            if act:find("generator") or act:find("repair") or act:find("perbaiki") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+CreateToggle(TabVisual, "ESP Generator (Tembus Tembok + Jarak)", function(state)
     GenESPEnabled = state
     if GenESPEnabled then
         task.spawn(function()
             while GenESPEnabled and ScriptActive do
                 pcall(function()
                     for _, obj in ipairs(Workspace:GetDescendants()) do
-                        local lowerName = string.lower(obj.Name)
-                        if (lowerName:find("generator") or lowerName == "gen") and (obj:IsA("Model") or obj:IsA("BasePart")) then
-                            local targetPart = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart")
-                            if targetPart and not targetPart:FindFirstChild("BimSakSinGenESP") then
+                        if (obj:IsA("Model") or obj:IsA("BasePart")) and IsGeneratorObject(obj) then
+                            -- Hindari duplikasi jika bagian dari model yang sudah diberi ESP
+                            local targetModel = obj:IsA("Model") and obj or (obj.Parent:IsA("Model") and obj.Parent or obj)
+                            local targetPart = targetModel:IsA("BasePart") and targetModel or (targetModel:FindFirstChild("PrimaryPart") or targetModel:FindFirstChildWhichIsA("BasePart"))
+
+                            if targetPart and not targetModel:FindFirstChild("BimSakSinGenHL") then
+                                local hl = Instance.new("Highlight")
+                                hl.Name = "BimSakSinGenHL"
+                                hl.Adornee = targetModel
+                                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                hl.FillColor = Color3.fromRGB(255, 215, 0)
+                                hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                                hl.FillTransparency = 0.45
+                                hl.OutlineTransparency = 0
+                                hl.Parent = targetModel
+
                                 local bill = Instance.new("BillboardGui")
                                 bill.Name = "BimSakSinGenESP"
                                 bill.Adornee = targetPart
-                                bill.Size = UDim2.new(0, 140, 0, 38)
-                                bill.StudsOffset = Vector3.new(0, 2.5, 0)
+                                bill.Size = UDim2.new(0, 150, 0, 40)
+                                bill.StudsOffset = Vector3.new(0, 3, 0)
                                 bill.AlwaysOnTop = true
-                                bill.Parent = targetPart
+                                bill.Parent = targetModel
 
                                 local txt = Instance.new("TextLabel")
                                 txt.Size = UDim2.new(1, 0, 1, 0)
                                 txt.BackgroundTransparency = 1
                                 txt.Font = Enum.Font.GothamMedium
-                                txt.TextColor3 = Color3.fromRGB(255, 225, 50)
+                                txt.TextColor3 = Color3.fromRGB(255, 230, 50)
                                 txt.TextSize = 12
-                                txt.TextStrokeTransparency = 0.2
+                                txt.TextStrokeTransparency = 0.15
                                 txt.Parent = bill
 
                                 task.spawn(function()
-                                    while GenESPEnabled and ScriptActive and targetPart and targetPart.Parent and bill and bill.Parent do
+                                    while GenESPEnabled and ScriptActive and targetModel and targetModel.Parent and bill and bill.Parent do
                                         pcall(function()
                                             local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                            if myRoot then
+                                            if myRoot and targetPart then
                                                 local d = math.floor((myRoot.Position - targetPart.Position).Magnitude)
-                                                txt.Text = "Generator\nJarak: " .. d .. "m"
+                                                txt.Text = "[GENERATOR]\nJarak: " .. d .. "m"
                                             end
                                         end)
-                                        task.wait(0.5)
+                                        task.wait(0.4)
                                     end
                                 end)
                             end
@@ -619,15 +657,15 @@ CreateToggle(TabVisual, "ESP Generator & Jarak", function(state)
     end
 end)
 
--- Penerangan Penuh (Fullbright)
+-- Penerangan Penuh
 local OrigBrightness = Lighting.Brightness
 local OrigClockTime = Lighting.ClockTime
 local OrigGlobalShadows = Lighting.GlobalShadows
 local OrigOutdoorAmbient = Lighting.OutdoorAmbient
 
-CreateToggle(TabVisual, "Penerangan Penuh (Anti Gelap)", function(state)
+CreateToggle(TabVisual, "Penerangan Penuh (Anti Gelap Map)", function(state)
     if state then
-        Lighting.Brightness = 2
+        Lighting.Brightness = 2.2
         Lighting.ClockTime = 14
         Lighting.GlobalShadows = false
         Lighting.OutdoorAmbient = Color3.fromRGB(225, 225, 225)
@@ -640,129 +678,128 @@ CreateToggle(TabVisual, "Penerangan Penuh (Anti Gelap)", function(state)
 end)
 
 --// ==========================================
---// TAB 2: KARAKTER
+--// TAB 2: KARAKTER (KEBAL TRANSPARAN, FLY HALUS, DLL)
 --// ==========================================
-local SpeedEnabled = false
-CreateToggle(TabKarakter, "Lari Cepat (Kecepatan 50)", function(state)
-    SpeedEnabled = state
+
+-- Kebal Pukulan & Transparan Terhadap Serangan Killer/Pemain
+local GodModeConn = nil
+local function RestoreCharacterHitbox()
     pcall(function()
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.WalkSpeed = state and 50 or 16
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanTouch = true
+                    part.CanQuery = true
+                    if part.Name ~= "HumanoidRootPart" then
+                        part.LocalTransparencyModifier = 0
+                    end
+                end
+            end
         end
     end)
-end)
+end
 
-local JumpEnabled = false
-CreateToggle(TabKarakter, "Lompat Tinggi (Kekuatan 100)", function(state)
-    JumpEnabled = state
-    pcall(function()
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.UseJumpPower = true
-            hum.JumpPower = state and 100 or 50
-        end
-    end)
-end)
-
--- Pertahankan Speed & Jump saat karakter respawn
-table.insert(Connections, LocalPlayer.CharacterAdded:Connect(function(char)
-    local hum = char:WaitForChild("Humanoid", 5)
-    if hum then
-        task.wait(0.2)
-        if SpeedEnabled then hum.WalkSpeed = 50 end
-        if JumpEnabled then
-            hum.UseJumpPower = true
-            hum.JumpPower = 100
-        end
-    end
-end))
-
--- Lompat Tanpa Batas
-local InfJumpConn = nil
-CreateToggle(TabKarakter, "Lompat Tanpa Batas (Di Udara)", function(state)
-    if state then
-        InfJumpConn = UserInputService.JumpRequest:Connect(function()
+CreateToggle(TabKarakter, "Kebal Pukulan & Transparan Serangan", function(state)
+    GodModeEnabled = state
+    if GodModeEnabled then
+        GodModeConn = RunService.Stepped:Connect(function()
             pcall(function()
-                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                local char = LocalPlayer.Character
+                if char then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        hum.Health = hum.MaxHealth
+                    end
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            -- Matikan hitbox sentuhan & raycast senjata killer
+                            part.CanTouch = false
+                            part.CanQuery = false
+                            if part.Name ~= "HumanoidRootPart" then
+                                part.LocalTransparencyModifier = 0.55
+                            end
+                        end
+                    end
                 end
             end)
         end)
     else
-        if InfJumpConn then
-            InfJumpConn:Disconnect()
-            InfJumpConn = nil
+        if GodModeConn then
+            GodModeConn:Disconnect()
+            GodModeConn = nil
         end
+        RestoreCharacterHitbox()
     end
 end)
 
--- Terbang Halus (Mendukung Analog HP & Keyboard WASD)
-local BodyGyro, BodyVelocity
+-- Terbang Halus Anti-Balik (Smooth Anti-Rollback Fly)
+local FlyConn = nil
 local function StopFly()
     Flying = false
+    if FlyConn then
+        FlyConn:Disconnect()
+        FlyConn = nil
+    end
     pcall(function()
-        if BodyGyro then BodyGyro:Destroy() BodyGyro = nil end
-        if BodyVelocity then BodyVelocity:Destroy() BodyVelocity = nil end
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = false end
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
     end)
 end
 
-CreateToggle(TabKarakter, "Terbang Halus (Mode Terbang)", function(state)
+CreateToggle(TabKarakter, "Terbang Halus (Anti-Balik / Smooth Fly)", function(state)
     if state then
         Flying = true
-        pcall(function()
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if root and hum then
-                hum.PlatformStand = true
+        FlyConn = RunService.Heartbeat:Connect(function(dt)
+            if not Flying or not ScriptActive then return end
+            pcall(function()
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if root and hum and hum.Health > 0 then
+                    -- Nol-kan kecepatan jatuh agar server tidak mendeteksi fall/fly glitch
+                    root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 
-                BodyGyro = Instance.new("BodyGyro")
-                BodyGyro.P = 9e4
-                BodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-                BodyGyro.CFrame = root.CFrame
-                BodyGyro.Parent = root
+                    local cam = Camera.CFrame
+                    local moveDir = Vector3.new(0, 0, 0)
 
-                BodyVelocity = Instance.new("BodyVelocity")
-                BodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                BodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-                BodyVelocity.Parent = root
+                    -- Analog HP (Touch Thumbstick)
+                    if hum.MoveDirection.Magnitude > 0 then
+                        local flatLook = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z)
+                        local flatRight = Vector3.new(cam.RightVector.X, 0, cam.RightVector.Z)
+                        if flatLook.Magnitude > 0 then flatLook = flatLook.Unit end
+                        if flatRight.Magnitude > 0 then flatRight = flatRight.Unit end
 
-                task.spawn(function()
-                    while Flying and ScriptActive and root and root.Parent and hum and hum.Health > 0 do
-                        local cam = Camera.CFrame
-                        local moveDir = Vector3.new(0, 0, 0)
-
-                        -- Kontrol Analog HP (MoveDirection)
-                        if hum.MoveDirection.Magnitude > 0 then
-                            local flatLook = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z).Unit
-                            local flatRight = Vector3.new(cam.RightVector.X, 0, cam.RightVector.Z).Unit
-                            local forwardAmount = hum.MoveDirection:Dot(flatLook)
-                            local rightAmount = hum.MoveDirection:Dot(flatRight)
-                            moveDir = (cam.LookVector * forwardAmount) + (cam.RightVector * rightAmount)
-                        end
-
-                        -- Kontrol Keyboard PC (WASD)
-                        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.LookVector end
-                        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.LookVector end
-                        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.RightVector end
-                        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.RightVector end
-                        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
-
-                        if moveDir.Magnitude > 0 then
-                            moveDir = moveDir.Unit
-                        end
-
-                        BodyVelocity.Velocity = moveDir * FlySpeed
-                        BodyGyro.CFrame = cam
-                        RunService.RenderStepped:Wait()
+                        local fwd = hum.MoveDirection:Dot(flatLook)
+                        local rgt = hum.MoveDirection:Dot(flatRight)
+                        moveDir = (cam.LookVector * fwd) + (cam.RightVector * rgt)
                     end
-                    StopFly()
-                end)
-            end
+
+                    -- Keyboard PC (WASD + Space/LeftControl)
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.RightVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.RightVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+                    if moveDir.Magnitude > 0 then
+                        moveDir = moveDir.Unit
+                    end
+
+                    local targetPos = root.Position + (moveDir * FlySpeed * dt)
+                    local lookTarget = targetPos + Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z)
+                    root.CFrame = CFrame.lookAt(targetPos, lookTarget)
+                end
+            end)
         end)
     else
         StopFly()
@@ -776,17 +813,13 @@ FlySpeedFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
 FlySpeedFrame.BackgroundTransparency = 0.25
 FlySpeedFrame.Parent = TabKarakter
 
-local fsCorner = Instance.new("UICorner")
-fsCorner.CornerRadius = UDim.new(0, 8)
-fsCorner.Parent = FlySpeedFrame
-
-local fsStroke = Instance.new("UIStroke")
+Instance.new("UICorner", FlySpeedFrame).CornerRadius = UDim.new(0, 8)
+local fsStroke = Instance.new("UIStroke", FlySpeedFrame)
 fsStroke.Color = Color3.fromRGB(65, 65, 90)
 fsStroke.Thickness = 1
-fsStroke.Parent = FlySpeedFrame
 
 local fsLabel = Instance.new("TextLabel")
-fsLabel.Size = UDim2.new(0.6, 0, 1, 0)
+fsLabel.Size = UDim2.new(0.65, 0, 1, 0)
 fsLabel.Position = UDim2.new(0, 12, 0, 0)
 fsLabel.BackgroundTransparency = 1
 fsLabel.Font = Enum.Font.Gotham
@@ -819,19 +852,40 @@ PlusFlyBtn.Parent = FlySpeedFrame
 Instance.new("UICorner", PlusFlyBtn).CornerRadius = UDim.new(0, 6)
 
 MinusFlyBtn.MouseButton1Click:Connect(function()
-    FlySpeed = math.max(15, FlySpeed - 15)
+    FlySpeed = math.max(15, FlySpeed - 10)
     fsLabel.Text = "Kecepatan Terbang: " .. FlySpeed
 end)
 
 PlusFlyBtn.MouseButton1Click:Connect(function()
-    FlySpeed = math.min(250, FlySpeed + 15)
+    FlySpeed = math.min(200, FlySpeed + 10)
     fsLabel.Text = "Kecepatan Terbang: " .. FlySpeed
+end)
+
+-- Speed & Jump
+CreateToggle(TabKarakter, "Lari Cepat (Kecepatan 45)", function(state)
+    SpeedEnabled = state
+    pcall(function()
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = state and 45 or 16 end
+    end)
+end)
+
+CreateToggle(TabKarakter, "Lompat Tinggi (Kekuatan 95)", function(state)
+    JumpEnabled = state
+    pcall(function()
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.UseJumpPower = true
+            hum.JumpPower = state and 95 or 50
+        end
+    end)
 end)
 
 -- Tembus Tembok (Noclip)
 local NoclipConn = nil
 CreateToggle(TabKarakter, "Tembus Tembok (Noclip)", function(state)
-    if state then
+    NoclipEnabled = state
+    if NoclipEnabled then
         NoclipConn = RunService.Stepped:Connect(function()
             pcall(function()
                 if LocalPlayer.Character then
@@ -856,31 +910,167 @@ CreateToggle(TabKarakter, "Tembus Tembok (Noclip)", function(state)
     end
 end)
 
--- Mode Kebal Pukulan
-local GodModeConn = nil
-CreateToggle(TabKarakter, "Kebal Pukulan (Mode Kebal)", function(state)
-    if state then
-        GodModeConn = RunService.Heartbeat:Connect(function()
-            pcall(function()
-                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                if hum and hum.Health > 0 then
-                    hum.Health = hum.MaxHealth
+--// ==========================================
+--// TAB 3: FITUR DISTRIK (ANTI-HOOK MANUAL, TELEPORT MENETAP, GENERATOR)
+--// ==========================================
+
+-- Fungsi Lepas Gantungan Manual (Memutus Weld Hook + Unanchor + Escape)
+local function ManualEscapeHook()
+    pcall(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum then return end
+
+        -- 1. Lepas semua part yang dikunci (Anchored)
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Anchored = false
+                part.CanTouch = false
+            end
+        end
+
+        -- 2. Putus Weld/Constraint dari gantungan hook luar tanpa merusak sendi tubuh
+        local validJoints = {
+            RootJoint = true, Neck = true,
+            ["Left Shoulder"] = true, ["Right Shoulder"] = true,
+            ["Left Hip"] = true, ["Right Hip"] = true,
+            Waist = true, LeftShoulder = true, RightShoulder = true,
+            LeftElbow = true, RightElbow = true, LeftWrist = true, RightWrist = true,
+            LeftHip = true, RightHip = true, LeftKnee = true, RightKnee = true,
+            LeftAnkle = true, RightAnkle = true
+        }
+
+        for _, desc in ipairs(char:GetDescendants()) do
+            if desc:IsA("Weld") or desc:IsA("WeldConstraint") or desc:IsA("Motor6D") or desc:IsA("BallSocketConstraint") or desc:IsA("AlignPosition") then
+                if not validJoints[desc.Name] then
+                    desc:Destroy()
                 end
-            end)
+            end
+        end
+
+        -- 3. Picu ProximityPrompt di sekitar hook jika tersedia
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and obj.Enabled then
+                local pPart = obj.Parent and (obj.Parent:IsA("BasePart") and obj.Parent or obj.Parent:FindFirstChildWhichIsA("BasePart"))
+                if pPart and (root.Position - pPart.Position).Magnitude <= 15 then
+                    if fireproximityprompt then
+                        fireproximityprompt(obj)
+                    end
+                end
+            end
+        end
+
+        -- 4. Pulihkan status berdiri & geser keluar dari hitbox hook
+        hum.PlatformStand = false
+        hum.Sit = false
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        root.CFrame = root.CFrame * CFrame.new(0, 3, -5)
+
+        task.delay(1.5, function()
+            if not GodModeEnabled then
+                RestoreCharacterHitbox()
+            end
         end)
-    else
-        if GodModeConn then
-            GodModeConn:Disconnect()
-            GodModeConn = nil
+    end)
+end
+
+CreateActionButton(TabDistrik, "Lepas dari Hook / Gantungan (Manual)", "LEPAS SEKARANG", function(tag)
+    ManualEscapeHook()
+    tag.Text = "[ TERLEPAS! ]"
+    task.delay(1.5, function()
+        if tag and tag.Parent then tag.Text = "[ LEPAS SEKARANG ]" end
+    end)
+end)
+
+-- Fungsi Teleport Anti-Balik (Menetap Permanen di Tujuan)
+local function SafeTeleportTo(targetRoot)
+    pcall(function()
+        local char = LocalPlayer.Character
+        local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not myRoot or not targetRoot or not hum then return end
+
+        hum.Sit = false
+        hum.PlatformStand = false
+
+        -- Matikan tabrakan sesaat agar tidak tersangkut dinding
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+
+        local destCFrame = targetRoot.CFrame * CFrame.new(0, 2.5, 3.5)
+        local dist = (myRoot.Position - destCFrame.Position).Magnitude
+        local duration = math.clamp(dist / 350, 0.15, 0.65)
+
+        local tween = TweenService:Create(
+            myRoot,
+            TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {CFrame = destCFrame}
+        )
+        tween:Play()
+        tween.Completed:Wait()
+
+        -- Kunci posisi sebentar & nol-kan kecepatan agar tidak ditarik balik oleh server
+        for i = 1, 10 do
+            if myRoot and targetRoot then
+                myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 2.5, 3.5)
+            end
+            RunService.Heartbeat:Wait()
+        end
+
+        if not NoclipEnabled then
+            myRoot.CanCollide = true
+        end
+    end)
+end
+
+CreateActionButton(TabDistrik, "Teleport ke Pemain Terdekat", "PINDAH", function(tag)
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    local bestRoot = nil
+    local minDist = math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and not IsPlayerKiller(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (myRoot.Position - p.Character.HumanoidRootPart.Position).Magnitude
+            if d < minDist then
+                minDist = d
+                bestRoot = p.Character.HumanoidRootPart
+            end
+        end
+    end
+
+    if bestRoot then
+        tag.Text = "[ PROSES... ]"
+        task.spawn(function()
+            SafeTeleportTo(bestRoot)
+            if tag and tag.Parent then tag.Text = "[ PINDAH ]" end
+        end)
+    end
+end)
+
+CreateActionButton(TabDistrik, "Teleport ke Killer (Lawan)", "PINDAH", function(tag)
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and IsPlayerKiller(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            tag.Text = "[ PROSES... ]"
+            task.spawn(function()
+                SafeTeleportTo(p.Character.HumanoidRootPart)
+                if tag and tag.Parent then tag.Text = "[ PINDAH ]" end
+            end)
+            break
         end
     end
 end)
 
---// ==========================================
---// TAB 3: FITUR DISTRIK
---// ==========================================
-
--- Perbaikan Generator Otomatis
+-- Auto Perbaikan Generator
 CreateToggle(TabDistrik, "Perbaikan Generator Otomatis", function(state)
     AutoGenEnabled = state
     if AutoGenEnabled then
@@ -891,9 +1081,9 @@ CreateToggle(TabDistrik, "Perbaikan Generator Otomatis", function(state)
                     if myRoot then
                         for _, obj in ipairs(Workspace:GetDescendants()) do
                             if obj:IsA("ProximityPrompt") and obj.Enabled then
-                                local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
-                                local modelName = (obj.Parent and obj.Parent.Parent) and string.lower(obj.Parent.Parent.Name) or ""
-                                if parentName:find("gen") or modelName:find("gen") or parentName:find("repair") then
+                                local pName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                                local mName = (obj.Parent and obj.Parent.Parent) and string.lower(obj.Parent.Parent.Name) or ""
+                                if pName:find("gen") or mName:find("gen") or pName:find("repair") then
                                     local part = obj.Parent:IsA("BasePart") and obj.Parent or obj.Parent:FindFirstChildWhichIsA("BasePart")
                                     if part and (myRoot.Position - part.Position).Magnitude <= (obj.MaxActivationDistance + 8) then
                                         if fireproximityprompt then
@@ -905,92 +1095,23 @@ CreateToggle(TabDistrik, "Perbaikan Generator Otomatis", function(state)
                         end
                     end
                 end)
-                task.wait(0.4)
-            end
-        end)
-    end
-end)
-
--- Lepas Gantungan Otomatis (Anti Hook)
-CreateToggle(TabDistrik, "Lepas Gantungan Otomatis (Anti Hook)", function(state)
-    AntiHookEnabled = state
-    if AntiHookEnabled then
-        task.spawn(function()
-            while AntiHookEnabled and ScriptActive do
-                pcall(function()
-                    local char = LocalPlayer.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    local hum = char and char:FindFirstChildOfClass("Humanoid")
-                    if root and hum then
-                        if root.Anchored then
-                            root.Anchored = false
-                        end
-                        if hum.PlatformStand and not Flying then
-                            hum.PlatformStand = false
-                            root.CFrame = root.CFrame + Vector3.new(0, 4, 0)
-                        end
-                    end
-                end)
                 task.wait(0.35)
             end
         end)
     end
 end)
 
--- Teleport ke Pemain Terdekat
-CreateActionButton(TabDistrik, "Teleport ke Pemain Terdekat", "PINDAH", function()
-    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return end
-
-    local targetCFrame = nil
-    local closestDist = math.huge
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and not IsPlayerKiller(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            local dist = (myRoot.Position - p.Character.HumanoidRootPart.Position).Magnitude
-            if dist < closestDist then
-                closestDist = dist
-                targetCFrame = p.Character.HumanoidRootPart.CFrame
-            end
-        end
-    end
-
-    if targetCFrame then
-        myRoot.CFrame = targetCFrame + Vector3.new(0, 3, 0)
-    end
+-- Anti-Lag & Transparansi Panel
+CreateToggle(TabDistrik, "Mode Panel Lebih Transparan", function(state)
+    MainFrame.BackgroundTransparency = state and 0.62 or 0.25
+    TopBar.BackgroundTransparency = state and 0.58 or 0.2
+    TopBarFix.BackgroundTransparency = state and 0.58 or 0.2
 end)
 
--- Teleport ke Killer / Lawan
-CreateActionButton(TabDistrik, "Teleport ke Killer (Lawan)", "PINDAH", function()
-    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return end
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and IsPlayerKiller(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            myRoot.CFrame = p.Character.HumanoidRootPart.CFrame * CFrame.new(0, 3, 4)
-            break
-        end
-    end
-end)
-
---// ==========================================
---// TAB 4: PENGATURAN
---// ==========================================
-
--- Transparansi Panel
-CreateToggle(TabPengaturan, "Mode Panel Lebih Transparan", function(state)
-    MainFrame.BackgroundTransparency = state and 0.65 or 0.25
-    TopBar.BackgroundTransparency = state and 0.6 or 0.2
-    TopBarFix.BackgroundTransparency = state and 0.6 or 0.2
-end)
-
--- Anti-Lag & Patah-Patah
-CreateActionButton(TabPengaturan, "Optimasi Anti-Lag & FPS Boost", "BERSIHKAN", function()
+CreateActionButton(TabDistrik, "Optimasi Anti-Lag & FPS Boost", "BERSIHKAN", function(tag)
     Lighting.GlobalShadows = false
     for _, v in ipairs(Lighting:GetChildren()) do
-        if v:IsA("PostEffect") then
-            v.Enabled = false
-        end
+        if v:IsA("PostEffect") then v.Enabled = false end
     end
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") then
@@ -999,20 +1120,159 @@ CreateActionButton(TabPengaturan, "Optimasi Anti-Lag & FPS Boost", "BERSIHKAN", 
             obj.CastShadow = false
         end
     end
+    tag.Text = "[ SELESAI! ]"
+    task.delay(1.5, function()
+        if tag and tag.Parent then tag.Text = "[ BERSIHKAN ]" end
+    end)
 end)
 
--- Pulihkan Karakter Jika Nyangkut
-CreateActionButton(TabPengaturan, "Bebaskan Karakter Nyangkut", "PULIHKAN", function()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if root and hum then
-        root.Anchored = false
-        hum.PlatformStand = false
-        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        root.CFrame = root.CFrame + Vector3.new(0, 5, 0)
+--// ==========================================
+--// TAB 4: DANCE LENGKAP (TERLIHAT SEMUA PEMAIN / FE)
+--// ==========================================
+local DanceList = {
+    {Name = "Dance 1 (Groove Klasik)", Chat = "/e dance",  R15 = "rbxassetid://507771019", R6 = "rbxassetid://182435998"},
+    {Name = "Dance 2 (Robot / Pop)",   Chat = "/e dance2", R15 = "rbxassetid://507776043", R6 = "rbxassetid://182436842"},
+    {Name = "Dance 3 (Spin / Wave)",   Chat = "/e dance3", R15 = "rbxassetid://507777268", R6 = "rbxassetid://182436935"},
+    {Name = "Sorak Gembira (Cheer)",   Chat = "/e cheer",  R15 = "rbxassetid://507770677", R6 = "rbxassetid://129423030"},
+    {Name = "Tertawa Lepas (Laugh)",   Chat = "/e laugh",  R15 = "rbxassetid://507770818", R6 = "rbxassetid://129423131"},
+    {Name = "Melambai (Wave)",         Chat = "/e wave",   R15 = "rbxassetid://507770239", R6 = "rbxassetid://128777973"},
+    {Name = "Menunjuk (Point)",        Chat = "/e point",  R15 = "rbxassetid://507770453", R6 = "rbxassetid://128853357"},
+}
+
+local function StopDance()
+    if ActiveDanceTrack then
+        pcall(function()
+            ActiveDanceTrack:Stop()
+            ActiveDanceTrack:Destroy()
+        end)
+        ActiveDanceTrack = nil
     end
+end
+
+local function PlayFeDance(danceData)
+    StopDance()
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+
+        local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
+        local anim = Instance.new("Animation")
+        anim.AnimationId = (hum.RigType == Enum.HumanoidRigType.R6) and danceData.R6 or danceData.R15
+
+        ActiveDanceTrack = animator:LoadAnimation(anim)
+        ActiveDanceTrack.Priority = Enum.AnimationPriority.Action
+        ActiveDanceTrack.Looped = true
+        ActiveDanceTrack:Play()
+
+        -- Kirim emote chat standar Roblox agar 100% tereplikasi ke server & semua pemain
+        Players:Chat(danceData.Chat)
+    end)
+end
+
+CreateActionButton(TabDance, "Hentikan Semua Gerakan Dance", "STOP", function(tag)
+    StopDance()
+    tag.Text = "[ BERHENTI ]"
+    task.delay(1.2, function()
+        if tag and tag.Parent then tag.Text = "[ STOP ]" end
+    end)
 end)
+
+for _, dance in ipairs(DanceList) do
+    CreateActionButton(TabDance, dance.Name, "MULAI", function(tag)
+        PlayFeDance(dance)
+        tag.Text = "[ JOGET! ]"
+        task.delay(1.5, function()
+            if tag and tag.Parent then tag.Text = "[ MULAI ]" end
+        end)
+    end)
+end
+
+--// ==========================================
+--// TAB 5: INFORMASI & KONTAK DEVELOPER
+--// ==========================================
+local function CreateInfoCard(titleText, bodyText, linkUrl, buttonLabel)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, -4, 0, linkUrl and 92 or 70)
+    card.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+    card.BackgroundTransparency = 0.2
+    card.Parent = TabInformasi
+
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", card)
+    stroke.Color = Color3.fromRGB(75, 75, 105)
+    stroke.Thickness = 1
+
+    local header = Instance.new("TextLabel")
+    header.Size = UDim2.new(1, -20, 0, 22)
+    header.Position = UDim2.new(0, 12, 0, 8)
+    header.BackgroundTransparency = 1
+    header.Font = Enum.Font.GothamMedium
+    header.Text = titleText
+    header.TextColor3 = Color3.fromRGB(255, 85, 85)
+    header.TextSize = 13
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.Parent = card
+
+    local desc = Instance.new("TextLabel")
+    desc.Size = UDim2.new(1, -24, 0, 34)
+    desc.Position = UDim2.new(0, 12, 0, 28)
+    desc.BackgroundTransparency = 1
+    desc.Font = Enum.Font.Gotham
+    desc.Text = bodyText
+    desc.TextColor3 = Color3.fromRGB(225, 225, 225)
+    desc.TextSize = 12
+    desc.TextWrapped = true
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.TextYAlignment = Enum.TextYAlignment.Top
+    desc.Parent = card
+
+    if linkUrl then
+        local copyBtn = Instance.new("TextButton")
+        copyBtn.Size = UDim2.new(0, 175, 0, 24)
+        copyBtn.Position = UDim2.new(0, 12, 1, -30)
+        copyBtn.BackgroundColor3 = Color3.fromRGB(180, 35, 45)
+        copyBtn.Font = Enum.Font.GothamMedium
+        copyBtn.Text = buttonLabel
+        copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        copyBtn.TextSize = 11
+        copyBtn.Parent = card
+        Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+
+        copyBtn.MouseButton1Click:Connect(function()
+            if setclipboard then
+                setclipboard(linkUrl)
+            end
+            copyBtn.Text = "Link Berhasil Disalin!"
+            task.delay(2, function()
+                if copyBtn and copyBtn.Parent then
+                    copyBtn.Text = buttonLabel
+                end
+            end)
+        end)
+    end
+end
+
+CreateInfoCard(
+    "Laporan Bug & Bantuan Admin",
+    "Jika ada eror atau bug pada fitur - fitur hubungin dev/admin melaluin discord.",
+    nil,
+    nil
+)
+
+CreateInfoCard(
+    "Update Script Terbaru (Discord)",
+    "Join Discord jika ada updatean untuk fitur script terbaru: https://discord.gg/uSuzTJSuV",
+    "https://discord.gg/uSuzTJSuV",
+    "Salin Link Discord"
+)
+
+CreateInfoCard(
+    "Dukungan Developer",
+    "Link dukungan dev: https://linktr.ee/bimsaksin",
+    "https://linktr.ee/bimsaksin",
+    "Salin Link Dukungan"
+)
 
 --// ==========================================
 --// PEMBERSIHAN TOTAL SAAT TOMBOL TUTUP (×) DITEKAN
@@ -1022,12 +1282,15 @@ CloseBtn.MouseButton1Click:Connect(function()
     ESPEnabled = false
     GenESPEnabled = false
     AutoGenEnabled = false
-    AntiHookEnabled = false
+    GodModeEnabled = false
+    NoclipEnabled = false
+
     StopFly()
+    StopDance()
+    RestoreCharacterHitbox()
 
     if NoclipConn then NoclipConn:Disconnect() end
     if GodModeConn then GodModeConn:Disconnect() end
-    if InfJumpConn then InfJumpConn:Disconnect() end
 
     for _, conn in ipairs(Connections) do
         pcall(function() conn:Disconnect() end)
@@ -1041,4 +1304,4 @@ CloseBtn.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
-print("BimSakSin Hub (Versi Sempurna Bahasa Indonesia) Berhasil Dimuat!")
+print("BimSakSin Hub v2.0 (Bebas Bug & Lengkap) Berhasil Dimuat!")

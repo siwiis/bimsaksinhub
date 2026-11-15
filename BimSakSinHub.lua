@@ -1,5 +1,5 @@
 -- =========================================================
--- BIMSAKSIN HUB // ULTIMATE CYBERPUNK EDITION (100% FIXED TOUCH)
+-- BIMSAKSIN HUB // ULTIMATE CYBERPUNK EDITION (100% FIXED CLICK)
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -18,11 +18,12 @@ if CoreGui:FindFirstChild("BimSakSinCyberpunk") then CoreGui.BimSakSinCyberpunk:
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BimSakSinCyberpunk"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.Enabled = true
 ScreenGui.Parent = gethui and gethui() or PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
--- 1. FLOATING TOGGLE "BSH" (Foolproof Touch & Drag System)
+-- 1. FLOATING TOGGLE "BSH" (Clean Drag & Instant Tap)
 ---------------------------------------------------------
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "CyberToggle"
@@ -33,6 +34,7 @@ ToggleBtn.Text = "BSH"
 ToggleBtn.TextColor3 = Color3.fromRGB(0, 255, 200)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.ZIndex = 5
 ToggleBtn.Parent = ScreenGui
 
 local ToggleCorner = Instance.new("UICorner")
@@ -44,6 +46,40 @@ ToggleStroke.Color = Color3.fromRGB(0, 255, 200)
 ToggleStroke.Thickness = 2
 ToggleStroke.Parent = ToggleBtn
 
+-- Variabel Drag & Click
+local isOpen = false
+local dragging = false
+local dragStart = nil
+local startPos = nil
+local isDragging = false
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+        isDragging = false
+
+        local connection
+        connection = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                connection:Disconnect()
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        if delta.Magnitude > 6 then
+            isDragging = true
+        end
+        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
 ---------------------------------------------------------
 -- 2. PANEL UTAMA CYBERPUNK
 ---------------------------------------------------------
@@ -53,6 +89,7 @@ MainFrame.Size = UDim2.new(0, 460, 0, 320)
 MainFrame.Position = UDim2.new(0.5, -230, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
 MainFrame.Visible = false
+MainFrame.ZIndex = 10
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
@@ -86,6 +123,7 @@ Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 14
 Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.ZIndex = 11
 Title.Parent = MainFrame
 
 local CloseBtn = Instance.new("TextButton")
@@ -95,6 +133,7 @@ CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 60)
 CloseBtn.Text = "X"
 CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 CloseBtn.TextSize, CloseBtn.Font = 12, Enum.Font.GothamBold
+CloseBtn.ZIndex = 11
 CloseBtn.Parent = MainFrame
 
 local CloseCorner = Instance.new("UICorner")
@@ -108,6 +147,7 @@ ScrollContainer.Position = UDim2.new(0, 10, 0, 50)
 ScrollContainer.BackgroundTransparency = 1
 ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, 450)
 ScrollContainer.ScrollBarThickness = 4
+ScrollContainer.ZIndex = 11
 ScrollContainer.Parent = MainFrame
 
 local UIListLayout = Instance.new("UIListLayout")
@@ -125,6 +165,7 @@ local function createToggle(name, callback)
     btn.TextColor3 = Color3.fromRGB(0, 255, 200)
     btn.Text = name .. " [ OFF ]"
     btn.TextSize, btn.Font = 13, Enum.Font.GothamMedium
+    btn.ZIndex = 12
     btn.Parent = ScrollContainer
 
     local corner = Instance.new("UICorner")
@@ -285,41 +326,13 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------
--- 6. LOGIKA KLIK & GESER YANG KEBAL (FOOLPROOF MOBILE)
+-- 6. EVENT KLIK UTAMA (MENGGUNAKAN .Activated)
 ---------------------------------------------------------
-local isOpen = false
-local dragging = false
-local dragStart, startPos
-local hasMoved = false
-
-ToggleBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        hasMoved = false
-        dragStart = input.Position
-        startPos = ToggleBtn.Position
-
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-                if not hasMoved then
-                    -- Kalau tidak digeser, anggap sebagai KLIK / TAP murni!
-                    isOpen = not isOpen
-                    MainFrame.Visible = isOpen
-                    print("SUCCESS: Panel Toggled ->", isOpen)
-                end
-            end
-        end)
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        if delta.Magnitude > 8 then
-            hasMoved = true -- Berarti user sedang menggeser tombolnya
-        end
-        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+ToggleBtn.Activated:Connect(function()
+    if not isDragging then
+        isOpen = not isOpen
+        MainFrame.Visible = isOpen
+        print("BIMSAKSIN HUB // Panel Status:", isOpen)
     end
 end)
 
@@ -328,4 +341,4 @@ CloseBtn.Activated:Connect(function()
     MainFrame.Visible = false
 end)
 
-print("BimSakSin Hub Ultimate Cyberpunk (100% Fixed) Berhasil Dijalankan!")
+print("BimSakSin Hub Ultimate Cyberpunk Berhasil Dijalankan!")

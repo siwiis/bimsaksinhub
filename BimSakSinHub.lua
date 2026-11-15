@@ -1,5 +1,5 @@
 -- =========================================================
--- BIMSAKSIN HUB // ULTIMATE CYBERPUNK EDITION (100% FIXED CLICK)
+-- BIMSAKSIN HUB // CHROME EDITION + Prabowo Background
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -12,29 +12,28 @@ local Workspace = game:GetService("Workspace")
 local Camera = Workspace.CurrentCamera
 
 -- Bersihkan UI lama agar tidak numpuk
-if PlayerGui:FindFirstChild("BimSakSinCyberpunk") then PlayerGui.BimSakSinCyberpunk:Destroy() end
-if CoreGui:FindFirstChild("BimSakSinCyberpunk") then CoreGui.BimSakSinCyberpunk:Destroy() end
+if PlayerGui:FindFirstChild("BimSakSinChrome") then PlayerGui.BimSakSinChrome:Destroy() end
+if CoreGui:FindFirstChild("BimSakSinChrome") then CoreGui.BimSakSinChrome:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BimSakSinCyberpunk"
+ScreenGui.Name = "BimSakSinChrome"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Enabled = true
 ScreenGui.Parent = gethui and gethui() or PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
--- 1. FLOATING TOGGLE "BSH" (Clean Drag & Instant Tap)
+-- 1. FLOATING TOGGLE "BSH" (RGB Border & 100% Responsive Tap)
 ---------------------------------------------------------
 local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Name = "CyberToggle"
+ToggleBtn.Name = "BSHToggle"
 ToggleBtn.Size = UDim2.new(0, 48, 0, 48)
 ToggleBtn.Position = UDim2.new(0, 20, 0.45, 0)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 ToggleBtn.Text = "BSH"
-ToggleBtn.TextColor3 = Color3.fromRGB(0, 255, 200)
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.ZIndex = 5
+ToggleBtn.ZIndex = 10
 ToggleBtn.Parent = ScreenGui
 
 local ToggleCorner = Instance.new("UICorner")
@@ -43,28 +42,32 @@ ToggleCorner.Parent = ToggleBtn
 
 local ToggleStroke = Instance.new("UIStroke")
 ToggleStroke.Color = Color3.fromRGB(0, 255, 200)
-ToggleStroke.Thickness = 2
+ToggleStroke.Thickness = 2.5
 ToggleStroke.Parent = ToggleBtn
 
--- Variabel Drag & Click
+-- Logika Drag & Tap Anti-Gagal untuk HP
 local isOpen = false
 local dragging = false
-local dragStart = nil
-local startPos = nil
-local isDragging = false
+local dragStart, startPos
+local moved = false
 
 ToggleBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
+        moved = false
         dragStart = input.Position
         startPos = ToggleBtn.Position
-        isDragging = false
 
-        local connection
-        connection = input.Changed:Connect(function()
+        local conn
+        conn = input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
-                connection:Disconnect()
+                conn:Disconnect()
+                if not moved then
+                    isOpen = not isOpen
+                    MainFrame.Visible = isOpen
+                    print("Panel Menu Toggled:", isOpen)
+                end
             end
         end)
     end
@@ -74,34 +77,35 @@ UserInputService.InputChanged:Connect(function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStart
         if delta.Magnitude > 6 then
-            isDragging = true
+            moved = true
         end
         ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
 ---------------------------------------------------------
--- 2. PANEL UTAMA CYBERPUNK
+-- 2. PANEL UTAMA (Gaya Chrome Minimalis + Background)
 ---------------------------------------------------------
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 460, 0, 320)
-MainFrame.Position = UDim2.new(0.5, -230, 0.5, -160)
-MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+MainFrame.Size = UDim2.new(0, 450, 0, 280)
+MainFrame.Position = UDim2.new(0.5, -225, 0.5, -140)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 MainFrame.Visible = false
-MainFrame.ZIndex = 10
+MainFrame.ClipsDescendants = true
+MainFrame.ZIndex = 5
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.CornerRadius = UDim.new(0, 8)
 MainCorner.Parent = MainFrame
 
 local MainStroke = Instance.new("UIStroke")
 MainStroke.Color = Color3.fromRGB(0, 255, 200)
-MainStroke.Thickness = 2
+MainStroke.Thickness = 1.5
 MainStroke.Parent = MainFrame
 
--- Efek Animasi RGB Halus pada Border
+-- Efek Animasi RGB Halus pada Border Tombol & Panel
 task.spawn(function()
     while true do
         task.wait(0.03)
@@ -114,58 +118,87 @@ task.spawn(function()
     end
 end)
 
+-- Background Image (Nuansa Prabowo / Custom Decal ID)
+-- Kamu bisa ganti angka rbxassetid:// dengan asset ID gambar Prabowo pilihanmu
+local BgImage = Instance.new("ImageLabel")
+BgImage.Size = UDim2.new(1, 0, 1, 0)
+BgImage.BackgroundTransparency = 1
+BgImage.Image = "rbxassetid://10878152342" -- Placeholder aesthetic background (bisa diganti ID Decal Prabowo)
+BgImage.ImageTransparency = 0.65 -- Supaya tidak terlalu mencolok dan teks tetap terbaca jelas
+BgImage.ZIndex = 6
+BgImage.Parent = MainFrame
+
+-- Chrome Header / Top Bar
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 35)
+TopBar.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+TopBar.ZIndex = 7
+TopBar.Parent = MainFrame
+
+local TopBarCorner = Instance.new("UICorner")
+TopBarCorner.CornerRadius = UDim.new(0, 8)
+TopBarCorner.Parent = TopBar
+
+-- Tutup bagian bawah sudut TopBar agar lurus
+local FixCover = Instance.new("Frame")
+FixCover.Size = UDim2.new(1, 0, 0, 5)
+FixCover.Position = UDim2.new(0, 0, 1, -5)
+FixCover.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+FixCover.BorderSizePixel = 0
+FixCover.ZIndex = 7
+FixCover.Parent = TopBar
+
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -60, 0, 45)
-Title.Position = UDim2.new(0, 15, 0, 0)
+Title.Size = UDim2.new(1, -50, 1, 0)
+Title.Position = UDim2.new(0, 12, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "⚡ BIMSAKSIN HUB // ULTIMATE PRO"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 14
-Title.Font = Enum.Font.GothamBold
+Title.Text = "🌐 BimSakSin Hub // Chrome Panel"
+Title.TextColor3 = Color3.fromRGB(220, 220, 230)
+Title.TextSize, Title.Font = 13, Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.ZIndex = 11
-Title.Parent = MainFrame
+Title.ZIndex = 8
+Title.Parent = TopBar
 
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 30, 0, 30)
-CloseBtn.Position = UDim2.new(1, -38, 0, 8)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 60)
-CloseBtn.Text = "X"
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -32, 0, 4)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseBtn.Text = "✕"
 CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 CloseBtn.TextSize, CloseBtn.Font = 12, Enum.Font.GothamBold
-CloseBtn.ZIndex = 11
-CloseBtn.Parent = MainFrame
+CloseBtn.ZIndex = 8
+CloseBtn.Parent = TopBar
 
 local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseBtn
 
--- Container Fitur (ScrollingFrame)
+---------------------------------------------------------
+-- 3. KONTEN / FITUR DALAM PANEL (ScrollingFrame)
+---------------------------------------------------------
 local ScrollContainer = Instance.new("ScrollingFrame")
-ScrollContainer.Size = UDim2.new(1, -20, 1, -60)
-ScrollContainer.Position = UDim2.new(0, 10, 0, 50)
+ScrollContainer.Size = UDim2.new(1, -16, 1, -45)
+ScrollContainer.Position = UDim2.new(0, 8, 0, 40)
 ScrollContainer.BackgroundTransparency = 1
-ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, 450)
-ScrollContainer.ScrollBarThickness = 4
-ScrollContainer.ZIndex = 11
+ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, 380)
+ScrollContainer.ScrollBarThickness = 3
+ScrollContainer.ZIndex = 7
 ScrollContainer.Parent = MainFrame
 
 local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.SortOrder = Enum.SortOrder.LayoutIndex
-UIListLayout.Padding = UDim.new(0, 8)
+UIListLayout.Padding = UDim.new(0, 6)
 UIListLayout.Parent = ScrollContainer
 
----------------------------------------------------------
--- 3. PEMBUATAN KOMPONEN TOMBOL FITUR
----------------------------------------------------------
 local function createToggle(name, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -10, 0, 40)
-    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    btn.Size = UDim2.new(1, -4, 0, 36)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    btn.BackgroundTransparency = 0.3
     btn.TextColor3 = Color3.fromRGB(0, 255, 200)
     btn.Text = name .. " [ OFF ]"
-    btn.TextSize, btn.Font = 13, Enum.Font.GothamMedium
-    btn.ZIndex = 12
+    btn.TextSize, btn.Font = 12, Enum.Font.GothamMedium
+    btn.ZIndex = 8
     btn.Parent = ScrollContainer
 
     local corner = Instance.new("UICorner")
@@ -176,7 +209,7 @@ local function createToggle(name, callback)
     btn.Activated:Connect(function()
         state = not state
         if state then
-            btn.Text = name .. " [ ACTIVE 🔥 ]"
+            btn.Text = name .. " [ ACTIVE ]"
             btn.TextColor3 = Color3.fromRGB(100, 255, 100)
         else
             btn.Text = name .. " [ OFF ]"
@@ -187,7 +220,7 @@ local function createToggle(name, callback)
 end
 
 ---------------------------------------------------------
--- 4. FITUR-FITUR UTAMA
+-- 4. DAFTAR FITUR UTAMA
 ---------------------------------------------------------
 local Config = {
     SurvivorESP = false,
@@ -195,8 +228,6 @@ local Config = {
     GenESP = false,
     Aimbot = false,
     AutoGenerator = false,
-    CustomSpeed = false,
-    SpeedVal = 16,
     NoClip = false,
     Fly = false,
     FlySpeed = 50
@@ -269,16 +300,10 @@ createToggle("Fly Admin Mode", function(v)
 end)
 
 ---------------------------------------------------------
--- 5. RUNSERVICE LOOP UTAMA
+-- 5. LOOP UTAMA (ESP, Aimbot, NoClip)
 ---------------------------------------------------------
 RunService.RenderStepped:Connect(function()
     pcall(function()
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            if Config.CustomSpeed then
-                LocalPlayer.Character.Humanoid.WalkSpeed = Config.SpeedVal
-            end
-        end
-
         if Config.NoClip and LocalPlayer.Character then
             for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
@@ -326,19 +351,11 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------
--- 6. EVENT KLIK UTAMA (MENGGUNAKAN .Activated)
+-- 6. TOMBOL CLOSE
 ---------------------------------------------------------
-ToggleBtn.Activated:Connect(function()
-    if not isDragging then
-        isOpen = not isOpen
-        MainFrame.Visible = isOpen
-        print("BIMSAKSIN HUB // Panel Status:", isOpen)
-    end
-end)
-
 CloseBtn.Activated:Connect(function()
     isOpen = false
     MainFrame.Visible = false
 end)
 
-print("BimSakSin Hub Ultimate Cyberpunk Berhasil Dijalankan!")
+print("BimSakSin Hub Chrome Panel Berhasil Dijalankan!")

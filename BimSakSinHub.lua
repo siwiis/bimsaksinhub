@@ -1,5 +1,5 @@
 -- =========================================================
--- BIMSAKSIN HUB // ULTIMATE CYBERPUNK EDITION (FIXED MOBILE)
+-- BIMSAKSIN HUB // ULTIMATE CYBERPUNK EDITION (100% FIXED TOUCH)
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -22,7 +22,7 @@ ScreenGui.Parent = gethui and gethui() or PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
--- 1. FLOATING TOGGLE "BSH" (Draggable & Super Responsif HP)
+-- 1. FLOATING TOGGLE "BSH" (Foolproof Touch & Drag System)
 ---------------------------------------------------------
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "CyberToggle"
@@ -33,8 +33,6 @@ ToggleBtn.Text = "BSH"
 ToggleBtn.TextColor3 = Color3.fromRGB(0, 255, 200)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.Active = true
-ToggleBtn.Draggable = false -- Kita pakai custom drag agar tidak bug dengan klik
 ToggleBtn.Parent = ScreenGui
 
 local ToggleCorner = Instance.new("UICorner")
@@ -45,30 +43,6 @@ local ToggleStroke = Instance.new("UIStroke")
 ToggleStroke.Color = Color3.fromRGB(0, 255, 200)
 ToggleStroke.Thickness = 2
 ToggleStroke.Parent = ToggleBtn
-
--- Custom Drag Logic (Supaya geser lancar dan tidak bentrok sama klik)
-local dragging, dragStart, startPos, moved = false, nil, nil, false
-ToggleBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        moved = false
-        dragStart = input.Position
-        startPos = ToggleBtn.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        if delta.Magnitude > 5 then moved = true end
-        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
 
 ---------------------------------------------------------
 -- 2. PANEL UTAMA CYBERPUNK
@@ -311,14 +285,41 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------
--- 6. SISTEM BUKA / TUTUP PANEL (.Activated)
+-- 6. LOGIKA KLIK & GESER YANG KEBAL (FOOLPROOF MOBILE)
 ---------------------------------------------------------
 local isOpen = false
-ToggleBtn.Activated:Connect(function()
-    if not moved then
-        isOpen = not isOpen
-        MainFrame.Visible = isOpen
-        print("BSS Toggle diklik! Status Panel:", isOpen)
+local dragging = false
+local dragStart, startPos
+local hasMoved = false
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        hasMoved = false
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                if not hasMoved then
+                    -- Kalau tidak digeser, anggap sebagai KLIK / TAP murni!
+                    isOpen = not isOpen
+                    MainFrame.Visible = isOpen
+                    print("SUCCESS: Panel Toggled ->", isOpen)
+                end
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        if delta.Magnitude > 8 then
+            hasMoved = true -- Berarti user sedang menggeser tombolnya
+        end
+        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
@@ -327,4 +328,4 @@ CloseBtn.Activated:Connect(function()
     MainFrame.Visible = false
 end)
 
-print("BimSakSin Hub Ultimate Cyberpunk (Fixed Mobile) Berhasil Dijalankan!")
+print("BimSakSin Hub Ultimate Cyberpunk (100% Fixed) Berhasil Dijalankan!")

@@ -1,421 +1,440 @@
--- =========================================================
--- BIMSAKSIN HUB // GAMING SKULL EDITION (PURPLE PRO)
--- =========================================================
+--// ==========================================
+--// BimSakSin Hub - Ultimate District Edition
+--// Compatible with Delta Executor
+--// Theme Inspired by Luxury Gaming Interface[span_1](start_span)[span_1](end_span)
+--// ==========================================
 
-local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Bersihkan UI lama agar tidak numpuk
-if PlayerGui:FindFirstChild("BimSakSinSkullHub") then PlayerGui.BimSakSinSkullHub:Destroy() end
-if CoreGui:FindFirstChild("BimSakSinSkullHub") then CoreGui.BimSakSinSkullHub:Destroy() end
+-- Mencegah duplikasi GUI jika script dieksekusi ulang
+if CoreGui:FindFirstChild("BimSakSinHub") then
+    CoreGui["BimSakSinHub"]:Destroy()
+end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BimSakSinSkullHub"
+ScreenGui.Name = "BimSakSinHub"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = gethui and gethui() or PlayerGui
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
----------------------------------------------------------
--- 1. BAR MINIMIZE ATAS (RGB Bar saat panel dikecilkan)
----------------------------------------------------------
-local MinBar = Instance.new("TextButton")
-MinBar.Name = "MinimizeBar"
-MinBar.Size = UDim2.new(0, 260, 0, 36)
-MinBar.Position = UDim2.new(0.5, -130, 0, 12)
-MinBar.BackgroundColor3 = Color3.fromRGB(18, 12, 28)
-MinBar.Text = "BimSakSin Hub"
-MinBar.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinBar.TextSize, MinBar.Font = 14, Enum.Font.GothamBold
-MinBar.Visible = false
-MinBar.ZIndex = 50
-MinBar.Parent = ScreenGui
+-- Kompatibilitas Environment Delta / Executor
+if syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = CoreGui
+elseif gethui then
+    ScreenGui.Parent = gethui()
+else
+    ScreenGui.Parent = CoreGui
+end
 
-local MinCorner = Instance.new("UICorner")
-MinCorner.CornerRadius = UDim.new(0, 8)
-MinCorner.Parent = MinBar
-
-local MinStroke = Instance.new("UIStroke")
-MinStroke.Color = Color3.fromRGB(160, 50, 255)
-MinStroke.Thickness = 2
-MinStroke.Parent = MinBar
-
--- Animasi RGB Bergerak untuk Bar Minimize
-task.spawn(function()
-    while true do
-        task.wait(0.03)
-        pcall(function()
-            local hue = (tick() % 5) / 5
-            local rgbColor = Color3.fromHSV(hue, 1, 1)
-            MinStroke.Color = rgbColor
-            MinBar.TextColor3 = rgbColor
-        end)
-    end
-end)
-
----------------------------------------------------------
--- 2. PANEL UTAMA (Gaya Gaming Skull & Purple Neon)
----------------------------------------------------------
+--// ==========================================
+--// UI MAIN FRAME (PANEL UTAMA MEWAH)
+--// ==========================================
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 620, 0, 380)
-MainFrame.Position = UDim2.new(0.5, -310, 0.5, -190)
-MainFrame.BackgroundColor3 = Color3.fromRGB(12, 10, 18)
-MainFrame.BackgroundTransparency = 0.15
-MainFrame.Visible = true
-MainFrame.ClipsDescendants = true
-MainFrame.ZIndex = 10
+MainFrame.Size = UDim2.new(0, 520, 0, 420)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -210)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18) -- Dark Theme Elegan
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true -- Bisa digeser dengan mudah di layar HP/PC
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.CornerRadius = UDim.new(0, 14)
 MainCorner.Parent = MainFrame
 
+-- Border / Garis Pinggir Mewah (Neon Ungu)
 local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(160, 50, 255)
+MainStroke.Color = Color3.fromRGB(168, 85, 247)
 MainStroke.Thickness = 2
 MainStroke.Parent = MainFrame
 
--- Efek Animasi RGB Halus pada Border Panel Utama
-task.spawn(function()
-    while true do
-        task.wait(0.03)
-        pcall(function()
-            local hue = (tick() % 5) / 5
-            local rgbColor = Color3.fromHSV(hue, 1, 1)
-            MainStroke.Color = rgbColor
-        end)
-    end
-end)
-
--- Background Image (Nuansa Gaming Skull / Dark Purple)
-local BgImage = Instance.new("ImageLabel")
-BgImage.Size = UDim2.new(1, 0, 1, 0)
-BgImage.BackgroundTransparency = 1
-BgImage.Image = "rbxassetid://10878152342" -- Placeholder gaming background (bisa diganti asset ID kustom kamu)
-BgImage.ImageTransparency = 0.75
-BgImage.ZIndex = 11
-BgImage.Parent = MainFrame
-
----------------------------------------------------------
--- 3. HEADER / TOP BAR (Judul & Tombol Minimize/Close)
----------------------------------------------------------
+--// ==========================================
+--// TOP BAR (HEADER PANEL)
+--// ==========================================
 local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 42)
-TopBar.BackgroundColor3 = Color3.fromRGB(20, 14, 32)
-TopBar.ZIndex = 12
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 50)
+TopBar.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
-local TopBarCorner = Instance.new("UICorner")
-TopBarCorner.CornerRadius = UDim.new(0, 10)
-TopBarCorner.Parent = TopBar
+local TopCorner = Instance.new("UICorner")
+TopCorner.CornerRadius = UDim.new(0, 14)
+TopCorner.Parent = TopBar
 
-local FixCover = Instance.new("Frame")
-FixCover.Size = UDim2.new(1, 0, 0, 10)
-FixCover.Position = UDim2.new(0, 0, 1, -10)
-FixCover.BackgroundColor3 = Color3.fromRGB(20, 14, 32)
-FixCover.BorderSizePixel = 0
-FixCover.ZIndex = 12
-FixCover.Parent = TopBar
+-- Perbaikan sudut bawah TopBar agar rata
+local TopBarFix = Instance.new("Frame")
+TopBarFix.Size = UDim2.new(1, 0, 0, 14)
+TopBarFix.Position = UDim2.new(0, 0, 1, -14)
+TopBarFix.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+TopBarFix.BorderSizePixel = 0
+TopBarFix.Parent = TopBar
 
+-- Judul "BimSakSin Hub" Tepat di Tengah Atas (Gaya Panel Mewah)
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -110, 1, 0)
-TitleLabel.Position = UDim2.new(0, 15, 0, 0)
+TitleLabel.Size = UDim2.new(0, 320, 1, 0)
+TitleLabel.Position = UDim2.new(0.5, -160, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "⚡ BIMSAKSIN HUB // GAMING INTERFACE"
-TitleLabel.TextColor3 = Color3.fromRGB(220, 180, 255)
-TitleLabel.TextSize, TitleLabel.Font = 14, Enum.Font.GothamBold
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.ZIndex = 13
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.Text = "BimSakSin Hub"
+TitleLabel.TextColor3 = Color3.fromRGB(212, 175, 55) -- Warna Gold Mewah
+TitleLabel.TextSize = 18
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Center
 TitleLabel.Parent = TopBar
 
--- Tombol Minimize (-)
+-- Tombol Minimize (-) ala Chrome
 local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 32, 0, 26)
-MinBtn.Position = UDim2.new(1, -74, 0.5, -13)
-MinBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 65)
+MinBtn.Size = UDim2.new(0, 40, 0, 40)
+MinBtn.Position = UDim2.new(1, -90, 0, 5)
+MinBtn.BackgroundTransparency = 1
+MinBtn.Font = Enum.Font.GothamBold
 MinBtn.Text = "-"
-MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinBtn.TextSize, MinBtn.Font = 14, Enum.Font.GothamBold
-MinBtn.ZIndex = 13
+MinBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+MinBtn.TextSize = 24
 MinBtn.Parent = TopBar
 
-local MinBtnCorner = Instance.new("UICorner")
-MinBtnCorner.CornerRadius = UDim.new(0, 6)
-MinBtnCorner.Parent = MinBtn
-
--- Tombol Close (✕)
+-- Tombol Close (x) ala Chrome
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 32, 0, 26)
-CloseBtn.Position = UDim2.new(1, -36, 0.5, -13)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
-CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.TextSize, CloseBtn.Font = 12, Enum.Font.GothamBold
-CloseBtn.ZIndex = 13
+CloseBtn.Size = UDim2.new(0, 40, 0, 40)
+CloseBtn.Position = UDim2.new(1, -45, 0, 5)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 90, 90)
+CloseBtn.TextSize = 24
 CloseBtn.Parent = TopBar
 
-local CloseBtnCorner = Instance.new("UICorner")
-CloseBtnCorner.CornerRadius = UDim.new(0, 6)
-CloseBtnCorner.Parent = CloseBtn
+--// ==========================================
+--// FLOATING TOGGLE (SAAT DI-MINIMIZE)
+--// ==========================================
+local FloatingToggle = Instance.new("TextButton")
+FloatingToggle.Name = "FloatingToggle"
+FloatingToggle.Size = UDim2.new(0, 190, 0, 46)
+FloatingToggle.Position = UDim2.new(0, 30, 0, 30)
+FloatingToggle.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+FloatingToggle.Visible = false
+FloatingToggle.Active = true
+FloatingToggle.Draggable = true
+FloatingToggle.Font = Enum.Font.GothamBold
+FloatingToggle.Text = "BimSakSin Hub"
+FloatingToggle.TextColor3 = Color3.fromRGB(212, 175, 55) -- Gold Text
+FloatingToggle.TextSize = 15
+FloatingToggle.Parent = ScreenGui
 
----------------------------------------------------------
--- 4. SISTEM TAB MENU DI BAWAH HEADER
----------------------------------------------------------
-local TabsBar = Instance.new("Frame")
-TabsBar.Size = UDim2.new(1, -30, 0, 35)
-TabsBar.Position = UDim2.new(0, 15, 0, 52)
-TabsBar.BackgroundTransparency = 1
-TabsBar.ZIndex = 12
-TabsBar.Parent = MainFrame
+local FloatCorner = Instance.new("UICorner")
+FloatCorner.CornerRadius = UDim.new(0, 23)
+FloatCorner.Parent = FloatingToggle
 
-local TabsLayout = Instance.new("UIListLayout")
-TabsLayout.FillDirection = Enum.FillDirection.Horizontal
-TabsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-TabsLayout.SortOrder = Enum.SortOrder.LayoutIndex
-TabsLayout.Padding = UDim.new(0, 20)
-TabsLayout.Parent = TabsBar
+local FloatStroke = Instance.new("UIStroke")
+FloatStroke.Color = Color3.fromRGB(168, 85, 247)
+FloatStroke.Thickness = 2
+FloatStroke.Parent = FloatingToggle
 
-local PagesContainer = Instance.new("Folder")
-PagesContainer.Name = "PagesContainer"
-PagesContainer.ZIndex = 12
-PagesContainer.Parent = MainFrame
-
-local activeTabName = nil
-local pages = {}
-
-local function createTabButton(name)
-    local tabBtn = Instance.new("TextButton")
-    tabBtn.Size = UDim2.new(0, 100, 1, 0)
-    tabBtn.BackgroundTransparency = 1
-    tabBtn.Text = name
-    tabBtn.TextColor3 = Color3.fromRGB(140, 130, 160)
-    tabBtn.TextSize, tabBtn.Font = 13, Enum.Font.GothamBold
-    tabBtn.ZIndex = 13
-    tabBtn.Parent = TabsBar
-
-    local pageFrame = Instance.new("ScrollingFrame")
-    pageFrame.Name = name .. "Page"
-    pageFrame.Size = UDim2.new(1, -30, 1, -110)
-    pageFrame.Position = UDim2.new(0, 15, 0, 100)
-    pageFrame.BackgroundTransparency = 1
-    pageFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    pageFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    pageFrame.ScrollBarThickness = 3
-    pageFrame.Visible = false
-    pageFrame.ZIndex = 12
-    pageFrame.Parent = PagesContainer
-
-    local pageLayout = Instance.new("UIListLayout")
-    pageLayout.SortOrder = Enum.SortOrder.LayoutIndex
-    pageLayout.Padding = UDim.new(0, 10)
-    pageLayout.Parent = pageFrame
-
-    pages[name] = pageFrame
-
-    tabBtn.Activated:Connect(function()
-        for _, p in pairs(pages) do p.Visible = false end
-        for _, b in pairs(TabsBar:GetChildren()) do
-            if b:IsA("TextButton") then b.TextColor3 = Color3.fromRGB(140, 130, 160) end
-        end
-        pageFrame.Visible = true
-        tabBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
-    end)
-
-    if not activeTabName then
-        activeTabName = name
-        pageFrame.Visible = true
-        tabBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
-    end
-
-    return pageFrame
-end
-
----------------------------------------------------------
--- 5. PEMBUATAN FITUR DI DALAM TAB
----------------------------------------------------------
-local function addOptionRow(parentPage, labelText, defaultState, callback)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 42)
-    row.BackgroundColor3 = Color3.fromRGB(20, 15, 30)
-    row.BackgroundTransparency = 0.3
-    row.ZIndex = 13
-    row.Parent = parentPage
-
-    local rowCorner = Instance.new("UICorner")
-    rowCorner.CornerRadius = UDim.new(0, 6)
-    rowCorner.Parent = row
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.6, 0, 1, 0)
-    label.Position = UDim2.new(0, 15, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = labelText
-    label.TextColor3 = Color3.fromRGB(220, 220, 230)
-    label.TextSize, label.Font = 13, Enum.Font.GothamMedium
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.ZIndex = 14
-    label.Parent = row
-
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 140, 0, 30)
-    toggleBtn.Position = UDim2.new(1, -150, 0.5, -15)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(35, 25, 50)
-    toggleBtn.ZIndex = 14
-    toggleBtn.Parent = row
-
-    local tCorner = Instance.new("UICorner")
-    tCorner.CornerRadius = UDim.new(0, 6)
-    tCorner.Parent = toggleBtn
-
-    local state = defaultState
-    local function updateVisual()
-        if state then
-            toggleBtn.Text = "ACTIVE 🔥"
-            toggleBtn.TextColor3 = Color3.fromRGB(100, 255, 150)
-        else
-            toggleBtn.Text = "OFF"
-            toggleBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
-        end
-    end
-    updateVisual()
-
-    toggleBtn.Activated:Connect(function()
-        state = not state
-        updateVisual()
-        callback(state)
-    end)
-end
-
--- Tab 1: VISUALS
-local visualPage = createTabButton("VISUALS")
-addOptionRow(visualPage, "ESP Survivor (Hijau)", false, function(v) Config.SurvivorESP = v end)
-addOptionRow(visualPage, "ESP Killer (Merah)", false, function(v) Config.KillerESP = v end)
-addOptionRow(visualPage, "ESP Generator (Kuning)", false, function(v) Config.GenESP = v end)
-
--- Tab 2: COMBAT
-local combatPage = createTabButton("COMBAT")
-addOptionRow(combatPage, "Aimbot Target Terdekat", false, function(v) Config.Aimbot = v end)
-
--- Tab 3: MOVEMENT
-local movePage = createTabButton("MOVEMENT")
-addOptionRow(movePage, "NoClip (Tembus Tembok)", false, function(v) Config.NoClip = v end)
-addOptionRow(movePage, "Fly Admin Mode", false, function(v) Config.Fly = v end)
-
--- Tab 4: MISC
-local miscPage = createTabButton("MISC")
-addOptionRow(miscPage, "Auto Generator Proximity", false, function(v) Config.AutoGenerator = v end)
-
----------------------------------------------------------
--- 6. INTERAKSI MINIMIZE & CLOSE
----------------------------------------------------------
-MinBtn.Activated:Connect(function()
+-- Logika Interaksi Tombol Minimize & Close
+MinBtn.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
-    MinBar.Visible = true
+    FloatingToggle.Visible = true
 end)
 
-CloseBtn.Activated:Connect(function()
+FloatingToggle.MouseButton1Click:Connect(function()
+    MainFrame.Visible = true
+    FloatingToggle.Visible = false
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
-MinBar.Activated:Connect(function()
-    MinBar.Visible = false
-    MainFrame.Visible = true
-end)
+--// ==========================================
+--// CONTAINER MENU FITUR (SCROLLABLE)
+--// ==========================================
+local Container = Instance.new("ScrollingFrame")
+Container.Size = UDim2.new(1, -20, 1, -65)
+Container.Position = UDim2.new(0, 10, 0, 56)
+Container.BackgroundTransparency = 1
+Container.BorderSizePixel = 0
+Container.CanvasSize = UDim2.new(0, 0, 0, 520)
+Container.ScrollBarThickness = 4
+Container.Parent = MainFrame
 
----------------------------------------------------------
--- 7. CONFIG & LOGIKA UTAMA FITUR
----------------------------------------------------------
-Config = {
-    SurvivorESP = false,
-    KillerESP = false,
-    GenESP = false,
-    Aimbot = false,
-    AutoGenerator = false,
-    NoClip = false,
-    Fly = false,
-    FlySpeed = 50
-}
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 10)
+UIListLayout.Parent = Container
 
-local function createHighlight(obj, fillColor)
-    if not obj or obj:FindFirstChild("BSS_Highlight") then return end
-    pcall(function()
-        local hl = Instance.new("Highlight")
-        hl.Name = "BSS_Highlight"
-        hl.Adornee = obj
-        hl.FillColor = fillColor
-        hl.FillTransparency = 0.4
-        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-        hl.Parent = obj
+-- Template Pembuatan Tombol Fitur (Toggle)
+local function CreateToggle(name, callback)
+    local ToggleBtn = Instance.new("TextButton")
+    ToggleBtn.Size = UDim2.new(1, 0, 0, 45)
+    ToggleBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+    ToggleBtn.AutoButtonColor = false
+    ToggleBtn.Font = Enum.Font.GothamMedium
+    ToggleBtn.Text = "  " .. name
+    ToggleBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
+    ToggleBtn.TextSize = 14
+    ToggleBtn.TextXAlignment = Enum.TextXAlignment.Left
+    ToggleBtn.Parent = Container
+
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 8)
+    Corner.Parent = ToggleBtn
+
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Color3.fromRGB(50, 50, 75)
+    Stroke.Thickness = 1
+    Stroke.Parent = ToggleBtn
+
+    local StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Size = UDim2.new(0, 90, 1, 0)
+    StatusLabel.Position = UDim2.new(1, -95, 0, 0)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.Font = Enum.Font.GothamBold
+    StatusLabel.Text = "[ OFF ]"
+    StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    StatusLabel.TextSize = 13
+    StatusLabel.TextXAlignment = Enum.TextXAlignment.Right
+    StatusLabel.Parent = ToggleBtn
+
+    local enabled = false
+    ToggleBtn.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        if enabled then
+            StatusLabel.Text = "[ ON ]"
+            StatusLabel.TextColor3 = Color3.fromRGB(168, 85, 247)
+            Stroke.Color = Color3.fromRGB(168, 85, 247)
+            ToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 22, 52)
+        else
+            StatusLabel.Text = "[ OFF ]"
+            StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            Stroke.Color = Color3.fromRGB(50, 50, 75)
+            ToggleBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+        end
+        pcall(function()
+            callback(enabled)
+        end)
     end)
 end
 
-task.spawn(function()
-    while true do
-        task.wait(0.3)
-        pcall(function()
-            if Config.AutoGenerator then
-                for _, prompt in ipairs(Workspace:GetDescendants()) do
-                    if prompt:IsA("ProximityPrompt") and prompt.Parent and prompt.Parent.Name:lower():find("generator") then
-                        fireproximityprompt(prompt)
-                    end
-                end
+--// ==========================================
+--// KUMPULAN FITUR UTAMA LENGKAP (ANTI-CRASH)
+--// ==========================================
+
+-- 1. PLAYER ESP (Highlight Pemain Lain di Map Distrik)
+local ESPEnabled = false
+local function ToggleESP(state)
+    ESPEnabled = state
+    
+    local function applyESP(player)
+        if player == LocalPlayer then return end
+        
+        local function addHighlight(char)
+            if not char:FindFirstChild("BimSakSinESP") then
+                local hl = Instance.new("Highlight")
+                hl.Name = "BimSakSinESP"
+                hl.Adornee = char
+                hl.FillColor = Color3.fromRGB(168, 85, 247)
+                hl.OutlineColor = Color3.fromRGB(212, 175, 55)
+                hl.FillTransparency = 0.5
+                hl.OutlineTransparency = 0
+                hl.Parent = char
+            end
+        end
+        
+        if player.Character and ESPEnabled then
+            addHighlight(player.Character)
+        end
+        
+        player.CharacterAdded:Connect(function(char)
+            if ESPEnabled then
+                task.wait(1)
+                addHighlight(char)
             end
         end)
     end
-end)
-
-RunService.RenderStepped:Connect(function()
-    pcall(function()
-        if Config.NoClip and LocalPlayer.Character then
-            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = false end
+    
+    if ESPEnabled then
+        for _, p in ipairs(Players:GetPlayers()) do
+            applyESP(p)
+        end
+    else
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Character and p.Character:FindFirstChild("BimSakSinESP") then
+                p.Character.BimSakSinESP:Destroy()
             end
         end
+    end
+end
 
-        if Config.SurvivorESP or Config.KillerESP then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local isKiller = player.Team and (player.Team.Name:lower():find("killer") or player.Team.Name:lower():find("monster"))
-                    if isKiller and Config.KillerESP then
-                        createHighlight(player.Character, Color3.fromRGB(255, 0, 0))
-                    elseif not isKiller and Config.SurvivorESP then
-                        createHighlight(player.Character, Color3.fromRGB(0, 255, 0))
-                    end
-                end
-            end
-        end
-
-        if Config.GenESP then
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj.Name:lower():find("generator") and obj:IsA("Model") then
-                    createHighlight(obj, Color3.fromRGB(255, 255, 0))
-                end
-            end
-        end
-
-        if Config.Aimbot and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local closestTarget = nil
-            local shortestDist = math.huge
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                    local dist = (LocalPlayer.Character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude
-                    if dist < shortestDist then
-                        shortestDist = dist
-                        closestTarget = player.Character.HumanoidRootPart
-                    end
-                end
-            end
-            if closestTarget then
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, closestTarget.Position)
-            end
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        if ESPEnabled and player ~= LocalPlayer then
+            task.wait(1)
+            local hl = Instance.new("Highlight")
+            hl.Name = "BimSakSinESP"
+            hl.Adornee = char
+            hl.FillColor = Color3.fromRGB(168, 85, 247)
+            hl.OutlineColor = Color3.fromRGB(212, 175, 55)
+            hl.FillTransparency = 0.5
+            hl.OutlineTransparency = 0
+            hl.Parent = char
         end
     end)
 end)
 
-print("BimSakSin Hub Gaming Skull Edition Berhasil Dijalankan!")
+CreateToggle("Player ESP (Highlight)", ToggleESP)
+
+
+-- 2. NOCLIP (Tembus Tembok / Objek Gedung di Map Distrik)
+local NoclipConnection = nil
+CreateToggle("Noclip (Tembus Tembok)", function(state)
+    if state then
+        NoclipConnection = RunService.Stepped:Connect(function()
+            pcall(function()
+                if LocalPlayer.Character then
+                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") and part.CanCollide then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        end)
+    else
+        if NoclipConnection then
+            NoclipConnection:Disconnect()
+            NoclipConnection = nil
+        end
+    end
+end)
+
+
+-- 3. FULLBRIGHT (Menerangi Area Gelap / Malam Hari di Map)
+local OriginalBrightness = Lighting.Brightness
+local OriginalClock = Lighting.ClockTime
+CreateToggle("Fullbright (Anti Gelap Map)", function(state)
+    if state then
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(220, 220, 220)
+    else
+        Lighting.Brightness = OriginalBrightness
+        Lighting.ClockTime = OriginalClock
+        Lighting.GlobalShadows = true
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+    end
+end)
+
+
+-- 4. SPEED HACK (Kecepatan Lari 50)
+CreateToggle("Speed Hack (WalkSpeed 50)", function(state)
+    pcall(function()
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = state and 50 or 16
+        end
+    end)
+end)
+
+
+-- 5. SUPER JUMP (Loncat Tinggi 100)
+CreateToggle("Super Jump (JumpPower 100)", function(state)
+    pcall(function()
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = state and 100 or 50
+        end
+    end)
+end)
+
+
+-- 6. INFINITE JUMP (Loncat Terus di Udara)
+local InfJumpConn = nil
+CreateToggle("Infinite Jump (Loncat di Udara)", function(state)
+    if state then
+        InfJumpConn = UserInputService.JumpRequest:Connect(function()
+            pcall(function()
+                local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end)
+        end)
+    else
+        if InfJumpConn then
+            InfJumpConn:Disconnect()
+            InfJumpConn = nil
+        end
+    end
+end)
+
+
+-- 7. FLY HACK (Terbang Menjelajahi Seluruh Map Distrik)
+local Flying = false
+local FlySpeed = 50
+local BodyGyro, BodyVelocity
+CreateToggle("Fly Hack (Terbang Bebas)", function(state)
+    Flying = state
+    pcall(function()
+        local char = LocalPlayer.Character
+        local rootPart = char and char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        
+        if Flying and rootPart and humanoid then
+            humanoid.PlatformStand = true
+            
+            BodyGyro = Instance.new("BodyGyro")
+            BodyGyro.P = 9e4
+            BodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            BodyGyro.CFrame = rootPart.CFrame
+            BodyGyro.Parent = rootPart
+            
+            BodyVelocity = Instance.new("BodyVelocity")
+            BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            BodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            BodyVelocity.Parent = rootPart
+            
+            task.spawn(function()
+                while Flying and rootPart and humanoid and humanoid.Health > 0 do
+                    local camCFrame = Camera.CFrame
+                    local moveDir = Vector3.new()
+                    
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                        moveDir = moveDir + camCFrame.LookVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                        moveDir = moveDir - camCFrame.LookVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                        moveDir = moveDir - camCFrame.RightVector
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                        moveDir = moveDir + camCFrame.RightVector
+                    end
+                    
+                    BodyVelocity.Velocity = moveDir * FlySpeed
+                    BodyGyro.CFrame = camCFrame
+                    RunService.RenderStepped:Wait()
+                end
+                
+                if BodyGyro then BodyGyro:Destroy() end
+                if BodyVelocity then BodyVelocity:Destroy() end
+                if humanoid then humanoid.PlatformStand = false end
+            end)
+        else
+            if BodyGyro then BodyGyro:Destroy() end
+            if BodyVelocity then BodyVelocity:Destroy() end
+            if humanoid then humanoid.PlatformStand = false end
+        end
+    end)
+end)
+
+print("BimSakSin Hub Loaded Successfully!")

@@ -1,5 +1,5 @@
 -- =========================================================
--- BIMSAKSIN HUB // CHROME EDITION + Prabowo Background
+-- BIMSAKSIN HUB // DELTA EXECUTOR NATIVE UI STYLE
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -12,26 +12,26 @@ local Workspace = game:GetService("Workspace")
 local Camera = Workspace.CurrentCamera
 
 -- Bersihkan UI lama agar tidak numpuk
-if PlayerGui:FindFirstChild("BimSakSinChrome") then PlayerGui.BimSakSinChrome:Destroy() end
-if CoreGui:FindFirstChild("BimSakSinChrome") then CoreGui.BimSakSinChrome:Destroy() end
+if PlayerGui:FindFirstChild("BimSakSinDeltaStyle") then PlayerGui.BimSakSinDeltaStyle:Destroy() end
+if CoreGui:FindFirstChild("BimSakSinDeltaStyle") then CoreGui.BimSakSinDeltaStyle:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BimSakSinChrome"
+ScreenGui.Name = "BimSakSinDeltaStyle"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = gethui and gethui() or PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
--- 1. FLOATING TOGGLE "BSH" (RGB Border & 100% Responsive Tap)
+-- 1. FLOATING TOGGLE "Δ" (Gaya Khas Delta UI)
 ---------------------------------------------------------
 local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Name = "BSHToggle"
+ToggleBtn.Name = "DeltaToggle"
 ToggleBtn.Size = UDim2.new(0, 48, 0, 48)
 ToggleBtn.Position = UDim2.new(0, 20, 0.45, 0)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-ToggleBtn.Text = "BSH"
-ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleBtn.TextSize = 14
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+ToggleBtn.Text = "Δ"
+ToggleBtn.TextColor3 = Color3.fromRGB(160, 90, 255) -- Ungu khas Delta
+ToggleBtn.TextSize = 22
 ToggleBtn.Font = Enum.Font.GothamBold
 ToggleBtn.ZIndex = 10
 ToggleBtn.Parent = ScreenGui
@@ -41,8 +41,8 @@ ToggleCorner.CornerRadius = UDim.new(1, 0)
 ToggleCorner.Parent = ToggleBtn
 
 local ToggleStroke = Instance.new("UIStroke")
-ToggleStroke.Color = Color3.fromRGB(0, 255, 200)
-ToggleStroke.Thickness = 2.5
+ToggleStroke.Color = Color3.fromRGB(138, 43, 226) -- Border Ungu Violet
+ToggleStroke.Thickness = 2
 ToggleStroke.Parent = ToggleBtn
 
 -- Logika Drag & Tap Anti-Gagal untuk HP
@@ -66,7 +66,6 @@ ToggleBtn.InputBegan:Connect(function(input)
                 if not moved then
                     isOpen = not isOpen
                     MainFrame.Visible = isOpen
-                    print("Panel Menu Toggled:", isOpen)
                 end
             end
         end)
@@ -84,15 +83,14 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 ---------------------------------------------------------
--- 2. PANEL UTAMA (Gaya Chrome Minimalis + Background)
+-- 2. PANEL UTAMA (Gaya Bawaan Delta Executor)
 ---------------------------------------------------------
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 450, 0, 280)
-MainFrame.Position = UDim2.new(0.5, -225, 0.5, -140)
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.Size = UDim2.new(0, 440, 0, 290)
+MainFrame.Position = UDim2.new(0.5, -220, 0.5, -145)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22) -- Hitam Gelap Elegan Delta
 MainFrame.Visible = false
-MainFrame.ClipsDescendants = true
 MainFrame.ZIndex = 5
 MainFrame.Parent = ScreenGui
 
@@ -101,73 +99,50 @@ MainCorner.CornerRadius = UDim.new(0, 8)
 MainCorner.Parent = MainFrame
 
 local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(0, 255, 200)
+MainStroke.Color = Color3.fromRGB(138, 43, 226) -- Garis Pinggir Ungu Delta
 MainStroke.Thickness = 1.5
 MainStroke.Parent = MainFrame
 
--- Efek Animasi RGB Halus pada Border Tombol & Panel
-task.spawn(function()
-    while true do
-        task.wait(0.03)
-        pcall(function()
-            local hue = (tick() % 5) / 5
-            local rgbColor = Color3.fromHSV(hue, 1, 1)
-            MainStroke.Color = rgbColor
-            ToggleStroke.Color = rgbColor
-        end)
-    end
-end)
-
--- Background Image (Nuansa Prabowo / Custom Decal ID)
--- Kamu bisa ganti angka rbxassetid:// dengan asset ID gambar Prabowo pilihanmu
-local BgImage = Instance.new("ImageLabel")
-BgImage.Size = UDim2.new(1, 0, 1, 0)
-BgImage.BackgroundTransparency = 1
-BgImage.Image = "rbxassetid://10878152342" -- Placeholder aesthetic background (bisa diganti ID Decal Prabowo)
-BgImage.ImageTransparency = 0.65 -- Supaya tidak terlalu mencolok dan teks tetap terbaca jelas
-BgImage.ZIndex = 6
-BgImage.Parent = MainFrame
-
--- Chrome Header / Top Bar
+-- Top Bar / Header Ala Delta
 local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 35)
-TopBar.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
-TopBar.ZIndex = 7
+TopBar.Size = UDim2.new(1, 0, 0, 38)
+TopBar.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+TopBar.ZIndex = 6
 TopBar.Parent = MainFrame
 
 local TopBarCorner = Instance.new("UICorner")
 TopBarCorner.CornerRadius = UDim.new(0, 8)
 TopBarCorner.Parent = TopBar
 
--- Tutup bagian bawah sudut TopBar agar lurus
+-- Tutup sudut bawah TopBar
 local FixCover = Instance.new("Frame")
 FixCover.Size = UDim2.new(1, 0, 0, 5)
 FixCover.Position = UDim2.new(0, 0, 1, -5)
-FixCover.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+FixCover.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
 FixCover.BorderSizePixel = 0
-FixCover.ZIndex = 7
+FixCover.ZIndex = 6
 FixCover.Parent = TopBar
 
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -50, 1, 0)
-Title.Position = UDim2.new(0, 12, 0, 0)
+Title.Position = UDim2.new(0, 14, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "🌐 BimSakSin Hub // Chrome Panel"
+Title.Text = "Delta // BimSakSin Hub v3.0"
 Title.TextColor3 = Color3.fromRGB(220, 220, 230)
 Title.TextSize, Title.Font = 13, Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.ZIndex = 8
+Title.ZIndex = 7
 Title.Parent = TopBar
 
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 28, 0, 28)
-CloseBtn.Position = UDim2.new(1, -32, 0, 4)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseBtn.Size = UDim2.new(0, 26, 0, 26)
+CloseBtn.Position = UDim2.new(1, -32, 0, 6)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
 CloseBtn.TextSize, CloseBtn.Font = 12, Enum.Font.GothamBold
-CloseBtn.ZIndex = 8
-CloseBtn.Parent = TopBar
+CloseBtn.ZIndex = 7
+CloseBtn.Parent = MainFrame
 
 local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 6)
@@ -177,12 +152,12 @@ CloseCorner.Parent = CloseBtn
 -- 3. KONTEN / FITUR DALAM PANEL (ScrollingFrame)
 ---------------------------------------------------------
 local ScrollContainer = Instance.new("ScrollingFrame")
-ScrollContainer.Size = UDim2.new(1, -16, 1, -45)
-ScrollContainer.Position = UDim2.new(0, 8, 0, 40)
+ScrollContainer.Size = UDim2.new(1, -16, 1, -50)
+ScrollContainer.Position = UDim2.new(0, 8, 0, 44)
 ScrollContainer.BackgroundTransparency = 1
-ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, 380)
+ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, 400)
 ScrollContainer.ScrollBarThickness = 3
-ScrollContainer.ZIndex = 7
+ScrollContainer.ZIndex = 6
 ScrollContainer.Parent = MainFrame
 
 local UIListLayout = Instance.new("UIListLayout")
@@ -192,13 +167,12 @@ UIListLayout.Parent = ScrollContainer
 
 local function createToggle(name, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -4, 0, 36)
-    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-    btn.BackgroundTransparency = 0.3
-    btn.TextColor3 = Color3.fromRGB(0, 255, 200)
+    btn.Size = UDim2.new(1, -4, 0, 38)
+    btn.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
+    btn.TextColor3 = Color3.fromRGB(200, 170, 255) -- Aksen Ungu Muda
     btn.Text = name .. " [ OFF ]"
     btn.TextSize, btn.Font = 12, Enum.Font.GothamMedium
-    btn.ZIndex = 8
+    btn.ZIndex = 7
     btn.Parent = ScrollContainer
 
     local corner = Instance.new("UICorner")
@@ -210,10 +184,10 @@ local function createToggle(name, callback)
         state = not state
         if state then
             btn.Text = name .. " [ ACTIVE ]"
-            btn.TextColor3 = Color3.fromRGB(100, 255, 100)
+            btn.TextColor3 = Color3.fromRGB(100, 255, 150)
         else
             btn.Text = name .. " [ OFF ]"
-            btn.TextColor3 = Color3.fromRGB(0, 255, 200)
+            btn.TextColor3 = Color3.fromRGB(200, 170, 255)
         end
         callback(state)
     end)
@@ -358,4 +332,4 @@ CloseBtn.Activated:Connect(function()
     MainFrame.Visible = false
 end)
 
-print("BimSakSin Hub Chrome Panel Berhasil Dijalankan!")
+print("BimSakSin Hub Delta Style Berhasil Dijalankan!")

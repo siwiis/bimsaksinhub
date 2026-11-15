@@ -1,5 +1,5 @@
 -- =========================================================
--- BIMSAKSIN HUB // ULTIMATE CYBERPUNK EDITION (FULL FEATURES)
+-- BIMSAKSIN HUB // ULTIMATE CYBERPUNK EDITION (FIXED MOBILE)
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -22,7 +22,7 @@ ScreenGui.Parent = gethui and gethui() or PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
--- 1. FLOATING TOGGLE "BSH" (Draggable & Cyberpunk Style)
+-- 1. FLOATING TOGGLE "BSH" (Draggable & Super Responsif HP)
 ---------------------------------------------------------
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "CyberToggle"
@@ -33,6 +33,8 @@ ToggleBtn.Text = "BSH"
 ToggleBtn.TextColor3 = Color3.fromRGB(0, 255, 200)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.Active = true
+ToggleBtn.Draggable = false -- Kita pakai custom drag agar tidak bug dengan klik
 ToggleBtn.Parent = ScreenGui
 
 local ToggleCorner = Instance.new("UICorner")
@@ -44,15 +46,18 @@ ToggleStroke.Color = Color3.fromRGB(0, 255, 200)
 ToggleStroke.Thickness = 2
 ToggleStroke.Parent = ToggleBtn
 
--- Fitur Geser (Draggable) Toggle
-local dragging, dragStart, startPos
+-- Custom Drag Logic (Supaya geser lancar dan tidak bentrok sama klik)
+local dragging, dragStart, startPos, moved = false, nil, nil, false
 ToggleBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
+        moved = false
         dragStart = input.Position
         startPos = ToggleBtn.Position
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
         end)
     end
 end)
@@ -60,12 +65,13 @@ end)
 UserInputService.InputChanged:Connect(function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStart
+        if delta.Magnitude > 5 then moved = true end
         ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
 ---------------------------------------------------------
--- 2. PANEL UTAMA CYBERPUNK (Dengan ScrollingFrame)
+-- 2. PANEL UTAMA CYBERPUNK
 ---------------------------------------------------------
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -121,7 +127,7 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseBtn
 
--- Container Fitur (ScrollingFrame agar rapi & muat banyak)
+-- Container Fitur (ScrollingFrame)
 local ScrollContainer = Instance.new("ScrollingFrame")
 ScrollContainer.Size = UDim2.new(1, -20, 1, -60)
 ScrollContainer.Position = UDim2.new(0, 10, 0, 50)
@@ -136,7 +142,7 @@ UIListLayout.Padding = UDim.new(0, 8)
 UIListLayout.Parent = ScrollContainer
 
 ---------------------------------------------------------
--- 3. PEMBUATAN KOMPONEN TOMBOL FITUR (UI HELPER)
+-- 3. PEMBUATAN KOMPONEN TOMBOL FITUR
 ---------------------------------------------------------
 local function createToggle(name, callback)
     local btn = Instance.new("TextButton")
@@ -152,7 +158,7 @@ local function createToggle(name, callback)
     corner.Parent = btn
 
     local state = false
-    btn.MouseButton1Click:Connect(function()
+    btn.Activated:Connect(function()
         state = not state
         if state then
             btn.Text = name .. " [ ACTIVE 🔥 ]"
@@ -166,10 +172,8 @@ local function createToggle(name, callback)
 end
 
 ---------------------------------------------------------
--- 4. FITUR-FITUR UTAMA (ESP, Combat, Auto Gen, Move, TP)
+-- 4. FITUR-FITUR UTAMA
 ---------------------------------------------------------
-
--- Variabel Status Fitur
 local Config = {
     SurvivorESP = false,
     KillerESP = false,
@@ -183,7 +187,6 @@ local Config = {
     FlySpeed = 50
 }
 
--- ESP Helper Function
 local function createHighlight(obj, fillColor)
     if not obj or obj:FindFirstChild("BSS_Highlight") then return end
     pcall(function()
@@ -197,19 +200,11 @@ local function createHighlight(obj, fillColor)
     end)
 end
 
--- 1. Toggle ESP Survivor (Hijau)
 createToggle("ESP Survivor (Hijau)", function(v) Config.SurvivorESP = v end)
-
--- 2. Toggle ESP Killer (Merah)
 createToggle("ESP Killer (Merah)", function(v) Config.KillerESP = v end)
-
--- 3. Toggle ESP Generator (Kuning)
 createToggle("ESP Generator (Kuning)", function(v) Config.GenESP = v end)
-
--- 4. Toggle Aimbot Otomatis
 createToggle("Aimbot Target Terdekat", function(v) Config.Aimbot = v end)
 
--- 5. Toggle Auto Generator (Perfect Skill Check)
 createToggle("Auto Generator Proximity", function(v)
     Config.AutoGenerator = v
     task.spawn(function()
@@ -226,10 +221,8 @@ createToggle("Auto Generator Proximity", function(v)
     end)
 end)
 
--- 6. Toggle NoClip (Tembus Tembok)
 createToggle("NoClip (Tembus Tembok)", function(v) Config.NoClip = v end)
 
--- 7. Toggle Fly Halus
 createToggle("Fly Admin Mode", function(v)
     Config.Fly = v
     pcall(function()
@@ -261,25 +254,22 @@ createToggle("Fly Admin Mode", function(v)
 end)
 
 ---------------------------------------------------------
--- 5. RUNSERVICE LOOP UTAMA (ESP, Speed, NoClip, Aimbot)
+-- 5. RUNSERVICE LOOP UTAMA
 ---------------------------------------------------------
 RunService.RenderStepped:Connect(function()
     pcall(function()
-        -- Custom Speed
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
             if Config.CustomSpeed then
                 LocalPlayer.Character.Humanoid.WalkSpeed = Config.SpeedVal
             end
         end
 
-        -- NoClip
         if Config.NoClip and LocalPlayer.Character then
             for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
             end
         end
 
-        -- ESP Logic
         if Config.SurvivorESP or Config.KillerESP then
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer and player.Character then
@@ -293,7 +283,6 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- ESP Generator
         if Config.GenESP then
             for _, obj in ipairs(Workspace:GetDescendants()) do
                 if obj.Name:lower():find("generator") and obj:IsA("Model") then
@@ -302,7 +291,6 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- Aimbot Logic
         if Config.Aimbot and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
             local closestTarget = nil
             local shortestDist = math.huge
@@ -323,17 +311,20 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------------------------------------------------------
--- 6. SISTEM BUKA / TUTUP PANEL
+-- 6. SISTEM BUKA / TUTUP PANEL (.Activated)
 ---------------------------------------------------------
 local isOpen = false
-ToggleBtn.MouseButton1Click:Connect(function()
-    isOpen = not isOpen
-    MainFrame.Visible = isOpen
+ToggleBtn.Activated:Connect(function()
+    if not moved then
+        isOpen = not isOpen
+        MainFrame.Visible = isOpen
+        print("BSS Toggle diklik! Status Panel:", isOpen)
+    end
 end)
 
-CloseBtn.MouseButton1Click:Connect(function()
+CloseBtn.Activated:Connect(function()
     isOpen = false
     MainFrame.Visible = false
 end)
 
-print("BimSakSin Hub Ultimate Cyberpunk Berhasil Dijalankan!")
+print("BimSakSin Hub Ultimate Cyberpunk (Fixed Mobile) Berhasil Dijalankan!")

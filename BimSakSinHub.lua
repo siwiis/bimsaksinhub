@@ -1,5 +1,5 @@
 -- =========================================================
--- BIMSAKSIN HUB // DELTA EXECUTOR NATIVE UI STYLE
+-- BIMSAKSIN HUB // DIRECT MENU + RGB TOP MINIMIZE BAR
 -- =========================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -12,136 +12,124 @@ local Workspace = game:GetService("Workspace")
 local Camera = Workspace.CurrentCamera
 
 -- Bersihkan UI lama agar tidak numpuk
-if PlayerGui:FindFirstChild("BimSakSinDeltaStyle") then PlayerGui.BimSakSinDeltaStyle:Destroy() end
-if CoreGui:FindFirstChild("BimSakSinDeltaStyle") then CoreGui.BimSakSinDeltaStyle:Destroy() end
+if PlayerGui:FindFirstChild("BimSakSinDirectMenu") then PlayerGui.BimSakSinDirectMenu:Destroy() end
+if CoreGui:FindFirstChild("BimSakSinDirectMenu") then CoreGui.BimSakSinDirectMenu:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BimSakSinDeltaStyle"
+ScreenGui.Name = "BimSakSinDirectMenu"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = gethui and gethui() or PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 ---------------------------------------------------------
--- 1. FLOATING TOGGLE "Δ" (Gaya Khas Delta UI)
+-- 1. BAR MINIMIZE ATAS (Nangkring di atas layar saat diminimize)
 ---------------------------------------------------------
-local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Name = "DeltaToggle"
-ToggleBtn.Size = UDim2.new(0, 48, 0, 48)
-ToggleBtn.Position = UDim2.new(0, 20, 0.45, 0)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
-ToggleBtn.Text = "Δ"
-ToggleBtn.TextColor3 = Color3.fromRGB(160, 90, 255) -- Ungu khas Delta
-ToggleBtn.TextSize = 22
-ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.ZIndex = 10
-ToggleBtn.Parent = ScreenGui
+local MinBar = Instance.new("TextButton")
+MinBar.Name = "MinimizeBar"
+MinBar.Size = UDim2.new(0, 240, 0, 32)
+MinBar.Position = UDim2.new(0.5, -120, 0, 10) -- Pas di tengah atas layar
+MinBar.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+MinBar.Text = "BimSakSin Hub"
+MinBar.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBar.TextSize, MinBar.Font = 13, Enum.Font.GothamBold
+MinBar.Visible = false -- Sembunyi secara default (karena panel utama langsung terbuka)
+MinBar.ZIndex = 30
+MinBar.Parent = ScreenGui
 
-local ToggleCorner = Instance.new("UICorner")
-ToggleCorner.CornerRadius = UDim.new(1, 0)
-ToggleCorner.Parent = ToggleBtn
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 6)
+MinCorner.Parent = MinBar
 
-local ToggleStroke = Instance.new("UIStroke")
-ToggleStroke.Color = Color3.fromRGB(138, 43, 226) -- Border Ungu Violet
-ToggleStroke.Thickness = 2
-ToggleStroke.Parent = ToggleBtn
+local MinStroke = Instance.new("UIStroke")
+MinStroke.Color = Color3.fromRGB(255, 255, 255)
+MinStroke.Thickness = 1.5
+MinStroke.Parent = MinBar
 
--- Logika Drag & Tap Anti-Gagal untuk HP
-local isOpen = false
-local dragging = false
-local dragStart, startPos
-local moved = false
-
-ToggleBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        moved = false
-        dragStart = input.Position
-        startPos = ToggleBtn.Position
-
-        local conn
-        conn = input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-                conn:Disconnect()
-                if not moved then
-                    isOpen = not isOpen
-                    MainFrame.Visible = isOpen
-                end
-            end
+-- Animasi RGB Bergerak untuk Bar Minimize Atas
+task.spawn(function()
+    while true do
+        task.wait(0.03)
+        pcall(function()
+            local hue = (tick() % 5) / 5
+            local rgbColor = Color3.fromHSV(hue, 1, 1)
+            MinStroke.Color = rgbColor
+            MinBar.TextColor3 = rgbColor
         end)
     end
 end)
 
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        if delta.Magnitude > 6 then
-            moved = true
-        end
-        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-
 ---------------------------------------------------------
--- 2. PANEL UTAMA (Gaya Bawaan Delta Executor)
+-- 2. PANEL UTAMA (Langsung Muncul Otomatis Begitu Dieksekusi)
 ---------------------------------------------------------
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 440, 0, 290)
-MainFrame.Position = UDim2.new(0.5, -220, 0.5, -145)
-MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22) -- Hitam Gelap Elegan Delta
-MainFrame.Visible = false
-MainFrame.ZIndex = 5
+MainFrame.Size = UDim2.new(0, 620, 0, 360)
+MainFrame.Position = UDim2.new(0.5, -310, 0.5, -180)
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+MainFrame.BackgroundTransparency = 0.05
+MainFrame.Visible = true -- Langsung muncul di layar!
+MainFrame.ZIndex = 10
 MainFrame.Parent = ScreenGui
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 8)
-MainCorner.Parent = MainFrame
-
 local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(138, 43, 226) -- Garis Pinggir Ungu Delta
+MainStroke.Color = Color3.fromRGB(255, 255, 255)
 MainStroke.Thickness = 1.5
 MainStroke.Parent = MainFrame
 
--- Top Bar / Header Ala Delta
-local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 38)
-TopBar.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-TopBar.ZIndex = 6
-TopBar.Parent = MainFrame
+-- Efek Animasi RGB Halus pada Border Panel Utama
+task.spawn(function()
+    while true do
+        task.wait(0.03)
+        pcall(function()
+            local hue = (tick() % 5) / 5
+            local rgbColor = Color3.fromHSV(hue, 1, 1)
+            MainStroke.Color = rgbColor
+        end)
+    end
+end)
 
-local TopBarCorner = Instance.new("UICorner")
-TopBarCorner.CornerRadius = UDim.new(0, 8)
-TopBarCorner.Parent = TopBar
+-- Judul Atas "BimSakSin Hub"
+local TitleContainer = Instance.new("Frame")
+TitleContainer.Size = UDim2.new(0, 260, 0, 30)
+TitleContainer.Position = UDim2.new(0.5, -130, 0, -15)
+TitleContainer.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+TitleContainer.ZIndex = 12
+TitleContainer.Parent = MainFrame
 
--- Tutup sudut bawah TopBar
-local FixCover = Instance.new("Frame")
-FixCover.Size = UDim2.new(1, 0, 0, 5)
-FixCover.Position = UDim2.new(0, 0, 1, -5)
-FixCover.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-FixCover.BorderSizePixel = 0
-FixCover.ZIndex = 6
-FixCover.Parent = TopBar
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 1, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "BIMSAKSIN HUB"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize, TitleLabel.Font = 16, Enum.Font.GothamBold
+TitleLabel.ZIndex = 13
+TitleLabel.Parent = TitleContainer
 
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -50, 1, 0)
-Title.Position = UDim2.new(0, 14, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "Delta // BimSakSin Hub v3.0"
-Title.TextColor3 = Color3.fromRGB(220, 220, 230)
-Title.TextSize, Title.Font = 13, Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.ZIndex = 7
-Title.Parent = TopBar
+---------------------------------------------------------
+-- 3. TOMBOL MINIMIZE (-) DAN CLOSE (✕) DI POJOK KANAN ATAS
+---------------------------------------------------------
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 32, 0, 28)
+MinBtn.Position = UDim2.new(1, -75, 0, -14)
+MinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+MinBtn.Text = "-"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextSize, MinBtn.Font = 14, Enum.Font.GothamBold
+MinBtn.ZIndex = 13
+MinBtn.Parent = MainFrame
+
+local MinBtnCorner = Instance.new("UICorner")
+MinBtnCorner.CornerRadius = UDim.new(0, 6)
+MinBtnCorner.Parent = MinBtn
 
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 26, 0, 26)
-CloseBtn.Position = UDim2.new(1, -32, 0, 6)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+CloseBtn.Size = UDim2.new(0, 32, 0, 28)
+CloseBtn.Position = UDim2.new(1, -38, 0, -14)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 60)
 CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 CloseBtn.TextSize, CloseBtn.Font = 12, Enum.Font.GothamBold
-CloseBtn.ZIndex = 7
+CloseBtn.ZIndex = 13
 CloseBtn.Parent = MainFrame
 
 local CloseCorner = Instance.new("UICorner")
@@ -149,54 +137,172 @@ CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseBtn
 
 ---------------------------------------------------------
--- 3. KONTEN / FITUR DALAM PANEL (ScrollingFrame)
+-- 4. SISTEM TAB MENU DI ATAS (VISUALS, COMBAT, MOVEMENT, MISC)
 ---------------------------------------------------------
-local ScrollContainer = Instance.new("ScrollingFrame")
-ScrollContainer.Size = UDim2.new(1, -16, 1, -50)
-ScrollContainer.Position = UDim2.new(0, 8, 0, 44)
-ScrollContainer.BackgroundTransparency = 1
-ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, 400)
-ScrollContainer.ScrollBarThickness = 3
-ScrollContainer.ZIndex = 6
-ScrollContainer.Parent = MainFrame
+local TabsBar = Instance.new("Frame")
+TabsBar.Size = UDim2.new(1, -40, 0, 35)
+TabsBar.Position = UDim2.new(0, 20, 0, 30)
+TabsBar.BackgroundTransparency = 1
+TabsBar.ZIndex = 11
+TabsBar.Parent = MainFrame
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.SortOrder = Enum.SortOrder.LayoutIndex
-UIListLayout.Padding = UDim.new(0, 6)
-UIListLayout.Parent = ScrollContainer
+local TabsLayout = Instance.new("UIListLayout")
+TabsLayout.FillDirection = Enum.FillDirection.Horizontal
+TabsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TabsLayout.SortOrder = Enum.SortOrder.LayoutIndex
+TabsLayout.Padding = UDim.new(0, 25)
+TabsLayout.Parent = TabsBar
 
-local function createToggle(name, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -4, 0, 38)
-    btn.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
-    btn.TextColor3 = Color3.fromRGB(200, 170, 255) -- Aksen Ungu Muda
-    btn.Text = name .. " [ OFF ]"
-    btn.TextSize, btn.Font = 12, Enum.Font.GothamMedium
-    btn.ZIndex = 7
-    btn.Parent = ScrollContainer
+local PagesContainer = Instance.new("Folder")
+PagesContainer.Name = "PagesContainer"
+PagesContainer.Parent = MainFrame
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+local activeTabName = nil
+local pages = {}
 
-    local state = false
-    btn.Activated:Connect(function()
-        state = not state
-        if state then
-            btn.Text = name .. " [ ACTIVE ]"
-            btn.TextColor3 = Color3.fromRGB(100, 255, 150)
-        else
-            btn.Text = name .. " [ OFF ]"
-            btn.TextColor3 = Color3.fromRGB(200, 170, 255)
+local function createTabButton(name)
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Size = UDim2.new(0, 90, 1, 0)
+    tabBtn.BackgroundTransparency = 1
+    tabBtn.Text = name
+    tabBtn.TextColor3 = Color3.fromRGB(140, 140, 140)
+    tabBtn.TextSize, tabBtn.Font = 13, Enum.Font.GothamBold
+    tabBtn.ZIndex = 12
+    tabBtn.Parent = TabsBar
+
+    local pageFrame = Instance.new("ScrollingFrame")
+    pageFrame.Name = name .. "Page"
+    pageFrame.Size = UDim2.new(1, -40, 1, -110)
+    pageFrame.Position = UDim2.new(0, 20, 0, 80)
+    pageFrame.BackgroundTransparency = 1
+    pageFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    pageFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    pageFrame.ScrollBarThickness = 3
+    pageFrame.Visible = false
+    pageFrame.ZIndex = 11
+    pageFrame.Parent = PagesContainer
+
+    local pageLayout = Instance.new("UIListLayout")
+    pageLayout.SortOrder = Enum.SortOrder.LayoutIndex
+    pageLayout.Padding = UDim.new(0, 12)
+    pageLayout.Parent = pageFrame
+
+    pages[name] = pageFrame
+
+    tabBtn.Activated:Connect(function()
+        for _, p in pairs(pages) do p.Visible = false end
+        for _, b in pairs(TabsBar:GetChildren()) do
+            if b:IsA("TextButton") then b.TextColor3 = Color3.fromRGB(140, 140, 140) end
         end
+        pageFrame.Visible = true
+        tabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+
+    if not activeTabName then
+        activeTabName = name
+        pageFrame.Visible = true
+        tabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+
+    return pageFrame
+end
+
+---------------------------------------------------------
+-- 5. PEMBUATAN FITUR DI DALAM TAB
+---------------------------------------------------------
+local function addOptionRow(parentPage, labelText, defaultState, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 42)
+    row.BackgroundTransparency = 1
+    row.ZIndex = 12
+    row.Parent = parentPage
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.6, 0, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = labelText
+    label.TextColor3 = Color3.fromRGB(220, 220, 220)
+    label.TextSize, label.Font = 13, Enum.Font.GothamMedium
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 13
+    label.Parent = row
+
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 160, 0, 34)
+    toggleBtn.Position = UDim2.new(1, -170, 0.5, -17)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    toggleBtn.ZIndex = 13
+    toggleBtn.Parent = row
+
+    local tCorner = Instance.new("UICorner")
+    tCorner.CornerRadius = UDim.new(0, 6)
+    tCorner.Parent = toggleBtn
+
+    local tStroke = Instance.new("UIStroke")
+    tStroke.Color = Color3.fromRGB(80, 80, 80)
+    tStroke.Thickness = 1
+    tStroke.Parent = toggleBtn
+
+    local state = defaultState
+    local function updateVisual()
+        if state then
+            toggleBtn.Text = "<  ACTIVE  >"
+            toggleBtn.TextColor3 = Color3.fromRGB(100, 255, 150)
+        else
+            toggleBtn.Text = "<   OFF   >"
+            toggleBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+        end
+    end
+    updateVisual()
+
+    toggleBtn.Activated:Connect(function()
+        state = not state
+        updateVisual()
         callback(state)
     end)
 end
 
+-- Tab 1: VISUALS
+local visualPage = createTabButton("VISUALS")
+addOptionRow(visualPage, "ESP Survivor (Hijau)", false, function(v) Config.SurvivorESP = v end)
+addOptionRow(visualPage, "ESP Killer (Merah)", false, function(v) Config.KillerESP = v end)
+addOptionRow(visualPage, "ESP Generator (Kuning)", false, function(v) Config.GenESP = v end)
+
+-- Tab 2: COMBAT
+local combatPage = createTabButton("COMBAT")
+addOptionRow(combatPage, "Aimbot Target Terdekat", false, function(v) Config.Aimbot = v end)
+
+-- Tab 3: MOVEMENT
+local movePage = createTabButton("MOVEMENT")
+addOptionRow(movePage, "NoClip (Tembus Tembok)", false, function(v) Config.NoClip = v end)
+addOptionRow(movePage, "Fly Admin Mode", false, function(v) Config.Fly = v end)
+
+-- Tab 4: MISC
+local miscPage = createTabButton("MISC")
+addOptionRow(miscPage, "Auto Generator Proximity", false, function(v) Config.AutoGenerator = v end)
+
 ---------------------------------------------------------
--- 4. DAFTAR FITUR UTAMA
+-- 6. INTERAKSI MINIMIZE / CLOSE
 ---------------------------------------------------------
-local Config = {
+MinBtn.Activated:Connect(function()
+    MainFrame.Visible = false
+    MinBar.Visible = true
+end)
+
+CloseBtn.Activated:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+MinBar.Activated:Connect(function()
+    MinBar.Visible = false
+    MainFrame.Visible = true
+end)
+
+---------------------------------------------------------
+-- 7. CONFIG & LOGIKA FITUR UTAMA
+---------------------------------------------------------
+Config = {
     SurvivorESP = false,
     KillerESP = false,
     GenESP = false,
@@ -220,62 +326,21 @@ local function createHighlight(obj, fillColor)
     end)
 end
 
-createToggle("ESP Survivor (Hijau)", function(v) Config.SurvivorESP = v end)
-createToggle("ESP Killer (Merah)", function(v) Config.KillerESP = v end)
-createToggle("ESP Generator (Kuning)", function(v) Config.GenESP = v end)
-createToggle("Aimbot Target Terdekat", function(v) Config.Aimbot = v end)
-
-createToggle("Auto Generator Proximity", function(v)
-    Config.AutoGenerator = v
-    task.spawn(function()
-        while Config.AutoGenerator do
-            task.wait(0.3)
-            pcall(function()
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        pcall(function()
+            if Config.AutoGenerator then
                 for _, prompt in ipairs(Workspace:GetDescendants()) do
                     if prompt:IsA("ProximityPrompt") and prompt.Parent and prompt.Parent.Name:lower():find("generator") then
                         fireproximityprompt(prompt)
                     end
                 end
-            end)
-        end
-    end)
+            end
+        end)
+    end
 end)
 
-createToggle("NoClip (Tembus Tembok)", function(v) Config.NoClip = v end)
-
-createToggle("Fly Admin Mode", function(v)
-    Config.Fly = v
-    pcall(function()
-        local char = LocalPlayer.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        local hrp = char.HumanoidRootPart
-        if Config.Fly then
-            local bv = Instance.new("BodyVelocity")
-            bv.Name = "BSS_FlyVel"
-            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bv.Velocity = Vector3.new(0,0,0)
-            bv.Parent = hrp
-            local bg = Instance.new("BodyGyro")
-            bg.Name = "BSS_FlyGyro"
-            bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-            bg.CFrame = hrp.CFrame
-            bg.Parent = hrp
-            task.spawn(function()
-                while Config.Fly and hrp and hrp.Parent do
-                    bv.Velocity = Camera.CFrame.LookVector * Config.FlySpeed
-                    bg.CFrame = Camera.CFrame
-                    task.wait()
-                end
-                if bv then bv:Destroy() end
-                if bg then bg:Destroy() end
-            end)
-        end
-    end)
-end)
-
----------------------------------------------------------
--- 5. LOOP UTAMA (ESP, Aimbot, NoClip)
----------------------------------------------------------
 RunService.RenderStepped:Connect(function()
     pcall(function()
         if Config.NoClip and LocalPlayer.Character then
@@ -324,12 +389,4 @@ RunService.RenderStepped:Connect(function()
     end)
 end)
 
----------------------------------------------------------
--- 6. TOMBOL CLOSE
----------------------------------------------------------
-CloseBtn.Activated:Connect(function()
-    isOpen = false
-    MainFrame.Visible = false
-end)
-
-print("BimSakSin Hub Delta Style Berhasil Dijalankan!")
+print("BimSakSin Hub Direct Menu & RGB Bar Berhasil Dijalankan!")

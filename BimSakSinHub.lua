@@ -1,37 +1,70 @@
---[[
-    BimSakSin Hub v4.5 - Professional Interactive Roblox UI
-    Kompatibel dengan: Mobile (Touch) & PC (Mouse/Keyboard)
-    Pembaruan v4.5:
-    - Auto Farm Generator Beruntun (Otomatis TP ke Generator 0% -> Interaksi -> Auto Perfect -> Pindah saat 100%)
-    - Kontrol Mode Target Auto Farm, Jeda Pindah Antar Generator, & Proteksi Anti-Macet
-    - Keybind Keyboard Kustom untuk TP Cepat Generator (Default: G) & Toggle Auto Farm (Default: H)
-    - Auto Perfect Skill Check (Deteksi Bar Linear & Jarum Radial, Kompensasi Ping, & Kalibrasi Offset)
-    - Penyimpanan otomatis JSON (writefile / readfile) untuk seluruh keybind & pengaturan baru
-]]
+-- BimSakSin Hub v4.5 (Fixed & Hardened Edition)
+-- Kompatibel dengan Mobile Executor (Delta, Codex, Arceus X, Fluxus) & PC
 
-local Players = game:GetService("Players")
-local Teams = game:GetService("Teams")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
-local Stats = game:GetService("Stats")
-local GuiService = game:GetService("GuiService")
-local TeleportService = game:GetService("TeleportService")
-local HttpService = game:GetService("HttpService")
+local function safeGetService(serviceName)
+    local ok, svc = pcall(function()
+        return game:GetService(serviceName)
+    end)
+    return ok and svc or nil
+end
 
+local Players = safeGetService("Players")
+local Teams = safeGetService("Teams")
+local TweenService = safeGetService("TweenService")
+local UserInputService = safeGetService("UserInputService")
+local RunService = safeGetService("RunService")
+local Lighting = safeGetService("Lighting")
+local Stats = safeGetService("Stats")
+local GuiService = safeGetService("GuiService")
+local TeleportService = safeGetService("TeleportService")
+local HttpService = safeGetService("HttpService")
+
+if not Players then
+    warn("[BimSakSin Hub] Service Players tidak tersedia.")
+    return
+end
+
+-- Penantian LocalPlayer anti-hang
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+local waitStart = os.clock()
+while not LocalPlayer and (os.clock() - waitStart) < 15 do
+    task.wait(0.05)
     LocalPlayer = Players.LocalPlayer
 end
 
--- Menentukan parent GUI yang aman (CoreGui dengan fallback ke PlayerGui)
+if not LocalPlayer then
+    warn("[BimSakSin Hub] Gagal mendeteksi LocalPlayer.")
+    return
+end
+
+-- Helper waktu aman (anti nil jika os.date dibatasi executor)
+local function getSafeTimeString()
+    if type(os) == "table" and type(os.date) == "function" then
+        local ok, formatted = pcall(os.date, "%H:%M:%S")
+        if ok and type(formatted) == "string" then
+            return formatted
+        end
+    end
+    local totalSec = math.floor(workspace.DistributedGameTime or 0)
+    local hrs = math.floor(totalSec / 3600) % 24
+    local mins = math.floor(totalSec / 60) % 60
+    local secs = totalSec % 60
+    return string.format("%02d:%02d:%02d", hrs, mins, secs)
+end
+
+-- Menentukan parent GUI paling aman (Prioritas gethui() -> CoreGui -> PlayerGui)
 local function getSafeGuiParent()
-    local ok, coreGui = pcall(function()
+    if type(gethui) == "function" then
+        local ok, hiddenUi = pcall(gethui)
+        if ok and typeof(hiddenUi) == "Instance" then
+            return hiddenUi
+        end
+    end
+
+    local okCore, coreGui = pcall(function()
         return game:GetService("CoreGui")
     end)
-    if ok and coreGui then
+    if okCore and coreGui then
         local testSuccess = pcall(function()
             local probe = Instance.new("Folder")
             probe.Parent = coreGui
@@ -41,20 +74,28 @@ local function getSafeGuiParent()
             return coreGui
         end
     end
-    return LocalPlayer:WaitForChild("PlayerGui")
+
+    return LocalPlayer:WaitForChild("PlayerGui", 10)
 end
 
 local GuiParent = getSafeGuiParent()
+if not GuiParent then
+    warn("[BimSakSin Hub] Tidak menemukan parent GUI yang valid.")
+    return
+end
+
 local UI_NAME = "BimSakSinHub_UI"
 
 -- Hapus instance lama jika script dijalankan ulang agar tidak bertumpuk
 local existingGui = GuiParent:FindFirstChild(UI_NAME)
 if existingGui then
-    existingGui:Destroy()
+    pcall(function()
+        existingGui:Destroy()
+    end)
 end
 
 -- ============================================================================
--- SISTEM SAVE & LOAD CONFIG OTOMATIS (JSON FILESYSTEM)
+-- SISTEM SAVE & LOAD CONFIG OTOMATIS (JSON FILESYSTEM - ANTI CRASH)
 -- ============================================================================
 local CONFIG_FOLDER = "BimSakSinHub"
 local GLOBAL_CONFIG_PATH = CONFIG_FOLDER .. "/global_config.json"
@@ -67,7 +108,7 @@ local DefaultConfig = {
     WatermarkCorner = "Kiri Atas",
     WindowLocked = false,
 
-    -- Keybinds (nama Enum.KeyCode, "" jika dihapus)
+    -- Keybinds
     ToggleUIKey = "RightShift",
     FlyKey = "F",
     NoclipKey = "N",
@@ -148,8 +189,11 @@ local function safeIsFile(path)
         local ok, exists = pcall(isfile, path)
         return ok and exists == true
     end
-    local ok, content = pcall(readfile, path)
-    return ok and type(content) == "string" and content ~= ""
+    if type(readfile) == "function" then
+        local ok, content = pcall(readfile, path)
+        return ok and type(content) == "string" and content ~= ""
+    end
+    return false
 end
 
 local function resolveKeyCodeFromName(keyName)
@@ -170,57 +214,59 @@ function ConfigManager:Load()
     table.clear(SavedWaypointsData)
     self.LoadedFromDisk = false
 
-    if not self.Supported then
+    if not self.Supported or not HttpService then
         return
     end
 
-    ensureConfigFolder()
+    pcall(function()
+        ensureConfigFolder()
 
-    if safeIsFile(GLOBAL_CONFIG_PATH) then
-        local okRead, rawJson = pcall(readfile, GLOBAL_CONFIG_PATH)
-        if okRead and type(rawJson) == "string" and rawJson ~= "" then
-            local okDecode, parsed = pcall(function()
-                return HttpService:JSONDecode(rawJson)
-            end)
-            if okDecode and type(parsed) == "table" then
-                for key, defaultVal in pairs(DefaultConfig) do
-                    if parsed[key] ~= nil and type(parsed[key]) == type(defaultVal) then
-                        ConfigData[key] = parsed[key]
+        if safeIsFile(GLOBAL_CONFIG_PATH) then
+            local okRead, rawJson = pcall(readfile, GLOBAL_CONFIG_PATH)
+            if okRead and type(rawJson) == "string" and rawJson ~= "" then
+                local okDecode, parsed = pcall(function()
+                    return HttpService:JSONDecode(rawJson)
+                end)
+                if okDecode and type(parsed) == "table" then
+                    for key, defaultVal in pairs(DefaultConfig) do
+                        if parsed[key] ~= nil and type(parsed[key]) == type(defaultVal) then
+                            ConfigData[key] = parsed[key]
+                        end
                     end
-                end
-                self.LoadedFromDisk = true
-            end
-        end
-    end
-
-    if safeIsFile(WAYPOINT_CONFIG_PATH) then
-        local okRead, rawWpJson = pcall(readfile, WAYPOINT_CONFIG_PATH)
-        if okRead and type(rawWpJson) == "string" and rawWpJson ~= "" then
-            local okDecode, parsedList = pcall(function()
-                return HttpService:JSONDecode(rawWpJson)
-            end)
-            if okDecode and type(parsedList) == "table" then
-                for _, item in ipairs(parsedList) do
-                    if type(item) == "table"
-                        and type(item.Name) == "string"
-                        and type(item.X) == "number"
-                        and type(item.Y) == "number"
-                        and type(item.Z) == "number" then
-                        table.insert(SavedWaypointsData, {
-                            Name = item.Name,
-                            X = item.X,
-                            Y = item.Y,
-                            Z = item.Z,
-                        })
-                    end
+                    self.LoadedFromDisk = true
                 end
             end
         end
-    end
+
+        if safeIsFile(WAYPOINT_CONFIG_PATH) then
+            local okRead, rawWpJson = pcall(readfile, WAYPOINT_CONFIG_PATH)
+            if okRead and type(rawWpJson) == "string" and rawWpJson ~= "" then
+                local okDecode, parsedList = pcall(function()
+                    return HttpService:JSONDecode(rawWpJson)
+                end)
+                if okDecode and type(parsedList) == "table" then
+                    for _, item in ipairs(parsedList) do
+                        if type(item) == "table"
+                            and type(item.Name) == "string"
+                            and type(item.X) == "number"
+                            and type(item.Y) == "number"
+                            and type(item.Z) == "number" then
+                            table.insert(SavedWaypointsData, {
+                                Name = item.Name,
+                                X = item.X,
+                                Y = item.Y,
+                                Z = item.Z,
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end)
 end
 
 function ConfigManager:SaveNow(sourceWaypointsList)
-    if not self.Supported then
+    if not self.Supported or not HttpService then
         return false, "Executor tidak mendukung writefile"
     end
 
@@ -251,7 +297,7 @@ function ConfigManager:SaveNow(sourceWaypointsList)
     end)
 
     if okGlobal and okWp then
-        local timestamp = os.date("%H:%M:%S")
+        local timestamp = getSafeTimeString()
         if self.OnStatusChanged then
             self.OnStatusChanged("Tersimpan (" .. timestamp .. ")")
         end
@@ -321,12 +367,16 @@ local ActiveKeybindCapture = nil
 local CancelActiveKeybindFn = nil
 
 local function trackConnection(conn)
-    table.insert(Connections, conn)
+    if conn then
+        table.insert(Connections, conn)
+    end
     return conn
 end
 
 local function registerCleanup(fn)
-    table.insert(CleanupCallbacks, fn)
+    if type(fn) == "function" then
+        table.insert(CleanupCallbacks, fn)
+    end
 end
 
 local function registerAccent(instance, property)
@@ -384,7 +434,6 @@ local function addStroke(parent, color, thickness)
     })
 end
 
--- ScreenGui Utama
 local ScreenGui = createInstance("ScreenGui", {
     Name = UI_NAME,
     ResetOnSpawn = false,
@@ -393,7 +442,6 @@ local ScreenGui = createInstance("ScreenGui", {
     Parent = GuiParent,
 })
 
--- Kontainer Garis Tracer ESP (Lapisan paling bawah agar tidak menutupi panel UI)
 local TracerOverlay = createInstance("Frame", {
     Name = "TracerOverlayLayer",
     Size = UDim2.new(1, 0, 1, 0),
@@ -403,7 +451,6 @@ local TracerOverlay = createInstance("Frame", {
     Parent = ScreenGui,
 })
 
--- Kontainer Notifikasi Toast (Kanan Bawah)
 local NotifyContainer = createInstance("Frame", {
     Name = "NotificationContainer",
     Size = UDim2.new(0, 285, 1, -24),
@@ -497,7 +544,6 @@ function BimSakSinUI:Notify(options)
     end)
 end
 
--- Fungsi Drag Universal dengan Clamping Batas Layar (Mobile & PC)
 local function makeDraggable(dragHandle, targetFrame, checkLock)
     local dragging = false
     local dragInput = nil
@@ -558,7 +604,7 @@ local function makeDraggable(dragHandle, targetFrame, checkLock)
 end
 
 -- ============================================================================
--- WATERMARK HUD ELEGAN (SUDUT LAYAR: JUDUL • FPS • PING • WAKTU REAL-TIME)
+-- WATERMARK HUD ELEGAN
 -- ============================================================================
 local WatermarkPositions = {
     ["Kiri Atas"]   = { Anchor = Vector2.new(0, 0), Pos = UDim2.new(0, 16, 0, 56) },
@@ -685,7 +731,7 @@ local wmTimeLabel = createInstance("TextLabel", {
     AutomaticSize = Enum.AutomaticSize.X,
     BackgroundTransparency = 1,
     Font = Enum.Font.GothamSemibold,
-    Text = os.date("%H:%M:%S"),
+    Text = getSafeTimeString(),
     TextColor3 = Palette.TextSecondary,
     TextSize = 12,
     Parent = WatermarkFrame,
@@ -2181,7 +2227,7 @@ TabDashboard:AddButton({
     Callback = function()
         local placeStr = tostring(game.PlaceId)
         local copied = pcall(function()
-            if setclipboard then
+            if type(setclipboard) == "function" then
                 setclipboard(placeStr)
             else
                 error("Clipboard API tidak tersedia")
@@ -2220,7 +2266,7 @@ TabDashboard:AddButton({
             return
         end
         local copied = pcall(function()
-            if setclipboard then
+            if type(setclipboard) == "function" then
                 setclipboard(jobStr)
             else
                 error("Clipboard API tidak tersedia")
@@ -3194,8 +3240,18 @@ local function getFallbackHighlightColor()
     return HighlightColors[VisualESP.FallbackColorOption] or Palette.Accent
 end
 
+local function getTeamCount()
+    if not Teams then
+        return 0
+    end
+    local ok, list = pcall(function()
+        return Teams:GetTeams()
+    end)
+    return (ok and type(list) == "table") and #list or 0
+end
+
 local function getMarkerColorForPlayer(plr)
-    if VisualESP.AutoTeamColor and #Teams:GetTeams() > 0 and plr and not plr.Neutral then
+    if VisualESP.AutoTeamColor and getTeamCount() > 0 and plr and not plr.Neutral then
         if plr.Team and plr.Team.TeamColor then
             return plr.Team.TeamColor.Color
         elseif plr.TeamColor then
@@ -3345,7 +3401,7 @@ local function applyMarkerToCharacter(plr, char)
             bb.Parent = head
 
             local displayTitle = plr.DisplayName
-            if VisualESP.AutoTeamColor and #Teams:GetTeams() > 0 and not plr.Neutral and plr.Team then
+            if VisualESP.AutoTeamColor and getTeamCount() > 0 and not plr.Neutral and plr.Team then
                 displayTitle = string.format("[%s] %s", plr.Team.Name, plr.DisplayName)
             end
 
@@ -3465,7 +3521,6 @@ local GeneratorESP = {
     SkillMode = ConfigData.GenSkillMode,
     TimingOffset = ConfigData.GenTimingOffset,
 
-    -- Properti Auto Farm Generator
     AutoFarm = false,
     FarmTargetMode = ConfigData.AutoFarmTargetMode,
     FarmDelay = ConfigData.AutoFarmDelay,
@@ -3482,7 +3537,7 @@ local GeneratorESP = {
     LastSkillTriggerTick = 0,
     LastInteractTick = 0,
     LastNotifiedPerfectTick = 0,
-    Tracked = {}, -- [Instance] = { RootPart, Billboard, Stroke, TitleLabel, StatusLabel, Highlight, LastPct, LastActiveTick }
+    Tracked = {},
     SummaryCard = nil,
     AutoStatusCard = nil,
 }
@@ -3501,10 +3556,10 @@ local GEN_IGNORE_KEYWORDS = {
 }
 
 local STATUS_COLORS = {
-    Working   = Color3.fromRGB(250, 204, 21), -- Kuning Terang: Sedang dikerjakan pemain lain
-    Untouched = Color3.fromRGB(248, 113, 113), -- Merah Coral: Belum dikerjakan sama sekali (0%)
-    Partial   = Color3.fromRGB(56, 189, 248),  -- Biru Sky: Sebagian (1-99%), sedang kosong
-    Completed = Color3.fromRGB(52, 211, 153),  -- Hijau Emerald: Selesai (100%)
+    Working   = Color3.fromRGB(250, 204, 21),
+    Untouched = Color3.fromRGB(248, 113, 113),
+    Partial   = Color3.fromRGB(56, 189, 248),
+    Completed = Color3.fromRGB(52, 211, 153),
 }
 
 local function isGeneratorCandidate(inst)
@@ -3543,7 +3598,6 @@ local function isGeneratorCandidate(inst)
         return false
     end
 
-    -- Hindari duplikasi anak bagian dalam Model generator yang sudah terdeteksi
     local parent = inst.Parent
     while parent and parent ~= workspace do
         local pLower = string.lower(parent.Name)
@@ -4023,12 +4077,14 @@ local function firePerfectSkillCheckInput(container)
     -- 1. Simulasi tombol Space (PC Standard Skill Check)
     pcall(function()
         local vim = game:GetService("VirtualInputManager")
-        vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-        task.delay(0.03, function()
-            pcall(function()
-                vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+        if vim then
+            vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            task.delay(0.03, function()
+                pcall(function()
+                    vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                end)
             end)
-        end)
+        end
     end)
 
     -- 2. Aktivasi tombol interaksi di layar (Mobile Touch Skill Check Button)
@@ -4038,11 +4094,13 @@ local function firePerfectSkillCheckInput(container)
     end
 
     for _, root in ipairs(searchRoots) do
-        for _, obj in ipairs(root:GetDescendants()) do
-            if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible and obj.Active then
-                if type(firesignal) == "function" then
-                    pcall(firesignal, obj.MouseButton1Click)
-                    pcall(firesignal, obj.Activated)
+        if root then
+            for _, obj in ipairs(root:GetDescendants()) do
+                if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible and obj.Active then
+                    if type(firesignal) == "function" then
+                        pcall(firesignal, obj.MouseButton1Click)
+                        pcall(firesignal, obj.Activated)
+                    end
                 end
             end
         end
@@ -4116,7 +4174,6 @@ local function evaluateSkillCheckContainers(currentPingMs)
                 end
 
                 if needleObj and targetZoneObj then
-                    -- Deteksi Mode 1: Radial / Jarum Berputar
                     local isSquareRadial = math.abs(cSize.X - cSize.Y) <= math.max(cSize.X, cSize.Y) * 0.35
                     if isSquareRadial and (needleObj.Rotation ~= 0 or targetZoneObj.Rotation ~= 0) then
                         local nRot = (needleObj.Rotation + compensation) % 360
@@ -4127,7 +4184,6 @@ local function evaluateSkillCheckContainers(currentPingMs)
                             return
                         end
                     else
-                        -- Deteksi Mode 2: Bar Linear Horizontal atau Vertikal
                         local nPos = needleObj.AbsolutePosition
                         local nSize = needleObj.AbsoluteSize
                         local zPos = targetZoneObj.AbsolutePosition
@@ -4164,18 +4220,22 @@ local function triggerPromptOnGenerator(genInst)
     for _, desc in ipairs(genInst:GetDescendants()) do
         if desc:IsA("ProximityPrompt") and desc.Enabled then
             if type(fireproximityprompt) == "function" then
-                pcall(fireproximityprompt, desc)
-            else
-                pcall(function()
-                    desc:InputHoldBegin()
-                    task.delay(math.min(desc.HoldDuration, 0.15), function()
-                        pcall(function()
-                            desc:InputHoldEnd()
-                        end)
+                local ok = pcall(fireproximityprompt, desc)
+                if ok then
+                    return true
+                end
+            end
+            local okHold = pcall(function()
+                desc:InputHoldBegin()
+                task.delay(math.min(desc.HoldDuration, 0.15), function()
+                    pcall(function()
+                        desc:InputHoldEnd()
                     end)
                 end)
+            end)
+            if okHold then
+                return true
             end
-            return true
         end
     end
     return false
@@ -4196,7 +4256,6 @@ local function autoInteractNearbyGenerators()
         return
     end
 
-    -- Jika Auto Farm memiliki target spesifik, prioritaskan interaksi pada target tersebut
     if GeneratorESP.AutoFarm and GeneratorESP.CurrentFarmTarget and GeneratorESP.CurrentFarmTarget.Parent then
         local targetEntry = GeneratorESP.Tracked[GeneratorESP.CurrentFarmTarget]
         if targetEntry and targetEntry.RootPart and targetEntry.RootPart.Parent then
@@ -4411,7 +4470,6 @@ local function selectNextAutoFarmGenerator(myPos, now)
     elseif mode == "Semua Generator Belum 100%" then
         return searchCandidates(false)
     else
-        -- Default: "Prioritas 0% (Fallback <100%)"
         local g, e, i, d = searchCandidates(true)
         if g then
             return g, e, i, d
@@ -4448,7 +4506,6 @@ local function stepAutoFarmGenerator()
         scanWorkspaceForGenerators(false)
     end
 
-    -- 1. Validasi target yang sedang dikerjakan saat ini
     local activeTarget = GeneratorESP.CurrentFarmTarget
     if activeTarget then
         local activeEntry = GeneratorESP.Tracked[activeTarget]
@@ -4458,7 +4515,6 @@ local function stepAutoFarmGenerator()
         else
             local info = extractGeneratorTelemetry(activeTarget, activeEntry.RootPart, activeEntry)
             if info.Category == "Completed" or info.Percent >= 100 then
-                -- Generator saat ini telah mencapai 100% -> Pindah ke generator 0% berikutnya!
                 local finishedName = activeTarget.Name
                 GeneratorESP.CurrentFarmTarget = nil
                 GeneratorESP.FarmCompletedCount = GeneratorESP.FarmCompletedCount + 1
@@ -4476,7 +4532,6 @@ local function stepAutoFarmGenerator()
                 return
             end
 
-            -- Cek kemajuan progres (Anti-Macet)
             if info.Percent > GeneratorESP.CurrentFarmLastPct then
                 GeneratorESP.CurrentFarmLastPct = info.Percent
                 GeneratorESP.CurrentFarmProgressTick = now
@@ -4494,7 +4549,6 @@ local function stepAutoFarmGenerator()
         end
     end
 
-    -- 2. Jika belum ada target aktif, pilih generator 0% berikutnya
     if not GeneratorESP.CurrentFarmTarget then
         local nextGen, nextEntry, nextInfo, nextDist = selectNextAutoFarmGenerator(myHRP.Position, now)
         if not nextGen then
@@ -4532,7 +4586,6 @@ local function stepAutoFarmGenerator()
         return
     end
 
-    -- 3. Pertahankan posisi karakter tetap berada di depan generator target selama pengerjaan
     local target = GeneratorESP.CurrentFarmTarget
     local entry = GeneratorESP.Tracked[target]
     if target and entry and entry.RootPart then
@@ -4619,7 +4672,7 @@ TabVisual:AddToggle({
     Callback = function(state)
         VisualESP.HighlightEnabled = state
         refreshAllPlayerMarkers()
-        local infoTim = (VisualESP.AutoTeamColor and #Teams:GetTeams() > 0)
+        local infoTim = (VisualESP.AutoTeamColor and getTeamCount() > 0)
             and " (mengikuti warna Team)."
             or "."
         BimSakSinUI:Notify({
@@ -4687,7 +4740,7 @@ local autoTeamToggle = TabVisual:AddToggle({
         ConfigData.AutoTeamColor = state
         updateAllMarkerColors()
         ConfigManager:ScheduleSave()
-        local hasTeams = #Teams:GetTeams() > 0
+        local hasTeams = getTeamCount() > 0
         BimSakSinUI:Notify({
             Title = "Mode Warna Team",
             Message = state
@@ -5205,8 +5258,10 @@ trackConnection(LocalPlayer.Idled:Connect(function()
 
     local ok = pcall(function()
         local virtualUser = game:GetService("VirtualUser")
-        virtualUser:CaptureController()
-        virtualUser:ClickButton2(Vector2.new())
+        if virtualUser then
+            virtualUser:CaptureController()
+            virtualUser:ClickButton2(Vector2.new())
+        end
     end)
 
     if ok then
@@ -5225,6 +5280,10 @@ TabSettings:AddSection("Pindah Server (Server Hop & JobId)")
 local serverHopStatusCard = TabSettings:AddInfoCard("Status Pindah Server", "Siap")
 
 local function httpGetPublicServers(sortOrder)
+    if not HttpService then
+        return nil, "HttpService tidak tersedia."
+    end
+
     local url = string.format(
         "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=%s&limit=100&excludeFullGames=true",
         game.PlaceId,
@@ -5238,7 +5297,7 @@ local function httpGetPublicServers(sortOrder)
 
     if not okGet or not rawBody or rawBody == "" then
         local reqFn = request or http_request or (syn and syn.request) or (fluxus and fluxus.request)
-        if reqFn then
+        if type(reqFn) == "function" then
             local okReq, res = pcall(function()
                 return reqFn({ Url = url, Method = "GET" })
             end)
@@ -5605,84 +5664,88 @@ local function executeServerRejoin(isAutomatic, reasonText)
     end)
 end
 
-trackConnection(TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
-    if player ~= LocalPlayer then
-        return
-    end
-
-    if isServerHopping then
-        hopRetryCount = hopRetryCount + 1
-        if hopRetryCount <= MAX_HOP_RETRIES and #hopCandidatePool > 0 then
-            local nextIdx = (serverHopMode == "Server Acak (Random)") and math.random(1, #hopCandidatePool) or 1
-            local nextServer = table.remove(hopCandidatePool, nextIdx)
-            serverHopStatusCard:SetValue(string.format("Mencoba Server Lain (%d/%d)...", hopRetryCount, MAX_HOP_RETRIES))
-            BimSakSinUI:Notify({
-                Title = "Server Tujuan Penuh",
-                Message = string.format("Mengalihkan ke server cadangan (%d/%d pemain)...", nextServer.playing, nextServer.maxPlayers),
-                Duration = 2.5,
-            })
-            task.delay(1.5, function()
-                if isServerHopping then
-                    pcall(function()
-                        TeleportService:TeleportToPlaceInstance(game.PlaceId, nextServer.id, LocalPlayer)
-                    end)
-                end
-            end)
-        else
-            isServerHopping = false
-            table.clear(hopCandidatePool)
-            serverHopStatusCard:SetValue("Gagal Pindah Server")
-            BimSakSinUI:Notify({
-                Title = "Gagal Masuk Server",
-                Message = "Tidak berhasil masuk ke server tujuan: " .. tostring(errorMessage),
-                Duration = 4,
-            })
+if TeleportService then
+    trackConnection(TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
+        if player ~= LocalPlayer then
+            return
         end
-        return
-    end
 
-    if isRejoining then
-        rejoinRetryCount = rejoinRetryCount + 1
-        if rejoinRetryCount <= MAX_REJOIN_RETRIES then
-            autoRejoinStatusCard:SetValue(string.format("Mencoba Server Publik (%d/%d)...", rejoinRetryCount, MAX_REJOIN_RETRIES))
-            BimSakSinUI:Notify({
-                Title = "Server Lama Penuh / Tutup",
-                Message = "Mengalihkan otomatis ke server publik yang tersedia...",
-                Duration = 3,
-            })
-            task.delay(2, function()
-                if isRejoining then
-                    pcall(function()
-                        TeleportService:Teleport(game.PlaceId, LocalPlayer)
-                    end)
-                end
-            end)
-        else
-            isRejoining = false
-            autoRejoinStatusCard:SetValue(autoRejoinEnabled and "Siaga (Batas Coba Tercapai)" or "Nonaktif")
-            BimSakSinUI:Notify({
-                Title = "Auto-Rejoin Berhenti",
-                Message = "Gagal masuk setelah " .. tostring(MAX_REJOIN_RETRIES) .. " percobaan: " .. tostring(errorMessage),
-                Duration = 4,
-            })
+        if isServerHopping then
+            hopRetryCount = hopRetryCount + 1
+            if hopRetryCount <= MAX_HOP_RETRIES and #hopCandidatePool > 0 then
+                local nextIdx = (serverHopMode == "Server Acak (Random)") and math.random(1, #hopCandidatePool) or 1
+                local nextServer = table.remove(hopCandidatePool, nextIdx)
+                serverHopStatusCard:SetValue(string.format("Mencoba Server Lain (%d/%d)...", hopRetryCount, MAX_HOP_RETRIES))
+                BimSakSinUI:Notify({
+                    Title = "Server Tujuan Penuh",
+                    Message = string.format("Mengalihkan ke server cadangan (%d/%d pemain)...", nextServer.playing, nextServer.maxPlayers),
+                    Duration = 2.5,
+                })
+                task.delay(1.5, function()
+                    if isServerHopping then
+                        pcall(function()
+                            TeleportService:TeleportToPlaceInstance(game.PlaceId, nextServer.id, LocalPlayer)
+                        end)
+                    end
+                end)
+            else
+                isServerHopping = false
+                table.clear(hopCandidatePool)
+                serverHopStatusCard:SetValue("Gagal Pindah Server")
+                BimSakSinUI:Notify({
+                    Title = "Gagal Masuk Server",
+                    Message = "Tidak berhasil masuk ke server tujuan: " .. tostring(errorMessage),
+                    Duration = 4,
+                })
+            end
+            return
         end
-    end
-end))
 
-trackConnection(GuiService.ErrorMessageChanged:Connect(function()
-    if not autoRejoinEnabled or isRejoining or isServerHopping then
-        return
-    end
-    local errCode = GuiService:GetErrorCode()
-    local errMsg = GuiService:GetErrorMessage()
-    if errCode ~= Enum.ConnectionError.OK or (errMsg and errMsg ~= "") then
-        executeServerRejoin(true, "Error Koneksi Terdeteksi")
-    end
-end))
+        if isRejoining then
+            rejoinRetryCount = rejoinRetryCount + 1
+            if rejoinRetryCount <= MAX_REJOIN_RETRIES then
+                autoRejoinStatusCard:SetValue(string.format("Mencoba Server Publik (%d/%d)...", rejoinRetryCount, MAX_REJOIN_RETRIES))
+                BimSakSinUI:Notify({
+                    Title = "Server Lama Penuh / Tutup",
+                    Message = "Mengalihkan otomatis ke server publik yang tersedia...",
+                    Duration = 3,
+                })
+                task.delay(2, function()
+                    if isRejoining then
+                        pcall(function()
+                            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                        end)
+                    end
+                end)
+            else
+                isRejoining = false
+                autoRejoinStatusCard:SetValue(autoRejoinEnabled and "Siaga (Batas Coba Tercapai)" or "Nonaktif")
+                BimSakSinUI:Notify({
+                    Title = "Auto-Rejoin Berhenti",
+                    Message = "Gagal masuk setelah " .. tostring(MAX_REJOIN_RETRIES) .. " percobaan: " .. tostring(errorMessage),
+                    Duration = 4,
+                })
+            end
+        end
+    end))
+end
+
+if GuiService then
+    trackConnection(GuiService.ErrorMessageChanged:Connect(function()
+        if not autoRejoinEnabled or isRejoining or isServerHopping then
+            return
+        end
+        local errCode = GuiService:GetErrorCode()
+        local errMsg = GuiService:GetErrorMessage()
+        if errCode ~= Enum.ConnectionError.OK or (errMsg and errMsg ~= "") then
+            executeServerRejoin(true, "Error Koneksi Terdeteksi")
+        end
+    end))
+end
 
 pcall(function()
     local coreGui = game:GetService("CoreGui")
-    local promptGui = coreGui:FindFirstChild("RobloxPromptGui")
+    local promptGui = coreGui and coreGui:FindFirstChild("RobloxPromptGui")
     local promptOverlay = promptGui and promptGui:FindFirstChild("promptOverlay")
     if promptOverlay then
         trackConnection(promptOverlay.ChildAdded:Connect(function(child)
@@ -5902,7 +5965,6 @@ end))
 rebuildPlayerList()
 refreshAllPlayerMarkers()
 
--- Listener Infinite Jump Aman
 trackConnection(UserInputService.JumpRequest:Connect(function()
     if not infiniteJumpEnabled or flyEnabled then
         return
@@ -5932,7 +5994,6 @@ trackConnection(UserInputService.JumpRequest:Connect(function()
     hum:ChangeState(Enum.HumanoidStateType.Jumping)
 end))
 
--- Loop Stepped menggunakan Cache BasePart
 trackConnection(RunService.Stepped:Connect(function()
     if not noclipEnabled then
         return
@@ -5952,7 +6013,9 @@ end))
 
 local cachedDataPingItem = nil
 pcall(function()
-    cachedDataPingItem = Stats.Network.ServerStatsItem["Data Ping"]
+    if Stats and Stats.Network and Stats.Network.ServerStatsItem then
+        cachedDataPingItem = Stats.Network.ServerStatsItem["Data Ping"]
+    end
 end)
 
 local lastKnownPingMs = 0
@@ -6123,28 +6186,23 @@ trackConnection(RunService.RenderStepped:Connect(function(dt)
     genRescanTimer = genRescanTimer + dt
     autoFarmTickTimer = autoFarmTickTimer + dt
 
-    -- Evaluasi Auto Perfect Skill Check setiap frame agar akurasi presisi
     if GeneratorESP.AutoPerfect or GeneratorESP.AutoFarm then
         evaluateSkillCheckContainers(lastKnownPingMs)
     end
 
-    -- Auto Interaksi Prompt Generator saat berada di dekat objek
     if GeneratorESP.AutoInteract or GeneratorESP.AutoFarm then
         autoInteractNearbyGenerators()
     end
 
-    -- Eksekusi siklus Auto Farm Generator setiap 0.25 detik
     if GeneratorESP.AutoFarm and autoFarmTickTimer >= 0.25 then
         autoFarmTickTimer = 0
         stepAutoFarmGenerator()
     end
 
-    -- Update posisi garis Tracer ESP setiap frame agar mulus 60+ FPS
     if VisualESP.TracerEnabled then
         updateTracerLinesFrame()
     end
 
-    -- Kalkulasi Fisika Fly Mode Halus (PC & Mobile)
     if flyEnabled then
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -6250,7 +6308,7 @@ trackConnection(RunService.RenderStepped:Connect(function(dt)
         end
 
         if wmTimeLabel and wmTimeLabel.Parent then
-            wmTimeLabel.Text = os.date("%H:%M:%S")
+            wmTimeLabel.Text = getSafeTimeString()
         end
 
         playerCountCard:SetValue(tostring(#Players:GetPlayers()) .. " Pemain")
@@ -6280,7 +6338,6 @@ trackConnection(RunService.RenderStepped:Connect(function(dt)
         elapsed = 0
     end
 
-    -- Pemindaian berkala setiap 4 detik untuk generator & UI skill check baru
     if genRescanTimer >= 4.0 then
         genRescanTimer = 0
         if GeneratorESP.Enabled or GeneratorESP.AutoInteract or GeneratorESP.AutoFarm then

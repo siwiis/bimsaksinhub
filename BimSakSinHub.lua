@@ -1,11 +1,16 @@
 --[[
-    BimSakSin Hub v4.1 (Persistent JSON Config Edition)
+    BimSakSin Hub - Professional Interactive Roblox UI
     Kompatibel dengan: Mobile (Touch) & PC (Mouse/Keyboard)
-    Fitur Auto-Save & Load Config:
-    - Waypoint Favorit (Disimpan permanen dengan koordinat X, Y, Z)
-    - Tema Warna Aksen, Posisi & Visibilitas Watermark HUD (FPS, Ping & Waktu)
-    - Status & Preferensi Anti-AFK, Auto-Rejoin, & Mode Server Hop
-    - Keybind Pintasan Keyboard (Toggle UI, Fly, Noclip, InfJump, Teleport)
+    Fitur:
+    - Sistem Window Draggable + Minimize ke Floating Pill + Tombol Close bersih
+    - Watermark HUD Elegan di sudut layar ('BimSakSin Hub v4.1' • FPS • Ping • Waktu Real-Time) dengan pengatur posisi sudut
+    - Navigasi Multi-Tab dengan animasi halus (TweenService)
+    - Komponen interaktif lengkap: Toggle, Slider (Touch & Mouse), Dropdown, Keybind Selector, Coordinate Input, Waypoint Manager, Button, Toast Notification
+    - Tab Dashboard: Telemetri FPS/Ping, Info Sesi, Place ID & Server Job ID (Salin Clipboard)
+    - Tab Pemain Aktif: Daftar pemain real-time, filter pencarian, Teleport lokal, & Spectate kamera
+    - Tab Karakter: Fly Mode halus (LinearVelocity + AlignOrientation), Noclip aman (Stepped + Auto-Restore), Infinite Jump aman (JumpRequest + Cooldown), WalkSpeed, JumpPower, FOV Kamera, Keybind, Teleport Koordinat X/Y/Z, & Waypoint Favorit
+    - Tab Visual: Preset pencahayaan, No Fog, serta Highlight & Label Jarak dengan deteksi warna Team otomatis
+    - Tab Pengaturan: Anti-AFK Aman (VirtualUser Idled Hook), Auto-Rejoin Otomatis, Server Hop Satu Klik (Acak/Sepi/Ramai), Join Server via JobId, Pengaturan Watermark, Tema Warna, Keybind UI, & Kunci Window
 ]]
 
 local Players = game:GetService("Players")
@@ -24,67 +29,6 @@ if not LocalPlayer then
     Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
     LocalPlayer = Players.LocalPlayer
 end
-
--- ============================================================================
--- SISTEM CONFIGURASI PERSISTEN (JSON FILE MANAGEMENT)
--- ============================================================================
-local CONFIG_FOLDER = "BimSakSinHub"
-local CONFIG_FILE = CONFIG_FOLDER .. "/config.json"
-
-local DefaultConfig = {
-    Theme = "Cyan Electric",
-    WatermarkCorner = "Kiri Atas",
-    WatermarkVisible = true,
-    AntiAfk = true,
-    AutoRejoin = false,
-    AutoRejoinMode = "Server Sama (Fallback Publik)",
-    ServerHopMode = "Server Acak (Random)",
-    Keybinds = {
-        ToggleUI = Enum.KeyCode.RightShift.Value,
-        Fly = Enum.KeyCode.F.Value,
-        Noclip = Enum.KeyCode.N.Value,
-        InfJump = Enum.KeyCode.J.Value,
-        TeleportCoord = Enum.KeyCode.T.Value,
-    },
-    Waypoints = {},
-}
-
-local CurrentConfig = table.clone(DefaultConfig)
-
-local function saveConfig()
-    pcall(function()
-        if writefile and makefolder and isfolder then
-            if not isfolder(CONFIG_FOLDER) then
-                makefolder(CONFIG_FOLDER)
-            end
-            local encoded = HttpService:JSONEncode(CurrentConfig)
-            writefile(CONFIG_FILE, encoded)
-        end
-    end)
-end
-
-local function loadConfig()
-    pcall(function()
-        if isfile and isfile(CONFIG_FILE) then
-            local decoded = HttpService:JSONDecode(readfile(CONFIG_FILE))
-            if type(decoded) == "table" then
-                for k, v in pairs(decoded) do
-                    if CurrentConfig[k] ~= nil then
-                        if type(CurrentConfig[k]) == "table" and type(v) == "table" then
-                            for subK, subV in pairs(v) do
-                                CurrentConfig[k][subK] = subV
-                            end
-                        else
-                            CurrentConfig[k] = v
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
-
-loadConfig()
 
 -- Menentukan parent GUI yang aman (CoreGui dengan fallback ke PlayerGui)
 local function getSafeGuiParent()
@@ -107,6 +51,7 @@ end
 local GuiParent = getSafeGuiParent()
 local UI_NAME = "BimSakSinHub_UI"
 
+-- Hapus instance lama jika script dijalankan ulang agar tidak bertumpuk
 local existingGui = GuiParent:FindFirstChild(UI_NAME)
 if existingGui then
     existingGui:Destroy()
@@ -134,7 +79,7 @@ local Palette = {
     Danger        = Color3.fromRGB(239, 68, 68),
     Warning       = Color3.fromRGB(245, 158, 11),
     Success       = Color3.fromRGB(16, 185, 129),
-    Accent        = Themes[CurrentConfig.Theme] or Themes["Cyan Electric"],
+    Accent        = Themes["Cyan Electric"],
 }
 
 -- ============================================================================
@@ -168,9 +113,6 @@ local function applyThemeAccent(themeName)
         return
     end
     Palette.Accent = newColor
-    CurrentConfig.Theme = themeName
-    saveConfig()
-
     for i = #AccentRegistry, 1, -1 do
         local item = AccentRegistry[i]
         if item.Instance and item.Instance.Parent then
@@ -215,6 +157,7 @@ local function addStroke(parent, color, thickness)
     })
 end
 
+-- ScreenGui Utama
 local ScreenGui = createInstance("ScreenGui", {
     Name = UI_NAME,
     ResetOnSpawn = false,
@@ -223,6 +166,7 @@ local ScreenGui = createInstance("ScreenGui", {
     Parent = GuiParent,
 })
 
+-- Kontainer Notifikasi Toast (Kanan Bawah)
 local NotifyContainer = createInstance("Frame", {
     Name = "NotificationContainer",
     Size = UDim2.new(0, 290, 1, -24),
@@ -315,6 +259,7 @@ function BimSakSinUI:Notify(options)
     end)
 end
 
+-- Fungsi Drag Universal (Mendukung Mouse PC & Touch Mobile)
 local function makeDraggable(dragHandle, targetFrame, checkLock)
     local dragging = false
     local dragInput = nil
@@ -357,7 +302,7 @@ local function makeDraggable(dragHandle, targetFrame, checkLock)
 end
 
 -- ============================================================================
--- WATERMARK HUD ELEGAN (PERSISTENT CORNER & VISIBILITY)
+-- WATERMARK HUD ELEGAN (SUDUT LAYAR: JUDUL • FPS • PING • WAKTU REAL-TIME)
 -- ============================================================================
 local WatermarkPositions = {
     ["Kiri Atas"]   = { Anchor = Vector2.new(0, 0), Pos = UDim2.new(0, 16, 0, 56) },
@@ -366,17 +311,14 @@ local WatermarkPositions = {
     ["Kanan Bawah"] = { Anchor = Vector2.new(1, 1), Pos = UDim2.new(1, -16, 1, -16) },
 }
 
-local initialCornerData = WatermarkPositions[CurrentConfig.WatermarkCorner] or WatermarkPositions["Kiri Atas"]
-
 local WatermarkFrame = createInstance("Frame", {
     Name = "BimSakSinWatermarkHUD",
-    AnchorPoint = initialCornerData.Anchor,
-    Position = initialCornerData.Pos,
+    AnchorPoint = WatermarkPositions["Kiri Atas"].Anchor,
+    Position = WatermarkPositions["Kiri Atas"].Pos,
     Size = UDim2.new(0, 0, 0, 30),
     AutomaticSize = Enum.AutomaticSize.X,
     BackgroundColor3 = Palette.Background,
     BackgroundTransparency = 0.12,
-    Visible = CurrentConfig.WatermarkVisible,
     Active = true,
     Parent = ScreenGui,
 }, {
@@ -494,9 +436,6 @@ local function setWatermarkCorner(cornerName)
     if not preset then
         return
     end
-    CurrentConfig.WatermarkCorner = cornerName
-    saveConfig()
-
     WatermarkFrame.AnchorPoint = preset.Anchor
     TweenService:Create(
         WatermarkFrame,
@@ -510,6 +449,7 @@ function BimSakSinUI:CreateWindow(config)
     local subtitleText = config.Subtitle or "Professional Edition"
     local uiToggleKey = config.ToggleKey or Enum.KeyCode.RightShift
 
+    -- Floating Pill untuk membuka kembali UI saat di-minimize
     local FloatingPill = createInstance("TextButton", {
         Name = "FloatingRestorePill",
         Size = UDim2.new(0, 145, 0, 38),
@@ -537,6 +477,7 @@ function BimSakSinUI:CreateWindow(config)
     registerAccent(pillDot, "BackgroundColor3")
     makeDraggable(FloatingPill, FloatingPill, false)
 
+    -- Frame Window Utama
     local MainFrame = createInstance("Frame", {
         Name = "MainWindow",
         Size = UDim2.new(0, 580, 0, 380),
@@ -548,6 +489,7 @@ function BimSakSinUI:CreateWindow(config)
     addCorner(MainFrame, 12)
     addStroke(MainFrame, Palette.Stroke, 1.2)
 
+    -- Header / TopBar
     local TopBar = createInstance("Frame", {
         Name = "TopBar",
         Size = UDim2.new(1, 0, 0, 48),
@@ -598,6 +540,7 @@ function BimSakSinUI:CreateWindow(config)
         Parent = TopBar,
     })
 
+    -- Tombol Minimize (-)
     local MinBtn = createInstance("TextButton", {
         Size = UDim2.new(0, 30, 0, 28),
         Position = UDim2.new(1, -72, 0.5, -14),
@@ -611,6 +554,7 @@ function BimSakSinUI:CreateWindow(config)
     })
     addCorner(MinBtn, 6)
 
+    -- Tombol Close (X)
     local CloseBtn = createInstance("TextButton", {
         Size = UDim2.new(0, 30, 0, 28),
         Position = UDim2.new(1, -36, 0.5, -14),
@@ -640,6 +584,7 @@ function BimSakSinUI:CreateWindow(config)
         toggleMinimize(false)
     end))
 
+    -- Shortcut Keyboard PC untuk buka/tutup window utama
     trackConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if ActiveKeybindCapture then
             return
@@ -649,6 +594,7 @@ function BimSakSinUI:CreateWindow(config)
         end
     end))
 
+    -- Sidebar Kiri (Daftar Tab)
     local Sidebar = createInstance("Frame", {
         Name = "Sidebar",
         Size = UDim2.new(0, 150, 1, -48),
@@ -676,6 +622,7 @@ function BimSakSinUI:CreateWindow(config)
         Parent = MainFrame,
     })
 
+    -- Area Konten Tab Kanan
     local ContentHolder = createInstance("Frame", {
         Name = "ContentHolder",
         Size = UDim2.new(1, -151, 1, -48),
@@ -691,10 +638,6 @@ function BimSakSinUI:CreateWindow(config)
 
     function WindowObj:SetToggleKey(newKeyCode)
         uiToggleKey = newKeyCode
-        if newKeyCode then
-            CurrentConfig.Keybinds.ToggleUI = newKeyCode.Value
-            saveConfig()
-        end
     end
 
     function WindowObj:Destroy()
@@ -1173,7 +1116,6 @@ function BimSakSinUI:CreateWindow(config)
         function TabAPI:AddKeybind(opts)
             local label = opts.Name or "Keybind"
             local currentKey = opts.Default
-            local configKeyName = opts.ConfigKeyName
             local onKeyChanged = opts.OnKeyChanged or function() end
             local onTriggered = opts.Callback or function() end
             local listening = false
@@ -1240,10 +1182,6 @@ function BimSakSinUI:CreateWindow(config)
                         if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Backspace then
                             currentKey = nil
                             stopListening()
-                            if configKeyName then
-                                CurrentConfig.Keybinds[configKeyName] = nil
-                                saveConfig()
-                            end
                             task.spawn(onKeyChanged, nil)
                             BimSakSinUI:Notify({
                                 Title = "Keybind Dihapus",
@@ -1253,10 +1191,6 @@ function BimSakSinUI:CreateWindow(config)
                         elseif input.KeyCode ~= Enum.KeyCode.Unknown then
                             currentKey = input.KeyCode
                             stopListening()
-                            if configKeyName then
-                                CurrentConfig.Keybinds[configKeyName] = currentKey.Value
-                                saveConfig()
-                            end
                             task.spawn(onKeyChanged, currentKey)
                             BimSakSinUI:Notify({
                                 Title = "Keybind Diperbarui",
@@ -1282,10 +1216,6 @@ function BimSakSinUI:CreateWindow(config)
                 SetKey = function(_, newKey)
                     currentKey = newKey
                     stopListening()
-                    if configKeyName then
-                        CurrentConfig.Keybinds[configKeyName] = newKey and newKey.Value or nil
-                        saveConfig()
-                    end
                     task.spawn(onKeyChanged, currentKey)
                 end,
             }
@@ -1469,27 +1399,7 @@ function BimSakSinUI:CreateWindow(config)
             local onTeleport = opts.OnTeleport or function() end
 
             local savedWaypoints = {}
-            for _, wpData in ipairs(CurrentConfig.Waypoints or {}) do
-                if wpData and wpData.Name and wpData.Pos then
-                    table.insert(savedWaypoints, {
-                        Name = wpData.Name,
-                        Position = Vector3.new(wpData.Pos[1], wpData.Pos[2], wpData.Pos[3]),
-                    })
-                end
-            end
-            local waypointCounter = #savedWaypoints + 1
-
-            local function persistWaypoints()
-                local serialized = {}
-                for _, wp in ipairs(savedWaypoints) do
-                    table.insert(serialized, {
-                        Name = wp.Name,
-                        Pos = { wp.Position.X, wp.Position.Y, wp.Position.Z },
-                    })
-                end
-                CurrentConfig.Waypoints = serialized
-                saveConfig()
-            end
+            local waypointCounter = 1
 
             local createCard = createInstance("Frame", {
                 Size = UDim2.new(1, 0, 0, 88),
@@ -1733,7 +1643,6 @@ function BimSakSinUI:CreateWindow(config)
                     delBtn.MouseButton1Click:Connect(function()
                         local removedName = wp.Name
                         table.remove(savedWaypoints, idx)
-                        persistWaypoints()
                         rebuildWaypointList()
                         BimSakSinUI:Notify({
                             Title = "Waypoint Dihapus",
@@ -1754,7 +1663,6 @@ function BimSakSinUI:CreateWindow(config)
                     Name = finalName,
                     Position = vec3,
                 })
-                persistWaypoints()
                 rebuildWaypointList()
 
                 BimSakSinUI:Notify({
@@ -1793,7 +1701,6 @@ function BimSakSinUI:CreateWindow(config)
 
             trackConnection(clearAllBtn.MouseButton1Click:Connect(function()
                 table.clear(savedWaypoints)
-                persistWaypoints()
                 rebuildWaypointList()
                 BimSakSinUI:Notify({
                     Title = "Daftar Dikosongkan",
@@ -1813,7 +1720,6 @@ function BimSakSinUI:CreateWindow(config)
                         Name = wpName,
                         Position = vec3,
                     })
-                    persistWaypoints()
                     rebuildWaypointList()
                 end,
             }
@@ -1830,8 +1736,8 @@ end
 -- ============================================================================
 local Window = BimSakSinUI:CreateWindow({
     Title = "BimSakSin Hub v4.1",
-    Subtitle = "Professional Roblox Suite • Persistent JSON",
-    ToggleKey = Enum.KeyCode.FromValue(CurrentConfig.Keybinds.ToggleUI) or Enum.KeyCode.RightShift,
+    Subtitle = "Professional Roblox Suite • Delta Ready",
+    ToggleKey = Enum.KeyCode.RightShift,
 })
 
 local TabDashboard  = Window:CreateTab("Dashboard")
@@ -2249,13 +2155,16 @@ local desiredWalkSpeed = 16
 local desiredJumpPower = 50
 local lockCharacterStats = false
 
+-- State untuk Infinite Jump Aman
 local infiniteJumpEnabled = false
 local lastAirJumpTime = 0
 local AIR_JUMP_COOLDOWN = 0.18
 
+-- State & Constraint untuk Noclip
 local noclipEnabled = false
 local originalCollideStates = setmetatable({}, { __mode = "k" })
 
+-- State & Constraint untuk Fly (LinearVelocity + AlignOrientation)
 local flyEnabled = false
 local flySpeed = 60
 local currentFlyVelocity = Vector3.zero
@@ -2442,8 +2351,7 @@ local flySpeedSlider = TabPlayer:AddSlider({
 
 TabPlayer:AddKeybind({
     Name = "Shortcut Toggle Fly",
-    Default = Enum.KeyCode.FromValue(CurrentConfig.Keybinds.Fly) or Enum.KeyCode.F,
-    ConfigKeyName = "Fly",
+    Default = Enum.KeyCode.F,
     Callback = function()
         flyToggle:SetState(not flyToggle:GetState())
     end
@@ -2469,8 +2377,7 @@ local noclipToggle = TabPlayer:AddToggle({
 
 TabPlayer:AddKeybind({
     Name = "Shortcut Toggle Noclip",
-    Default = Enum.KeyCode.FromValue(CurrentConfig.Keybinds.Noclip) or Enum.KeyCode.N,
-    ConfigKeyName = "Noclip",
+    Default = Enum.KeyCode.N,
     Callback = function()
         noclipToggle:SetState(not noclipToggle:GetState())
     end
@@ -2491,8 +2398,7 @@ local infJumpToggle = TabPlayer:AddToggle({
 
 TabPlayer:AddKeybind({
     Name = "Shortcut Toggle Infinite Jump",
-    Default = Enum.KeyCode.FromValue(CurrentConfig.Keybinds.InfJump) or Enum.KeyCode.J,
-    ConfigKeyName = "InfJump",
+    Default = Enum.KeyCode.J,
     Callback = function()
         infJumpToggle:SetState(not infJumpToggle:GetState())
     end
@@ -2509,8 +2415,7 @@ local coordControl = TabPlayer:AddCoordinateInput({
 
 TabPlayer:AddKeybind({
     Name = "Shortcut Teleport ke Koordinat",
-    Default = Enum.KeyCode.FromValue(CurrentConfig.Keybinds.TeleportCoord) or Enum.KeyCode.T,
-    ConfigKeyName = "TeleportCoord",
+    Default = Enum.KeyCode.T,
     Callback = function()
         coordControl:TriggerTeleport()
     end
@@ -2943,16 +2848,16 @@ TabVisual:AddToggle({
 })
 
 -- ---------------- TAB 5: PENGATURAN UI, ANTI-AFK, AUTO-REJOIN & SERVER HOP ----------------
-local antiAfkEnabled = CurrentConfig.AntiAfk
+local antiAfkEnabled = true
 local antiAfkPreventedCount = 0
 
-local autoRejoinEnabled = CurrentConfig.AutoRejoin
-local autoRejoinMode = CurrentConfig.AutoRejoinMode
+local autoRejoinEnabled = false
+local autoRejoinMode = "Server Sama (Fallback Publik)"
 local isRejoining = false
 local rejoinRetryCount = 0
 local MAX_REJOIN_RETRIES = 3
 
-local serverHopMode = CurrentConfig.ServerHopMode
+local serverHopMode = "Server Acak (Random)"
 local isServerHopping = false
 local hopCandidatePool = {}
 local hopRetryCount = 0
@@ -2968,16 +2873,13 @@ end)
 
 TabSettings:AddSection("Perlindungan Sesi (Anti-AFK)")
 
-local antiAfkStatusCard = TabSettings:AddInfoCard("Status Anti-AFK", antiAfkEnabled and "Aktif (0x Dicegah)" or "Nonaktif")
+local antiAfkStatusCard = TabSettings:AddInfoCard("Status Anti-AFK", "Aktif (0x Dicegah)")
 
 TabSettings:AddToggle({
     Name = "Anti-AFK Aman (Cegah Kick 20 Menit)",
-    Default = CurrentConfig.AntiAfk,
+    Default = true,
     Callback = function(state)
         antiAfkEnabled = state
-        CurrentConfig.AntiAfk = state
-        saveConfig()
-
         if state then
             antiAfkStatusCard:SetValue(string.format("Aktif (%dx Dicegah)", antiAfkPreventedCount))
             BimSakSinUI:Notify({
@@ -2996,6 +2898,7 @@ TabSettings:AddToggle({
     end
 })
 
+-- Listener Anti-AFK berbasis sinyal Idled resmi Roblox (tanpa menggerakkan karakter)
 trackConnection(LocalPlayer.Idled:Connect(function()
     if not antiAfkEnabled then
         return
@@ -3219,11 +3122,9 @@ end
 TabSettings:AddDropdown({
     Name = "Mode Pencarian Server",
     Options = { "Server Acak (Random)", "Server Sepi (Pemain Terdikit)", "Server Ramai (Hampir Penuh)" },
-    Default = CurrentConfig.ServerHopMode,
+    Default = "Server Acak (Random)",
     Callback = function(choice)
         serverHopMode = choice
-        CurrentConfig.ServerHopMode = choice
-        saveConfig()
         BimSakSinUI:Notify({
             Title = "Mode Server Hop",
             Message = "Prioritas pencarian: " .. choice,
@@ -3239,6 +3140,7 @@ TabSettings:AddButton({
     end
 })
 
+-- Kartu Input Join Server via JobId
 local jobIdJoinCard = createInstance("Frame", {
     Size = UDim2.new(1, 0, 0, 114),
     BackgroundColor3 = Palette.Card,
@@ -3336,7 +3238,7 @@ end))
 
 TabSettings:AddSection("Pemulihan Koneksi (Auto-Rejoin)")
 
-local autoRejoinStatusCard = TabSettings:AddInfoCard("Status Auto-Rejoin", autoRejoinEnabled and "Siaga" or "Nonaktif")
+local autoRejoinStatusCard = TabSettings:AddInfoCard("Status Auto-Rejoin", "Nonaktif")
 
 local function executeServerRejoin(isAutomatic, reasonText)
     if isRejoining or isServerHopping then
@@ -3384,11 +3286,13 @@ local function executeServerRejoin(isAutomatic, reasonText)
     end)
 end
 
+-- Penanganan otomatis jika teleport gagal (baik saat Server Hop, Join JobId, maupun Auto-Rejoin)
 trackConnection(TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
     if player ~= LocalPlayer then
         return
     end
 
+    -- Fallback otomatis jika server tujuan Server Hop mendadak penuh/tutup
     if isServerHopping then
         hopRetryCount = hopRetryCount + 1
         if hopRetryCount <= MAX_HOP_RETRIES and #hopCandidatePool > 0 then
@@ -3420,6 +3324,7 @@ trackConnection(TeleportService.TeleportInitFailed:Connect(function(player, tele
         return
     end
 
+    -- Fallback otomatis jika instance server lama sudah tutup/penuh saat Auto-Rejoin
     if isRejoining then
         rejoinRetryCount = rejoinRetryCount + 1
         if rejoinRetryCount <= MAX_REJOIN_RETRIES then
@@ -3448,6 +3353,7 @@ trackConnection(TeleportService.TeleportInitFailed:Connect(function(player, tele
     end
 end))
 
+-- Deteksi error koneksi resmi via GuiService
 trackConnection(GuiService.ErrorMessageChanged:Connect(function()
     if not autoRejoinEnabled or isRejoining or isServerHopping then
         return
@@ -3459,6 +3365,7 @@ trackConnection(GuiService.ErrorMessageChanged:Connect(function()
     end
 end))
 
+-- Deteksi cadangan via dialog prompt disconnect Roblox (jika tersedia)
 pcall(function()
     local coreGui = game:GetService("CoreGui")
     local promptGui = coreGui:FindFirstChild("RobloxPromptGui")
@@ -3474,12 +3381,9 @@ end)
 
 TabSettings:AddToggle({
     Name = "Auto-Rejoin Saat Terputus",
-    Default = CurrentConfig.AutoRejoin,
+    Default = false,
     Callback = function(state)
         autoRejoinEnabled = state
-        CurrentConfig.AutoRejoin = state
-        saveConfig()
-
         if state then
             autoRejoinStatusCard:SetValue("Siaga (Mendeteksi Error)")
             BimSakSinUI:Notify({
@@ -3502,11 +3406,9 @@ TabSettings:AddToggle({
 TabSettings:AddDropdown({
     Name = "Target Server Rejoin",
     Options = { "Server Sama (Fallback Publik)", "Server Publik Acak" },
-    Default = CurrentConfig.AutoRejoinMode,
+    Default = "Server Sama (Fallback Publik)",
     Callback = function(choice)
         autoRejoinMode = choice
-        CurrentConfig.AutoRejoinMode = choice
-        saveConfig()
         BimSakSinUI:Notify({
             Title = "Mode Rejoin Diubah",
             Message = "Target: " .. choice,
@@ -3527,7 +3429,7 @@ TabSettings:AddSection("Tampilan & Kontrol Panel")
 TabSettings:AddDropdown({
     Name = "Warna Aksen Tema",
     Options = { "Cyan Electric", "Emerald Green", "Royal Purple", "Sunset Orange" },
-    Default = CurrentConfig.Theme,
+    Default = "Cyan Electric",
     Callback = function(themeName)
         applyThemeAccent(themeName)
         BimSakSinUI:Notify({
@@ -3540,10 +3442,8 @@ TabSettings:AddDropdown({
 
 TabSettings:AddToggle({
     Name = "Tampilkan Watermark HUD (FPS, Ping & Waktu)",
-    Default = CurrentConfig.WatermarkVisible,
+    Default = true,
     Callback = function(state)
-        CurrentConfig.WatermarkVisible = state
-        saveConfig()
         if WatermarkFrame and WatermarkFrame.Parent then
             WatermarkFrame.Visible = state
         end
@@ -3553,7 +3453,7 @@ TabSettings:AddToggle({
 TabSettings:AddDropdown({
     Name = "Posisi Sudut Watermark",
     Options = { "Kiri Atas", "Kanan Atas", "Kiri Bawah", "Kanan Bawah" },
-    Default = CurrentConfig.WatermarkCorner,
+    Default = "Kiri Atas",
     Callback = function(cornerName)
         setWatermarkCorner(cornerName)
     end
@@ -3561,8 +3461,7 @@ TabSettings:AddDropdown({
 
 TabSettings:AddKeybind({
     Name = "Tombol Buka / Sembunyikan Panel",
-    Default = Enum.KeyCode.FromValue(CurrentConfig.Keybinds.ToggleUI) or Enum.KeyCode.RightShift,
-    ConfigKeyName = "ToggleUI",
+    Default = Enum.KeyCode.RightShift,
     OnKeyChanged = function(newKey)
         Window:SetToggleKey(newKey)
     end,
@@ -3584,7 +3483,7 @@ TabSettings:AddButton({
 })
 
 -- ============================================================================
--- SINKRONISASI PEMAIN, FLY, NOCLIP, INFINITE JUMP & TELEMETRI
+-- SINKRONISASI PEMAIN MASUK/KELUAR, INFINITE JUMP, FLY, NOCLIP & TELEMETRI
 -- ============================================================================
 trackConnection(Players.PlayerAdded:Connect(function()
     rebuildPlayerList()
@@ -3607,6 +3506,7 @@ end))
 rebuildPlayerList()
 refreshAllPlayerMarkers()
 
+-- Listener Infinite Jump Aman (PC Spacebar & Tombol Lompat Sentuh Mobile)
 trackConnection(UserInputService.JumpRequest:Connect(function()
     if not infiniteJumpEnabled or flyEnabled then
         return
@@ -3636,6 +3536,7 @@ trackConnection(UserInputService.JumpRequest:Connect(function()
     hum:ChangeState(Enum.HumanoidStateType.Jumping)
 end))
 
+-- Loop Stepped (sebelum simulasi fisika) untuk menjaga Noclip berjalan halus tanpa glitch
 trackConnection(RunService.Stepped:Connect(function()
     if not noclipEnabled then
         return
@@ -3663,6 +3564,7 @@ trackConnection(RunService.RenderStepped:Connect(function(dt)
     frameCounter = frameCounter + 1
     elapsed = elapsed + dt
 
+    -- Kalkulasi Fisika Fly Mode Halus (PC & Mobile)
     if flyEnabled then
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -3763,6 +3665,7 @@ trackConnection(RunService.RenderStepped:Connect(function(dt)
 
         playerCountCard:SetValue(tostring(#Players:GetPlayers()) .. " Pemain")
 
+        -- Perbarui jarak pada Label Nama & Jarak Pemain
         if nameTagEnabled then
             local myChar = LocalPlayer.Character
             local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -3787,6 +3690,7 @@ trackConnection(RunService.RenderStepped:Connect(function(dt)
         applyCharacterStats()
     end
 
+    -- Pastikan kamera tetap mengikuti target jika target baru saja respawn
     if spectatedPlayer and spectatedPlayer.Parent then
         local targetChar = spectatedPlayer.Character
         local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
@@ -3817,7 +3721,7 @@ trackConnection(LocalPlayer.CharacterAdded:Connect(function(newChar)
 end))
 
 BimSakSinUI:Notify({
-    Title = "BimSakSin Hub v4.1 (Persistent)",
-    Message = "Konfigurasi, Waypoint, dan Status berhasil dimuat dari file JSON.",
+    Title = "BimSakSin Hub v4.1 Aktif",
+    Message = "Watermark HUD (FPS, Ping & Waktu) aktif di sudut layar.",
     Duration = 4,
 })

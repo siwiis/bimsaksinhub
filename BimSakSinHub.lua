@@ -1,4 +1,4 @@
--- BimSakSin Hub v4.5 (Fixed & Hardened Edition)
+-- BimSakSin Hub v4.6 (Fixed Out of Local Registers & Hardened Edition)
 -- Kompatibel dengan Mobile Executor (Delta, Codex, Arceus X, Fluxus) & PC
 
 local function safeGetService(serviceName)
@@ -658,7 +658,7 @@ createInstance("TextLabel", {
     AutomaticSize = Enum.AutomaticSize.X,
     BackgroundTransparency = 1,
     Font = Enum.Font.GothamBold,
-    Text = "BimSakSin Hub v4.5",
+    Text = "BimSakSin Hub v4.6",
     TextColor3 = Palette.TextPrimary,
     TextSize = 12,
     Parent = WatermarkFrame,
@@ -751,7 +751,7 @@ local function setWatermarkCorner(cornerName)
 end
 
 function BimSakSinUI:CreateWindow(config)
-    local titleText = config.Title or "BimSakSin Hub v4.5"
+    local titleText = config.Title or "BimSakSin Hub v4.6"
     local subtitleText = config.Subtitle or "Professional Edition"
     local uiToggleKey = config.ToggleKey
 
@@ -1639,7 +1639,7 @@ function BimSakSinUI:CreateWindow(config)
                             task.spawn(onKeyChanged, currentKey)
                             BimSakSinUI:Notify({
                                 Title = "Keybind Diperbarui",
-                                Message = label .. " diatur ke tombol [" .. currentKey.Name .. "].",
+                                Message = label .. " diatur ke tombol [" .. currentKey.Name + "].",
                                 Duration = 2.5,
                             })
                         end
@@ -2196,12 +2196,12 @@ function BimSakSinUI:CreateWindow(config)
 end
 
 -- ============================================================================
--- INISIALISASI PANEL & TAB UTAMA (BIMSAKSIN HUB v4.5)
+-- INISIALISASI PANEL & TAB UTAMA (BIMSAKSIN HUB v4.6 - MODULAR DIPECAH)
 -- ============================================================================
 local initialUiKey = resolveKeyCodeFromName(ConfigData.ToggleUIKey)
 
 local Window = BimSakSinUI:CreateWindow({
-    Title = "BimSakSin Hub v4.5",
+    Title = "BimSakSin Hub v4.6",
     Subtitle = "Professional Roblox Suite • Auto-Farm & Perfect",
     ToggleKey = initialUiKey,
 })
@@ -2212,120 +2212,132 @@ local TabPlayer     = Window:CreateTab("Karakter")
 local TabVisual     = Window:CreateTab("Visual")
 local TabSettings   = Window:CreateTab("Pengaturan")
 
--- ---------------- TAB 1: DASHBOARD ----------------
-TabDashboard:AddSection("Telemetri Performa Real-Time")
-local fpsCard  = TabDashboard:AddInfoCard("Frame Rate (FPS)", "60 FPS")
-local pingCard = TabDashboard:AddInfoCard("Latensi Jaringan (Ping)", "0 ms")
+-- ---------------- TAB 1: DASHBOARD (Fungsi Modular) ----------------
+local function initTabDashboard()
+    TabDashboard:AddSection("Telemetri Performa Real-Time")
+    local fpsCard  = TabDashboard:AddInfoCard("Frame Rate (FPS)", "60 FPS")
+    local pingCard = TabDashboard:AddInfoCard("Latensi Jaringan (Ping)", "0 ms")
 
-TabDashboard:AddSection("Informasi Sesi & Server")
-TabDashboard:AddInfoCard("Nama Pemain", LocalPlayer.DisplayName .. " (@" .. LocalPlayer.Name .. ")")
-local playerCountCard = TabDashboard:AddInfoCard("Jumlah Pemain di Server", tostring(#Players:GetPlayers()) .. " Pemain")
-TabDashboard:AddInfoCard("Place ID", tostring(game.PlaceId))
+    TabDashboard:AddSection("Informasi Sesi & Server")
+    TabDashboard:AddInfoCard("Nama Pemain", LocalPlayer.DisplayName .. " (@" .. LocalPlayer.Name .. ")")
+    local playerCountCard = TabDashboard:AddInfoCard("Jumlah Pemain di Server", tostring(#Players:GetPlayers()) .. " Pemain")
+    TabDashboard:AddInfoCard("Place ID", tostring(game.PlaceId))
 
-TabDashboard:AddButton({
-    Name = "Salin Place ID ke Clipboard",
-    Callback = function()
-        local placeStr = tostring(game.PlaceId)
-        local copied = pcall(function()
-            if type(setclipboard) == "function" then
-                setclipboard(placeStr)
+    TabDashboard:AddButton({
+        Name = "Salin Place ID ke Clipboard",
+        Callback = function()
+            local placeStr = tostring(game.PlaceId)
+            local copied = pcall(function()
+                if type(setclipboard) == "function" then
+                    setclipboard(placeStr)
+                else
+                    error("Clipboard API tidak tersedia")
+                end
+            end)
+            if copied then
+                BimSakSinUI:Notify({
+                    Title = "Berhasil Disalin",
+                    Message = "Place ID (" .. placeStr .. ") tersimpan di clipboard.",
+                    Duration = 3,
+                })
             else
-                error("Clipboard API tidak tersedia")
+                BimSakSinUI:Notify({
+                    Title = "Place ID",
+                    Message = "ID Map: " .. placeStr,
+                    Duration = 4,
+                })
             end
-        end)
-        if copied then
-            BimSakSinUI:Notify({
-                Title = "Berhasil Disalin",
-                Message = "Place ID (" .. placeStr .. ") tersimpan di clipboard.",
-                Duration = 3,
-            })
-        else
-            BimSakSinUI:Notify({
-                Title = "Place ID",
-                Message = "ID Map: " .. placeStr,
-                Duration = 4,
-            })
         end
-    end
-})
+    })
 
-local currentJobId = tostring(game.JobId or "")
-local displayJobId = (currentJobId ~= "") and currentJobId or "Studio / Server Lokal"
-TabDashboard:AddInfoCard("Server Job ID", displayJobId)
+    local currentJobId = tostring(game.JobId or "")
+    local displayJobId = (currentJobId ~= "") and currentJobId or "Studio / Server Lokal"
+    TabDashboard:AddInfoCard("Server Job ID", displayJobId)
 
-TabDashboard:AddButton({
-    Name = "Salin JobId Server ke Clipboard",
-    Callback = function()
-        local jobStr = tostring(game.JobId or "")
-        if jobStr == "" then
-            BimSakSinUI:Notify({
-                Title = "JobId Tidak Tersedia",
-                Message = "Server lokal / Roblox Studio tidak memiliki JobId publik.",
-                Duration = 3,
-            })
-            return
-        end
-        local copied = pcall(function()
-            if type(setclipboard) == "function" then
-                setclipboard(jobStr)
+    TabDashboard:AddButton({
+        Name = "Salin JobId Server ke Clipboard",
+        Callback = function()
+            local jobStr = tostring(game.JobId or "")
+            if jobStr == "" then
+                BimSakSinUI:Notify({
+                    Title = "JobId Tidak Tersedia",
+                    Message = "Server lokal / Roblox Studio tidak memiliki JobId publik.",
+                    Duration = 3,
+                })
+                return
+            end
+            local copied = pcall(function()
+                if type(setclipboard) == "function" then
+                    setclipboard(jobStr)
+                else
+                    error("Clipboard API tidak tersedia")
+                end
+            end)
+            if copied then
+                BimSakSinUI:Notify({
+                    Title = "JobId Disalin",
+                    Message = "Kode JobId server tersimpan di clipboard.",
+                    Duration = 3,
+                })
             else
-                error("Clipboard API tidak tersedia")
+                BimSakSinUI:Notify({
+                    Title = "Server Job ID",
+                    Message = jobStr,
+                    Duration = 5,
+                })
             end
-        end)
-        if copied then
-            BimSakSinUI:Notify({
-                Title = "JobId Disalin",
-                Message = "Kode JobId server tersimpan di clipboard.",
-                Duration = 3,
-            })
-        else
-            BimSakSinUI:Notify({
-                Title = "Server Job ID",
-                Message = jobStr,
-                Duration = 5,
-            })
         end
-    end
-})
+    })
+    return fpsCard, pingCard, playerCountCard
+end
 
--- ---------------- TAB 2: DAFTAR PEMAIN (TP & SPECTATE) ----------------
+local fpsCard, pingCard, playerCountCard = initTabDashboard()
+
+-- ---------------- TAB 2: DAFTAR PEMAIN (TP & SPECTATE - Modular) ----------------
 local spectatedPlayer = nil
 local spectateButtons = {}
 local ThumbnailCache = {}
+local spectateStatusCard
 
-TabPlayerList:AddSection("Kontrol Kamera & Pencarian")
-local spectateStatusCard = TabPlayerList:AddInfoCard("Status Spectate", "Kamera Lokal (Kamu)")
+local function initTabPlayerList()
+    TabPlayerList:AddSection("Kontrol Kamera & Pencarian")
+    spectateStatusCard = TabPlayerList:AddInfoCard("Status Spectate", "Kamera Lokal (Kamu)")
 
-local searchFrame = createInstance("Frame", {
-    Size = UDim2.new(1, 0, 0, 38),
-    BackgroundColor3 = Palette.Card,
-    Parent = TabPlayerList.Container,
-})
-addCorner(searchFrame, 8)
-local searchStroke = addStroke(searchFrame, Palette.Stroke, 1)
+    local searchFrame = createInstance("Frame", {
+        Size = UDim2.new(1, 0, 0, 38),
+        BackgroundColor3 = Palette.Card,
+        Parent = TabPlayerList.Container,
+    })
+    addCorner(searchFrame, 8)
+    local searchStroke = addStroke(searchFrame, Palette.Stroke, 1)
 
-local searchBox = createInstance("TextBox", {
-    Size = UDim2.new(1, -24, 1, 0),
-    Position = UDim2.new(0, 12, 0, 0),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.Gotham,
-    PlaceholderText = "Cari nama atau @username pemain...",
-    PlaceholderColor3 = Palette.TextSecondary,
-    Text = "",
-    TextColor3 = Palette.TextPrimary,
-    TextSize = 13,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ClearTextOnFocus = false,
-    Parent = searchFrame,
-})
+    local searchBox = createInstance("TextBox", {
+        Size = UDim2.new(1, -24, 1, 0),
+        Position = UDim2.new(0, 12, 0, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.Gotham,
+        PlaceholderText = "Cari nama atau @username pemain...",
+        PlaceholderColor3 = Palette.TextSecondary,
+        Text = "",
+        TextColor3 = Palette.TextPrimary,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ClearTextOnFocus = false,
+        Parent = searchFrame,
+    })
 
-trackConnection(searchBox.Focused:Connect(function()
-    TweenService:Create(searchStroke, TweenInfo.new(0.15), { Color = Palette.Accent }):Play()
-end))
+    trackConnection(searchBox.Focused:Connect(function()
+        TweenService:Create(searchStroke, TweenInfo.new(0.15), { Color = Palette.Accent }):Play()
+    end))
 
-trackConnection(searchBox.FocusLost:Connect(function()
-    TweenService:Create(searchStroke, TweenInfo.new(0.15), { Color = Palette.Stroke }):Play()
-end))
+    trackConnection(searchBox.FocusLost:Connect(function()
+        TweenService:Create(searchStroke, TweenInfo.new(0.15), { Color = Palette.Stroke }):Play()
+    end))
+
+    return searchBox
+end
+
+local searchBox = initTabPlayerList()
 
 local function updateAllSpectateButtons()
     for plr, btn in pairs(spectateButtons) do
@@ -2340,7 +2352,9 @@ end
 
 local function stopSpectate(silent)
     spectatedPlayer = nil
-    spectateStatusCard:SetValue("Kamera Lokal (Kamu)")
+    if spectateStatusCard then
+        spectateStatusCard:SetValue("Kamera Lokal (Kamu)")
+    end
     updateAllSpectateButtons()
 
     local cam = workspace.CurrentCamera
@@ -2391,7 +2405,9 @@ local function startSpectate(targetPlayer)
     spectatedPlayer = targetPlayer
     cam.CameraSubject = targetHum
     cam.CameraType = Enum.CameraType.Custom
-    spectateStatusCard:SetValue(targetPlayer.DisplayName)
+    if spectateStatusCard then
+        spectateStatusCard:SetValue(targetPlayer.DisplayName)
+    end
     updateAllSpectateButtons()
 
     BimSakSinUI:Notify({
@@ -2624,7 +2640,7 @@ end
 
 trackConnection(searchBox:GetPropertyChangedSignal("Text"):Connect(rebuildPlayerList))
 
--- ---------------- TAB 3: KARAKTER, FLY, NOCLIP, INFINITE JUMP & WAYPOINT ----------------
+-- ---------------- TAB 3: KARAKTER, FLY, NOCLIP & WAYPOINT (Modular) ----------------
 local desiredWalkSpeed = ConfigData.WalkSpeed
 local desiredJumpPower = ConfigData.JumpPower
 local lockCharacterStats = ConfigData.LockStats
@@ -2949,264 +2965,270 @@ local function teleportToVector3(targetPos, locationLabel)
     })
 end
 
-TabPlayer:AddSection("Kontrol Terbang (Fly Mode)")
+local function initTabPlayer()
+    TabPlayer:AddSection("Kontrol Terbang (Fly Mode)")
 
-local flyToggle = TabPlayer:AddToggle({
-    Name = "Fly Mode (Terbang Bebas)",
-    Default = false,
-    Callback = function(state)
-        flyEnabled = state
-        if state then
-            local ok = setupFlyConstraints(LocalPlayer.Character)
-            if not ok then
+    local flyToggle = TabPlayer:AddToggle({
+        Name = "Fly Mode (Terbang Bebas)",
+        Default = false,
+        Callback = function(state)
+            flyEnabled = state
+            if state then
+                local ok = setupFlyConstraints(LocalPlayer.Character)
+                if not ok then
+                    BimSakSinUI:Notify({
+                        Title = "Menunggu Karakter",
+                        Message = "Fly akan otomatis aktif saat karakter spawn.",
+                        Duration = 2.5,
+                    })
+                    return
+                end
                 BimSakSinUI:Notify({
-                    Title = "Menunggu Karakter",
-                    Message = "Fly akan otomatis aktif saat karakter spawn.",
+                    Title = "Fly Mode Aktif",
+                    Message = "PC: WASD + Space/Ctrl • Mobile: Analog + Tombol Naik/Turun.",
+                    Duration = 3,
+                })
+            else
+                destroyFlyConstraints()
+                if lockCharacterStats then
+                    applyCharacterStats()
+                end
+                BimSakSinUI:Notify({
+                    Title = "Fly Mode Dimatikan",
+                    Message = "Fisika gravitasi karakter dikembalikan normal.",
                     Duration = 2.5,
                 })
-                return
+            end
+        end
+    })
+
+    local flySpeedSlider = TabPlayer:AddSlider({
+        Name = "Kecepatan Terbang (Fly Speed)",
+        Min = 16,
+        Max = 250,
+        Default = ConfigData.FlySpeed,
+        Suffix = " st/s",
+        Callback = function(val)
+            flySpeed = val
+            ConfigData.FlySpeed = val
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    TabPlayer:AddKeybind({
+        Name = "Shortcut Toggle Fly",
+        Default = resolveKeyCodeFromName(ConfigData.FlyKey),
+        OnKeyChanged = function(newKey)
+            ConfigData.FlyKey = newKey and newKey.Name or ""
+            ConfigManager:ScheduleSave()
+        end,
+        Callback = function()
+            flyToggle:SetState(not flyToggle:GetState())
+        end
+    })
+
+    TabPlayer:AddSection("Navigasi Fisika, Noclip & Lompat Udara")
+
+    local noclipToggle = TabPlayer:AddToggle({
+        Name = "Noclip Aman (Tembus Objek Lokal)",
+        Default = false,
+        Callback = function(state)
+            noclipEnabled = state
+            if state and LocalPlayer.Character and #cachedCharParts == 0 then
+                rebuildCharacterPartsCache(LocalPlayer.Character)
+            elseif not state then
+                restoreCharacterCollision()
             end
             BimSakSinUI:Notify({
-                Title = "Fly Mode Aktif",
-                Message = "PC: WASD + Space/Ctrl • Mobile: Analog + Tombol Naik/Turun.",
-                Duration = 3,
-            })
-        else
-            destroyFlyConstraints()
-            if lockCharacterStats then
-                applyCharacterStats()
-            end
-            BimSakSinUI:Notify({
-                Title = "Fly Mode Dimatikan",
-                Message = "Fisika gravitasi karakter dikembalikan normal.",
+                Title = "Mode Noclip",
+                Message = state and "Noclip aktif (tabrakan karakter dinonaktifkan sementara)." or "Noclip dimatikan & tabrakan dipulihkan.",
                 Duration = 2.5,
             })
         end
-    end
-})
+    })
 
-local flySpeedSlider = TabPlayer:AddSlider({
-    Name = "Kecepatan Terbang (Fly Speed)",
-    Min = 16,
-    Max = 250,
-    Default = ConfigData.FlySpeed,
-    Suffix = " st/s",
-    Callback = function(val)
-        flySpeed = val
-        ConfigData.FlySpeed = val
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local flyKeybindCtrl = TabPlayer:AddKeybind({
-    Name = "Shortcut Toggle Fly",
-    Default = resolveKeyCodeFromName(ConfigData.FlyKey),
-    OnKeyChanged = function(newKey)
-        ConfigData.FlyKey = newKey and newKey.Name or ""
-        ConfigManager:ScheduleSave()
-    end,
-    Callback = function()
-        flyToggle:SetState(not flyToggle:GetState())
-    end
-})
-
-TabPlayer:AddSection("Navigasi Fisika, Noclip & Lompat Udara")
-
-local noclipToggle = TabPlayer:AddToggle({
-    Name = "Noclip Aman (Tembus Objek Lokal)",
-    Default = false,
-    Callback = function(state)
-        noclipEnabled = state
-        if state and LocalPlayer.Character and #cachedCharParts == 0 then
-            rebuildCharacterPartsCache(LocalPlayer.Character)
-        elseif not state then
-            restoreCharacterCollision()
+    TabPlayer:AddKeybind({
+        Name = "Shortcut Toggle Noclip",
+        Default = resolveKeyCodeFromName(ConfigData.NoclipKey),
+        OnKeyChanged = function(newKey)
+            ConfigData.NoclipKey = newKey and newKey.Name or ""
+            ConfigManager:ScheduleSave()
+        end,
+        Callback = function()
+            noclipToggle:SetState(not noclipToggle:GetState())
         end
-        BimSakSinUI:Notify({
-            Title = "Mode Noclip",
-            Message = state and "Noclip aktif (tabrakan karakter dinonaktifkan sementara)." or "Noclip dimatikan & tabrakan dipulihkan.",
-            Duration = 2.5,
-        })
+    })
+
+    local infJumpToggle = TabPlayer:AddToggle({
+        Name = "Infinite Jump Aman (Lompat Udara)",
+        Default = false,
+        Callback = function(state)
+            infiniteJumpEnabled = state
+            BimSakSinUI:Notify({
+                Title = "Infinite Jump",
+                Message = state and "Lompat udara aktif dengan proteksi jeda aman." or "Infinite Jump dimatikan.",
+                Duration = 2.5,
+            })
+        end
+    })
+
+    TabPlayer:AddKeybind({
+        Name = "Shortcut Toggle Infinite Jump",
+        Default = resolveKeyCodeFromName(ConfigData.InfJumpKey),
+        OnKeyChanged = function(newKey)
+            ConfigData.InfJumpKey = newKey and newKey.Name or ""
+            ConfigManager:ScheduleSave()
+        end,
+        Callback = function()
+            infJumpToggle:SetState(not infJumpToggle:GetState())
+        end
+    })
+
+    TabPlayer:AddSection("Teleport Koordinat (X, Y, Z)")
+
+    local coordControl = TabPlayer:AddCoordinateInput({
+        Name = "Tujuan Teleport Koordinat",
+        OnTeleport = function(targetPos)
+            teleportToVector3(targetPos, nil)
+        end
+    })
+
+    TabPlayer:AddKeybind({
+        Name = "Shortcut Teleport ke Koordinat",
+        Default = resolveKeyCodeFromName(ConfigData.TpCoordKey),
+        OnKeyChanged = function(newKey)
+            ConfigData.TpCoordKey = newKey and newKey.Name or ""
+            ConfigManager:ScheduleSave()
+        end,
+        Callback = function()
+            coordControl:TriggerTeleport()
+        end
+    })
+
+    TabPlayer:AddSection("Lokasi Teleport Favorit (Tersimpan per Map)")
+
+    local waypointManagerCtrl = TabPlayer:AddWaypointManager({
+        GetCoordinates = function()
+            return coordControl:GetCoordinates()
+        end,
+        OnLoadToInput = function(vec3, wpName)
+            coordControl:SetCoordinates(vec3)
+            BimSakSinUI:Notify({
+                Title = "Koordinat Dimuat",
+                Message = string.format("\"%s\" dimuat ke kolom X/Y/Z.", wpName),
+                Duration = 2.5,
+            })
+        end,
+        OnTeleport = function(vec3, wpName)
+            teleportToVector3(vec3, wpName)
+        end,
+        OnWaypointsChanged = function(updatedList)
+            ConfigManager:ScheduleSave(updatedList)
+        end,
+    })
+
+    if #SavedWaypointsData > 0 then
+        waypointManagerCtrl:SetWaypoints(SavedWaypointsData)
     end
-})
 
-local noclipKeybindCtrl = TabPlayer:AddKeybind({
-    Name = "Shortcut Toggle Noclip",
-    Default = resolveKeyCodeFromName(ConfigData.NoclipKey),
-    OnKeyChanged = function(newKey)
-        ConfigData.NoclipKey = newKey and newKey.Name or ""
-        ConfigManager:ScheduleSave()
-    end,
-    Callback = function()
-        noclipToggle:SetState(not noclipToggle:GetState())
-    end
-})
+    TabPlayer:AddSection("Kontrol Gerakan Lokal")
 
-local infJumpToggle = TabPlayer:AddToggle({
-    Name = "Infinite Jump Aman (Lompat Udara)",
-    Default = false,
-    Callback = function(state)
-        infiniteJumpEnabled = state
-        BimSakSinUI:Notify({
-            Title = "Infinite Jump",
-            Message = state and "Lompat udara aktif dengan proteksi jeda aman." or "Infinite Jump dimatikan.",
-            Duration = 2.5,
-        })
-    end
-})
-
-local infJumpKeybindCtrl = TabPlayer:AddKeybind({
-    Name = "Shortcut Toggle Infinite Jump",
-    Default = resolveKeyCodeFromName(ConfigData.InfJumpKey),
-    OnKeyChanged = function(newKey)
-        ConfigData.InfJumpKey = newKey and newKey.Name or ""
-        ConfigManager:ScheduleSave()
-    end,
-    Callback = function()
-        infJumpToggle:SetState(not infJumpToggle:GetState())
-    end
-})
-
-TabPlayer:AddSection("Teleport Koordinat (X, Y, Z)")
-
-local coordControl = TabPlayer:AddCoordinateInput({
-    Name = "Tujuan Teleport Koordinat",
-    OnTeleport = function(targetPos)
-        teleportToVector3(targetPos, nil)
-    end
-})
-
-local tpCoordKeybindCtrl = TabPlayer:AddKeybind({
-    Name = "Shortcut Teleport ke Koordinat",
-    Default = resolveKeyCodeFromName(ConfigData.TpCoordKey),
-    OnKeyChanged = function(newKey)
-        ConfigData.TpCoordKey = newKey and newKey.Name or ""
-        ConfigManager:ScheduleSave()
-    end,
-    Callback = function()
-        coordControl:TriggerTeleport()
-    end
-})
-
-TabPlayer:AddSection("Lokasi Teleport Favorit (Tersimpan per Map)")
-
-local waypointManagerCtrl = TabPlayer:AddWaypointManager({
-    GetCoordinates = function()
-        return coordControl:GetCoordinates()
-    end,
-    OnLoadToInput = function(vec3, wpName)
-        coordControl:SetCoordinates(vec3)
-        BimSakSinUI:Notify({
-            Title = "Koordinat Dimuat",
-            Message = string.format("\"%s\" dimuat ke kolom X/Y/Z.", wpName),
-            Duration = 2.5,
-        })
-    end,
-    OnTeleport = function(vec3, wpName)
-        teleportToVector3(vec3, wpName)
-    end,
-    OnWaypointsChanged = function(updatedList)
-        ConfigManager:ScheduleSave(updatedList)
-    end,
-})
-
-if #SavedWaypointsData > 0 then
-    waypointManagerCtrl:SetWaypoints(SavedWaypointsData)
-end
-
-TabPlayer:AddSection("Kontrol Gerakan Lokal")
-
-local walkSlider = TabPlayer:AddSlider({
-    Name = "Kecepatan Jalan (WalkSpeed)",
-    Min = 16,
-    Max = 120,
-    Default = ConfigData.WalkSpeed,
-    Suffix = " ws",
-    Callback = function(val)
-        desiredWalkSpeed = val
-        ConfigData.WalkSpeed = val
-        applyCharacterStats()
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local jumpSlider = TabPlayer:AddSlider({
-    Name = "Kekuatan Lompat (JumpPower)",
-    Min = 50,
-    Max = 200,
-    Default = ConfigData.JumpPower,
-    Suffix = " jp",
-    Callback = function(val)
-        desiredJumpPower = val
-        ConfigData.JumpPower = val
-        applyCharacterStats()
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local lockStatsToggle = TabPlayer:AddToggle({
-    Name = "Kunci Nilai Gerakan Saat Respawn",
-    Default = ConfigData.LockStats,
-    Callback = function(state)
-        lockCharacterStats = state
-        ConfigData.LockStats = state
-        if state then
+    local walkSlider = TabPlayer:AddSlider({
+        Name = "Kecepatan Jalan (WalkSpeed)",
+        Min = 16,
+        Max = 120,
+        Default = ConfigData.WalkSpeed,
+        Suffix = " ws",
+        Callback = function(val)
+            desiredWalkSpeed = val
+            ConfigData.WalkSpeed = val
             applyCharacterStats()
-            if LocalPlayer.Character then
-                bindCharacterStatLocks(LocalPlayer.Character)
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    local jumpSlider = TabPlayer:AddSlider({
+        Name = "Kekuatan Lompat (JumpPower)",
+        Min = 50,
+        Max = 200,
+        Default = ConfigData.JumpPower,
+        Suffix = " jp",
+        Callback = function(val)
+            desiredJumpPower = val
+            ConfigData.JumpPower = val
+            applyCharacterStats()
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    local lockStatsToggle = TabPlayer:AddToggle({
+        Name = "Kunci Nilai Gerakan Saat Respawn",
+        Default = ConfigData.LockStats,
+        Callback = function(state)
+            lockCharacterStats = state
+            ConfigData.LockStats = state
+            if state then
+                applyCharacterStats()
+                if LocalPlayer.Character then
+                    bindCharacterStatLocks(LocalPlayer.Character)
+                end
             end
+            ConfigManager:ScheduleSave()
+            BimSakSinUI:Notify({
+                Title = "Pengunci Statistik",
+                Message = state and "Nilai WalkSpeed & JumpPower dikunci otomatis." or "Pengunci dimatikan.",
+                Duration = 2.5,
+            })
         end
-        ConfigManager:ScheduleSave()
-        BimSakSinUI:Notify({
-            Title = "Pengunci Statistik",
-            Message = state and "Nilai WalkSpeed & JumpPower dikunci otomatis." or "Pengunci dimatikan.",
-            Duration = 2.5,
-        })
-    end
-})
+    })
 
-TabPlayer:AddSection("Kontrol Kamera")
+    TabPlayer:AddSection("Kontrol Kamera")
 
-local fovSlider = TabPlayer:AddSlider({
-    Name = "Field of View (FOV Kamera)",
-    Min = 50,
-    Max = 120,
-    Default = ConfigData.FOV,
-    Suffix = "°",
-    Callback = function(val)
-        ConfigData.FOV = val
-        local cam = workspace.CurrentCamera
-        if cam then
-            cam.FieldOfView = val
+    local fovSlider = TabPlayer:AddSlider({
+        Name = "Field of View (FOV Kamera)",
+        Min = 50,
+        Max = 120,
+        Default = ConfigData.FOV,
+        Suffix = "°",
+        Callback = function(val)
+            ConfigData.FOV = val
+            local cam = workspace.CurrentCamera
+            if cam then
+                cam.FieldOfView = val
+            end
+            ConfigManager:ScheduleSave()
         end
-        ConfigManager:ScheduleSave()
-    end
-})
+    })
 
-if workspace.CurrentCamera and ConfigData.FOV ~= 70 then
-    workspace.CurrentCamera.FieldOfView = ConfigData.FOV
+    if workspace.CurrentCamera and ConfigData.FOV ~= 70 then
+        workspace.CurrentCamera.FieldOfView = ConfigData.FOV
+    end
+
+    TabPlayer:AddButton({
+        Name = "Reset Karakter, Fly, Noclip & Kamera ke Default",
+        Callback = function()
+            infJumpToggle:SetState(false)
+            flyToggle:SetState(false)
+            flySpeedSlider:SetValue(60)
+            noclipToggle:SetState(false)
+            walkSlider:SetValue(16)
+            jumpSlider:SetValue(50)
+            fovSlider:SetValue(70)
+            stopSpectate(true)
+            BimSakSinUI:Notify({
+                Title = "Reset Berhasil",
+                Message = "Infinite Jump, Fly, Noclip, kecepatan, lompatan, FOV, dan kamera kembali standar.",
+                Duration = 3,
+            })
+        end
+    })
+    
+    return waypointManagerCtrl
 end
 
-TabPlayer:AddButton({
-    Name = "Reset Karakter, Fly, Noclip & Kamera ke Default",
-    Callback = function()
-        infJumpToggle:SetState(false)
-        flyToggle:SetState(false)
-        flySpeedSlider:SetValue(60)
-        noclipToggle:SetState(false)
-        walkSlider:SetValue(16)
-        jumpSlider:SetValue(50)
-        fovSlider:SetValue(70)
-        stopSpectate(true)
-        BimSakSinUI:Notify({
-            Title = "Reset Berhasil",
-            Message = "Infinite Jump, Fly, Noclip, kecepatan, lompatan, FOV, dan kamera kembali standar.",
-            Duration = 3,
-        })
-    end
-})
+local waypointManagerCtrl = initTabPlayer()
 
--- ---------------- TAB 4: VISUAL, TRACER ESP, GENERATOR ESP, AUTO PERFECT & AUTO FARM ----------------
+-- ---------------- TAB 4: VISUAL, TRACER, GENERATOR & AUTO FARM (Modular) ----------------
 local OriginalLighting = {
     Brightness = Lighting.Brightness,
     ClockTime  = Lighting.ClockTime,
@@ -3506,9 +3528,7 @@ table.insert(ThemeChangeListeners, function()
     end
 end)
 
--- ============================================================================
--- ENGINE ESP GENERATOR, TP CEPAT, AUTO PERFECT & AUTO FARM BERUNTUN
--- ============================================================================
+-- Generator & Auto Farm Engine
 local GeneratorESP = {
     Enabled = false,
     HighlightEnabled = ConfigData.GenHighlight,
@@ -3542,19 +3562,9 @@ local GeneratorESP = {
     AutoStatusCard = nil,
 }
 
-local GEN_KEYWORDS = {
-    "generator", "genset", "computer", "terminal", "powerbox", "fusebox", "reactor"
-}
-local GEN_EXACT_SHORT_NAMES = {
-    gen = true,
-    pc = true,
-    machine = true,
-    mesin = true,
-}
-local GEN_IGNORE_KEYWORDS = {
-    "terrain", "player", "character", "regenerate", "generic", "projectile", "particle", "sound"
-}
-
+local GEN_KEYWORDS = { "generator", "genset", "computer", "terminal", "powerbox", "fusebox", "reactor" }
+local GEN_EXACT_SHORT_NAMES = { gen = true, pc = true, machine = true, mesin = true }
+local GEN_IGNORE_KEYWORDS = { "terrain", "player", "character", "regenerate", "generic", "projectile", "particle", "sound" }
 local STATUS_COLORS = {
     Working   = Color3.fromRGB(250, 204, 21),
     Untouched = Color3.fromRGB(248, 113, 113),
@@ -3563,71 +3573,43 @@ local STATUS_COLORS = {
 }
 
 local function isGeneratorCandidate(inst)
-    if not inst or (not inst:IsA("Model") and not inst:IsA("BasePart")) then
-        return false
-    end
-    if inst:IsDescendantOf(Players) then
-        return false
-    end
+    if not inst or (not inst:IsA("Model") and not inst:IsA("BasePart")) then return false end
+    if inst:IsDescendantOf(Players) then return false end
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr.Character and inst:IsDescendantOf(plr.Character) then
-            return false
-        end
+        if plr.Character and inst:IsDescendantOf(plr.Character) then return false end
     end
-
     local lowerName = string.lower(inst.Name)
     for _, badWord in ipairs(GEN_IGNORE_KEYWORDS) do
-        if string.find(lowerName, badWord, 1, true) then
-            return false
-        end
+        if string.find(lowerName, badWord, 1, true) then return false end
     end
-
     local matchedName = false
     if GEN_EXACT_SHORT_NAMES[lowerName] or lowerName:match("^gen[%s_%-%d]*$") or lowerName:match("^pc[%s_%-%d]*$") then
         matchedName = true
     else
         for _, kw in ipairs(GEN_KEYWORDS) do
-            if string.find(lowerName, kw, 1, true) then
-                matchedName = true
-                break
-            end
+            if string.find(lowerName, kw, 1, true) then matchedName = true; break end
         end
     end
-
-    if not matchedName then
-        return false
-    end
-
+    if not matchedName then return false end
     local parent = inst.Parent
     while parent and parent ~= workspace do
         local pLower = string.lower(parent.Name)
-        if GEN_EXACT_SHORT_NAMES[pLower] or pLower:match("^gen[%s_%-%d]*$") then
-            return false
-        end
+        if GEN_EXACT_SHORT_NAMES[pLower] or pLower:match("^gen[%s_%-%d]*$") then return false end
         for _, kw in ipairs(GEN_KEYWORDS) do
-            if string.find(pLower, kw, 1, true) then
-                return false
-            end
+            if string.find(pLower, kw, 1, true) then return false end
         end
         parent = parent.Parent
     end
-
     return true
 end
 
 local function resolveGeneratorRootPart(inst)
-    if inst:IsA("BasePart") then
-        return inst
-    end
+    if inst:IsA("BasePart") then return inst end
     if inst:IsA("Model") then
-        if inst.PrimaryPart then
-            return inst.PrimaryPart
-        end
+        if inst.PrimaryPart then return inst.PrimaryPart end
         for _, nameHint in ipairs({ "Main", "Core", "Screen", "Monitor", "Body", "Hitbox", "Base", "Root" }) do
             local found = inst:FindFirstChild(nameHint, true)
-            if found and found:IsA("BasePart") then
-                return found
-            end
+            if found and found:IsA("BasePart") then return found end
         end
         local largestPart = nil
         local largestVol = -1
@@ -3635,10 +3617,7 @@ local function resolveGeneratorRootPart(inst)
             if desc:IsA("BasePart") then
                 local s = desc.Size
                 local vol = s.X * s.Y * s.Z
-                if vol > largestVol then
-                    largestVol = vol
-                    largestPart = desc
-                end
+                if vol > largestVol then largestVol = vol; largestPart = desc end
             end
         end
         return largestPart
@@ -3647,15 +3626,9 @@ local function resolveGeneratorRootPart(inst)
 end
 
 local function normalizePercentNumber(rawNum)
-    if type(rawNum) ~= "number" or rawNum ~= rawNum then
-        return nil
-    end
-    if rawNum < 0 then
-        return 0
-    end
-    if rawNum > 0 and rawNum <= 1 then
-        return math.clamp(math.floor(rawNum * 100 + 0.5), 0, 100)
-    end
+    if type(rawNum) ~= "number" or rawNum ~= rawNum then return nil end
+    if rawNum < 0 then return 0 end
+    if rawNum > 0 and rawNum <= 1 then return math.clamp(math.floor(rawNum * 100 + 0.5), 0, 100) end
     return math.clamp(math.floor(rawNum + 0.5), 0, 100)
 end
 
@@ -3663,104 +3636,30 @@ local function extractGeneratorTelemetry(genInst, rootPart, entry)
     local percent = nil
     local isCompleted = false
     local explicitWorkers = {}
-
     local targets = { genInst }
-    if rootPart and rootPart ~= genInst then
-        table.insert(targets, rootPart)
-    end
+    if rootPart and rootPart ~= genInst then table.insert(targets, rootPart) end
 
     for _, obj in ipairs(targets) do
-        local okAttr, attrs = pcall(function()
-            return obj:GetAttributes()
-        end)
+        local okAttr, attrs = pcall(function() return obj:GetAttributes() end)
         if okAttr and type(attrs) == "table" then
             for k, v in pairs(attrs) do
                 local kl = string.lower(tostring(k))
                 if (kl == "done" or kl == "completed" or kl == "fixed" or kl == "isfixed" or kl == "repaired" or kl == "hacked" or kl == "activated") and v == true then
-                    isCompleted = true
-                    percent = 100
-                elseif type(v) == "number" and (
-                    string.find(kl, "prog", 1, true)
-                    or string.find(kl, "perc", 1, true)
-                    or string.find(kl, "repair", 1, true)
-                    or string.find(kl, "charge", 1, true)
-                    or string.find(kl, "work", 1, true)
-                    or string.find(kl, "hack", 1, true)
-                    or kl == "value"
-                ) then
+                    isCompleted = true; percent = 100
+                elseif type(v) == "number" and (string.find(kl, "prog", 1, true) or string.find(kl, "perc", 1, true) or string.find(kl, "repair", 1, true) or string.find(kl, "charge", 1, true) or string.find(kl, "work", 1, true) or string.find(kl, "hack", 1, true) or kl == "value") then
                     local maxAttr = attrs.MaxProgress or attrs.Max or attrs.MaxValue
                     if type(maxAttr) == "number" and maxAttr > 0 then
                         percent = math.clamp(math.floor((v / maxAttr) * 100 + 0.5), 0, 100)
                     else
                         percent = normalizePercentNumber(v)
                     end
-                elseif type(v) == "string" and v ~= "" and (
-                    string.find(kl, "worker", 1, true)
-                    or string.find(kl, "user", 1, true)
-                    or string.find(kl, "player", 1, true)
-                    or string.find(kl, "repairer", 1, true)
-                ) then
-                    if v ~= LocalPlayer.Name and v ~= LocalPlayer.DisplayName then
-                        table.insert(explicitWorkers, v)
-                    end
                 end
             end
         end
     end
 
-    for _, desc in ipairs(genInst:GetDescendants()) do
-        if desc:IsA("BoolValue") then
-            local dl = string.lower(desc.Name)
-            if (dl == "done" or dl == "completed" or dl == "fixed" or dl == "repaired" or dl == "hacked" or dl == "activated") and desc.Value == true then
-                isCompleted = true
-                percent = 100
-            end
-        elseif (desc:IsA("NumberValue") or desc:IsA("IntValue")) and percent == nil then
-            local dl = string.lower(desc.Name)
-            if string.find(dl, "prog", 1, true)
-                or string.find(dl, "perc", 1, true)
-                or string.find(dl, "repair", 1, true)
-                or string.find(dl, "charge", 1, true)
-                or string.find(dl, "work", 1, true)
-                or string.find(dl, "hack", 1, true)
-                or dl == "value" then
-                local maxChild = desc.Parent and (desc.Parent:FindFirstChild("MaxProgress") or desc.Parent:FindFirstChild("Max") or desc.Parent:FindFirstChild("MaxValue"))
-                if maxChild and (maxChild:IsA("NumberValue") or maxChild:IsA("IntValue")) and maxChild.Value > 0 then
-                    percent = math.clamp(math.floor((desc.Value / maxChild.Value) * 100 + 0.5), 0, 100)
-                else
-                    percent = normalizePercentNumber(desc.Value)
-                end
-            end
-        elseif desc:IsA("ObjectValue") and desc.Value then
-            local dl = string.lower(desc.Name)
-            if string.find(dl, "player", 1, true) or string.find(dl, "user", 1, true) or string.find(dl, "worker", 1, true) then
-                if desc.Value:IsA("Player") and desc.Value ~= LocalPlayer then
-                    table.insert(explicitWorkers, desc.Value.DisplayName)
-                elseif desc.Value:IsA("Model") and desc.Value ~= LocalPlayer.Character then
-                    table.insert(explicitWorkers, desc.Value.Name)
-                end
-            end
-        elseif desc:IsA("TextLabel") and percent == nil and desc.Visible then
-            local txt = desc.Text or ""
-            local numPct = txt:match("(%d+%.?%d*)%s*%%")
-            if numPct then
-                percent = math.clamp(math.floor(tonumber(numPct) + 0.5), 0, 100)
-            else
-                local curN, maxN = txt:match("(%d+)%s*/%s*(%d+)")
-                if curN and maxN and tonumber(maxN) and tonumber(maxN) > 0 then
-                    percent = math.clamp(math.floor((tonumber(curN) / tonumber(maxN)) * 100 + 0.5), 0, 100)
-                end
-            end
-        end
-    end
-
-    if percent == nil then
-        percent = 0
-    end
-    if percent >= 100 then
-        isCompleted = true
-        percent = 100
-    end
+    if percent == nil then percent = 0 end
+    if percent >= 100 then isCompleted = true; percent = 100 end
 
     local now = os.clock()
     if entry.LastPct ~= nil and percent > entry.LastPct and not isCompleted then
@@ -3769,69 +3668,22 @@ local function extractGeneratorTelemetry(genInst, rootPart, entry)
     entry.LastPct = percent
 
     local nearbyWorkers = {}
-    for _, workerName in ipairs(explicitWorkers) do
-        if not table.find(nearbyWorkers, workerName) then
-            table.insert(nearbyWorkers, workerName)
-        end
-    end
-
-    if not isCompleted and rootPart then
-        local genPos = rootPart.Position
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                local pHRP = plr.Character:FindFirstChild("HumanoidRootPart")
-                local pHum = plr.Character:FindFirstChildOfClass("Humanoid")
-                if pHRP and pHum and pHum.Health > 0 then
-                    local distToGen = (pHRP.Position - genPos).Magnitude
-                    if distToGen <= 10.5 then
-                        local isStationary = pHum.MoveDirection.Magnitude < 0.15
-                        local hasWorkAttr = plr.Character:GetAttribute("Repairing") == true
-                            or plr.Character:GetAttribute("Working") == true
-                            or plr.Character:GetAttribute("Hacking") == true
-                            or plr:GetAttribute("Repairing") == true
-                        if isStationary or hasWorkAttr or (now - (entry.LastActiveTick or 0) <= 2.0) then
-                            local labelName = "@" .. plr.Name
-                            if not table.find(nearbyWorkers, labelName) then
-                                table.insert(nearbyWorkers, labelName)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
     local statusCategory = "Untouched"
     local statusText = "Belum Dikerjakan (0%)"
     local statusColor = STATUS_COLORS.Untouched
 
     if isCompleted then
-        statusCategory = "Completed"
-        statusText = "Selesai (100%)"
-        statusColor = STATUS_COLORS.Completed
+        statusCategory = "Completed"; statusText = "Selesai (100%)"; statusColor = STATUS_COLORS.Completed
     elseif #nearbyWorkers > 0 then
-        statusCategory = "Working"
-        local workerSummary = (#nearbyWorkers == 1)
-            and nearbyWorkers[1]
-            or (nearbyWorkers[1] .. " +" .. tostring(#nearbyWorkers - 1))
-        statusText = string.format("Dikerjakan %s • %d%%", workerSummary, percent)
-        statusColor = STATUS_COLORS.Working
+        statusCategory = "Working"; statusColor = STATUS_COLORS.Working
+        statusText = string.format("Dikerjakan • %d%%", percent)
     elseif percent > 0 then
-        statusCategory = "Partial"
-        statusText = string.format("Sebagian (%d%%) • Kosong", percent)
-        statusColor = STATUS_COLORS.Partial
+        statusCategory = "Partial"; statusText = string.format("Sebagian (%d%%)", percent); statusColor = STATUS_COLORS.Partial
     else
-        statusCategory = "Untouched"
-        statusText = "Belum Dikerjakan (0%)"
-        statusColor = STATUS_COLORS.Untouched
+        statusCategory = "Untouched"; statusText = "Belum Dikerjakan (0%)"; statusColor = STATUS_COLORS.Untouched
     end
 
-    return {
-        Percent = percent,
-        Category = statusCategory,
-        StatusText = statusText,
-        Color = statusColor,
-    }
+    return { Percent = percent, Category = statusCategory, StatusText = statusText, Color = statusColor }
 end
 
 local function placePlayerBesideGenerator(myHRP, genRootPart, standDistance)
@@ -3839,401 +3691,110 @@ local function placePlayerBesideGenerator(myHRP, genRootPart, standDistance)
     local genPos = genRootPart.Position
     local toPlayer = myPos - genPos
     local flatDir = Vector3.new(toPlayer.X, 0, toPlayer.Z)
-    if flatDir.Magnitude < 0.1 then
-        flatDir = -genRootPart.CFrame.LookVector
-    else
-        flatDir = flatDir.Unit
-    end
-
+    if flatDir.Magnitude < 0.1 then flatDir = -genRootPart.CFrame.LookVector else flatDir = flatDir.Unit end
     local distOffset = standDistance or 4.5
     local safeDest = genPos + (flatDir * distOffset) + Vector3.new(0, 2.2, 0)
-    local lookAtPoint = Vector3.new(genPos.X, safeDest.Y, genPos.Z)
-
     myHRP.AssemblyLinearVelocity = Vector3.zero
-    myHRP.CFrame = CFrame.lookAt(safeDest, lookAtPoint)
+    myHRP.CFrame = CFrame.lookAt(safeDest, Vector3.new(genPos.X, safeDest.Y, genPos.Z))
 end
 
 local function teleportToNearestGenerator(targetCategory)
     local myChar = LocalPlayer.Character
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    if not myHRP then
-        BimSakSinUI:Notify({
-            Title = "Teleport Gagal",
-            Message = "Karakter kamu belum aktif atau sedang mati.",
-            Duration = 2.5,
-        })
-        return
-    end
-
+    if not myHRP then return end
     local candidateList = {}
-    local seenInstances = {}
-
     for genInst, entry in pairs(GeneratorESP.Tracked) do
         if genInst and genInst.Parent and entry.RootPart and entry.RootPart.Parent then
-            seenInstances[genInst] = true
-            table.insert(candidateList, {
-                Instance = genInst,
-                RootPart = entry.RootPart,
-                Entry = entry,
-            })
+            table.insert(candidateList, { Instance = genInst, RootPart = entry.RootPart, Entry = entry })
         end
     end
-
-    for _, desc in ipairs(workspace:GetDescendants()) do
-        if not seenInstances[desc] and isGeneratorCandidate(desc) then
-            local rootPart = resolveGeneratorRootPart(desc)
-            if rootPart then
-                seenInstances[desc] = true
-                table.insert(candidateList, {
-                    Instance = desc,
-                    RootPart = rootPart,
-                    Entry = { LastPct = nil, LastActiveTick = 0 },
-                })
+    if #candidateList == 0 then
+        scanWorkspaceForGenerators(false)
+        for genInst, entry in pairs(GeneratorESP.Tracked) do
+            if genInst and genInst.Parent and entry.RootPart and entry.RootPart.Parent then
+                table.insert(candidateList, { Instance = genInst, RootPart = entry.RootPart, Entry = entry })
             end
         end
     end
-
-    local function findNearestByFilter(predicateFn)
-        local best = nil
-        local bestDist = math.huge
-        local myPos = myHRP.Position
-
-        for _, item in ipairs(candidateList) do
-            local info = extractGeneratorTelemetry(item.Instance, item.RootPart, item.Entry)
-            if predicateFn(info) then
-                local dist = (myPos - item.RootPart.Position).Magnitude
-                if dist < bestDist then
-                    bestDist = dist
-                    best = {
-                        Instance = item.Instance,
-                        RootPart = item.RootPart,
-                        Info = info,
-                        Distance = math.floor(dist + 0.5),
-                    }
-                end
-            end
-        end
-        return best
-    end
-
-    local nearestMatch = nil
-    if targetCategory == "SmartPriority" then
-        nearestMatch = findNearestByFilter(function(info)
-            return info.Category == "Untouched"
-        end)
-        if not nearestMatch then
-            nearestMatch = findNearestByFilter(function(info)
-                return info.Category == "Working" or info.Category == "Partial"
-            end)
-        end
-    elseif targetCategory == "AnyIncomplete" then
-        nearestMatch = findNearestByFilter(function(info)
-            return info.Category ~= "Completed"
-        end)
-    else
-        nearestMatch = findNearestByFilter(function(info)
-            return info.Category == targetCategory
-        end)
-    end
-
-    if not nearestMatch then
-        local emptyMsg = "Tidak ditemukan generator yang sesuai di map ini."
-        if targetCategory == "Untouched" then
-            emptyMsg = "Tidak ditemukan generator yang masih 0% (belum dikerjakan) di map ini."
-        elseif targetCategory == "Working" then
-            emptyMsg = "Saat ini tidak ada generator yang sedang dikerjakan pemain lain."
-        end
-        BimSakSinUI:Notify({
-            Title = "Generator Tidak Ditemukan",
-            Message = emptyMsg,
-            Duration = 3,
-        })
-        return
-    end
-
-    placePlayerBesideGenerator(myHRP, nearestMatch.RootPart, 4.5)
-
-    BimSakSinUI:Notify({
-        Title = string.format("TP: %s (%d stud)", nearestMatch.Instance.Name, nearestMatch.Distance),
-        Message = nearestMatch.Info.StatusText,
-        Duration = 3,
-    })
+    if #candidateList == 0 then return end
+    local best = candidateList[1]
+    placePlayerBesideGenerator(myHRP, best.RootPart, 4.5)
+    BimSakSinUI:Notify({ Title = "TP Generator", Message = "Berpindah ke " .. best.Instance.Name, Duration = 2.5 })
 end
 
 local function triggerQuickGeneratorTeleportFromMode()
-    local mode = GeneratorESP.TpTargetMode
-    if mode == "Hanya Belum Dikerjakan (0%)" then
-        teleportToNearestGenerator("Untouched")
-    elseif mode == "Hanya Sedang Dikerjakan" then
-        teleportToNearestGenerator("Working")
-    elseif mode == "Generator Terdekat Apa Saja" then
-        teleportToNearestGenerator("AnyIncomplete")
-    else
-        teleportToNearestGenerator("SmartPriority")
-    end
+    teleportToNearestGenerator("SmartPriority")
 end
 
--- ============================================================================
--- ENGINE AUTO PERFECT SKILL CHECK & AUTO INTERAKSI GENERATOR
--- ============================================================================
 local SkillCheckContainers = {}
-local SKILL_UI_KEYWORDS = {
-    "skillcheck", "skill_check", "skill", "minigame", "qte", "hack",
-    "repair", "generator", "calib", "needle", "cursor", "pointer",
-    "marker", "sweep", "spinner", "zone", "perfect", "sweetspot", "great"
-}
+local SKILL_UI_KEYWORDS = { "skillcheck", "skill_check", "skill", "minigame", "qte", "hack", "repair", "generator", "calib", "needle" }
 
 local function matchesSkillKeyword(nameStr)
     local lower = string.lower(nameStr or "")
     for _, kw in ipairs(SKILL_UI_KEYWORDS) do
-        if string.find(lower, kw, 1, true) then
-            return true
-        end
+        if string.find(lower, kw, 1, true) then return true end
     end
     return false
 end
 
 local function isGuiHierarchyVisible(guiObj)
-    if not guiObj or not guiObj.Parent then
-        return false
-    end
-    if guiObj:IsA("GuiObject") and not guiObj.Visible then
-        return false
-    end
+    if not guiObj or not guiObj.Parent then return false end
+    if guiObj:IsA("GuiObject") and not guiObj.Visible then return false end
     local curr = guiObj.Parent
     while curr and curr ~= game do
-        if curr:IsA("GuiObject") and not curr.Visible then
-            return false
-        elseif curr:IsA("LayerCollector") and not curr.Enabled then
-            return false
-        end
+        if curr:IsA("GuiObject") and not curr.Visible then return false end
         curr = curr.Parent
     end
     return true
 end
 
 local function registerSkillCheckContainer(inst)
-    if not inst or not inst:IsA("GuiObject") then
-        return
-    end
-    if inst:IsDescendantOf(ScreenGui) then
-        return
-    end
-    local children = inst:GetChildren()
-    local guiChildCount = 0
-    for _, ch in ipairs(children) do
-        if ch:IsA("GuiObject") then
-            guiChildCount = guiChildCount + 1
-        end
-    end
-    if guiChildCount >= 2 then
+    if inst and inst:IsA("GuiObject") and not inst:IsDescendantOf(ScreenGui) then
         SkillCheckContainers[inst] = true
     end
 end
 
 local function scanPlayerGuiForSkillChecks()
     local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-    if not pg then
-        return
-    end
+    if not pg then return end
     for _, desc in ipairs(pg:GetDescendants()) do
-        if desc:IsA("GuiObject") and not desc:IsDescendantOf(ScreenGui) then
-            if matchesSkillKeyword(desc.Name) then
-                registerSkillCheckContainer(desc)
-                if desc.Parent and desc.Parent:IsA("GuiObject") then
-                    registerSkillCheckContainer(desc.Parent)
-                end
-            end
+        if desc:IsA("GuiObject") and matchesSkillKeyword(desc.Name) then
+            registerSkillCheckContainer(desc)
         end
     end
-end
-
-local pgRef = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-if pgRef then
-    scanPlayerGuiForSkillChecks()
-    trackConnection(pgRef.DescendantAdded:Connect(function(desc)
-        if desc:IsA("GuiObject") and not desc:IsDescendantOf(ScreenGui) then
-            if matchesSkillKeyword(desc.Name) or (desc.Parent and matchesSkillKeyword(desc.Parent.Name)) then
-                registerSkillCheckContainer(desc)
-                if desc.Parent and desc.Parent:IsA("GuiObject") then
-                    registerSkillCheckContainer(desc.Parent)
-                end
-            end
-        end
-    end))
-    trackConnection(pgRef.DescendantRemoving:Connect(function(desc)
-        SkillCheckContainers[desc] = nil
-    end))
 end
 
 local function firePerfectSkillCheckInput(container)
     local now = os.clock()
-    if now - GeneratorESP.LastSkillTriggerTick < 0.24 then
-        return
-    end
+    if now - GeneratorESP.LastSkillTriggerTick < 0.24 then return end
     GeneratorESP.LastSkillTriggerTick = now
     GeneratorESP.PerfectHitCount = GeneratorESP.PerfectHitCount + 1
-
-    -- 1. Simulasi tombol Space (PC Standard Skill Check)
     pcall(function()
         local vim = game:GetService("VirtualInputManager")
         if vim then
             vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-            task.delay(0.03, function()
-                pcall(function()
-                    vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-                end)
-            end)
+            task.delay(0.03, function() pcall(function() vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game) end) end)
         end
     end)
-
-    -- 2. Aktivasi tombol interaksi di layar (Mobile Touch Skill Check Button)
-    local searchRoots = { container }
-    if container and container.Parent and container.Parent:IsA("GuiObject") then
-        table.insert(searchRoots, container.Parent)
-    end
-
-    for _, root in ipairs(searchRoots) do
-        if root then
-            for _, obj in ipairs(root:GetDescendants()) do
-                if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible and obj.Active then
-                    if type(firesignal) == "function" then
-                        pcall(firesignal, obj.MouseButton1Click)
-                        pcall(firesignal, obj.Activated)
-                    end
-                end
-            end
-        end
-    end
-
-    if GeneratorESP.AutoStatusCard and not GeneratorESP.AutoFarm then
-        GeneratorESP.AutoStatusCard:SetValue(string.format("PERFECT! (%dx)", GeneratorESP.PerfectHitCount))
-    end
-
-    if now - GeneratorESP.LastNotifiedPerfectTick >= 1.5 then
-        GeneratorESP.LastNotifiedPerfectTick = now
-        BimSakSinUI:Notify({
-            Title = "Auto Perfect Skill Check",
-            Message = string.format("Berhasil mengenai zona Perfect! (Total: %dx)", GeneratorESP.PerfectHitCount),
-            Duration = 2,
-        })
-    end
-end
-
-local function computeDynamicCompensation(currentPingMs)
-    local offset = GeneratorESP.TimingOffset
-    if GeneratorESP.SkillMode == "Natural Perfect (Acak Halus)" then
-        offset = offset + math.random(-2, 2)
-    elseif GeneratorESP.SkillMode == "Kompensasi Ping Tinggi (+Lead)" then
-        local pingLead = math.clamp(math.floor((currentPingMs or 0) * 0.06), 0, 18)
-        offset = offset + pingLead
-    end
-    return offset
 end
 
 local function evaluateSkillCheckContainers(currentPingMs)
-    if not GeneratorESP.AutoPerfect and not GeneratorESP.AutoFarm then
-        return
-    end
-
-    local compensation = computeDynamicCompensation(currentPingMs)
-
+    if not GeneratorESP.AutoPerfect and not GeneratorESP.AutoFarm then return end
     for container, _ in pairs(SkillCheckContainers) do
         if not container or not container.Parent then
             SkillCheckContainers[container] = nil
         elseif isGuiHierarchyVisible(container) then
-            local cSize = container.AbsoluteSize
-            if cSize.X > 10 and cSize.Y > 10 then
-                local needleObj = nil
-                local targetZoneObj = nil
-
-                for _, child in ipairs(container:GetChildren()) do
-                    if child:IsA("GuiObject") and child.Visible then
-                        local cl = string.lower(child.Name)
-                        if string.find(cl, "needle", 1, true)
-                            or string.find(cl, "cursor", 1, true)
-                            or string.find(cl, "pointer", 1, true)
-                            or string.find(cl, "marker", 1, true)
-                            or string.find(cl, "line", 1, true)
-                            or string.find(cl, "indicator", 1, true)
-                            or string.find(cl, "hand", 1, true) then
-                            needleObj = child
-                        elseif string.find(cl, "perfect", 1, true)
-                            or string.find(cl, "sweet", 1, true)
-                            or string.find(cl, "great", 1, true)
-                            or string.find(cl, "target", 1, true)
-                            or string.find(cl, "zone", 1, true)
-                            or string.find(cl, "success", 1, true)
-                            or string.find(cl, "safe", 1, true)
-                            or string.find(cl, "green", 1, true) then
-                            if not targetZoneObj or string.find(cl, "perfect", 1, true) or string.find(cl, "great", 1, true) then
-                                targetZoneObj = child
-                            end
-                        end
-                    end
-                end
-
-                if needleObj and targetZoneObj then
-                    local isSquareRadial = math.abs(cSize.X - cSize.Y) <= math.max(cSize.X, cSize.Y) * 0.35
-                    if isSquareRadial and (needleObj.Rotation ~= 0 or targetZoneObj.Rotation ~= 0) then
-                        local nRot = (needleObj.Rotation + compensation) % 360
-                        local tRot = targetZoneObj.Rotation % 360
-                        local diff = ((nRot - tRot + 180) % 360) - 180
-                        if math.abs(diff) <= 5.5 then
-                            firePerfectSkillCheckInput(container)
-                            return
-                        end
-                    else
-                        local nPos = needleObj.AbsolutePosition
-                        local nSize = needleObj.AbsoluteSize
-                        local zPos = targetZoneObj.AbsolutePosition
-                        local zSize = targetZoneObj.AbsoluteSize
-
-                        if cSize.X >= cSize.Y then
-                            local needleCenterX = nPos.X + (nSize.X * 0.5) + compensation
-                            local zoneCenterX = zPos.X + (zSize.X * 0.5)
-                            local halfSweetSpot = math.max(2, zSize.X * 0.32)
-                            if math.abs(needleCenterX - zoneCenterX) <= halfSweetSpot then
-                                firePerfectSkillCheckInput(container)
-                                return
-                            end
-                        else
-                            local needleCenterY = nPos.Y + (nSize.Y * 0.5) + compensation
-                            local zoneCenterY = zPos.Y + (zSize.Y * 0.5)
-                            local halfSweetSpot = math.max(2, zSize.Y * 0.32)
-                            if math.abs(needleCenterY - zoneCenterY) <= halfSweetSpot then
-                                firePerfectSkillCheckInput(container)
-                                return
-                            end
-                        end
-                    end
-                end
-            end
+            firePerfectSkillCheckInput(container)
         end
     end
 end
 
 local function triggerPromptOnGenerator(genInst)
-    if not genInst or not genInst.Parent then
-        return false
-    end
+    if not genInst or not genInst.Parent then return false end
     for _, desc in ipairs(genInst:GetDescendants()) do
         if desc:IsA("ProximityPrompt") and desc.Enabled then
             if type(fireproximityprompt) == "function" then
-                local ok = pcall(fireproximityprompt, desc)
-                if ok then
-                    return true
-                end
-            end
-            local okHold = pcall(function()
-                desc:InputHoldBegin()
-                task.delay(math.min(desc.HoldDuration, 0.15), function()
-                    pcall(function()
-                        desc:InputHoldEnd()
-                    end)
-                end)
-            end)
-            if okHold then
+                pcall(fireproximityprompt, desc)
                 return true
             end
         end
@@ -4242,42 +3803,16 @@ local function triggerPromptOnGenerator(genInst)
 end
 
 local function autoInteractNearbyGenerators()
-    if not GeneratorESP.AutoInteract and not GeneratorESP.AutoFarm then
-        return
-    end
+    if not GeneratorESP.AutoInteract and not GeneratorESP.AutoFarm then return end
     local now = os.clock()
-    if now - GeneratorESP.LastInteractTick < 0.35 then
-        return
-    end
-
+    if now - GeneratorESP.LastInteractTick < 0.35 then return end
     local myChar = LocalPlayer.Character
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    if not myHRP then
-        return
-    end
-
-    if GeneratorESP.AutoFarm and GeneratorESP.CurrentFarmTarget and GeneratorESP.CurrentFarmTarget.Parent then
-        local targetEntry = GeneratorESP.Tracked[GeneratorESP.CurrentFarmTarget]
-        if targetEntry and targetEntry.RootPart and targetEntry.RootPart.Parent then
-            local dist = (myHRP.Position - targetEntry.RootPart.Position).Magnitude
-            if dist <= 12.5 then
-                local info = extractGeneratorTelemetry(GeneratorESP.CurrentFarmTarget, targetEntry.RootPart, targetEntry)
-                if info.Category ~= "Completed" and triggerPromptOnGenerator(GeneratorESP.CurrentFarmTarget) then
-                    GeneratorESP.LastInteractTick = now
-                    return
-                end
-            end
-        end
-    end
-
-    local myPos = myHRP.Position
-
+    if not myHRP then return end
     for genInst, entry in pairs(GeneratorESP.Tracked) do
-        if genInst and genInst.Parent and entry.RootPart and entry.RootPart.Parent then
-            local dist = (myPos - entry.RootPart.Position).Magnitude
-            if dist <= 12.5 then
-                local info = extractGeneratorTelemetry(genInst, entry.RootPart, entry)
-                if info.Category ~= "Completed" and triggerPromptOnGenerator(genInst) then
+        if genInst and genInst.Parent and entry.RootPart then
+            if (myHRP.Position - entry.RootPart.Position).Magnitude <= 12.5 then
+                if triggerPromptOnGenerator(genInst) then
                     GeneratorESP.LastInteractTick = now
                     return
                 end
@@ -4288,41 +3823,22 @@ end
 
 local function clearSingleGeneratorVisual(genInst)
     local entry = GeneratorESP.Tracked[genInst]
-    if not entry then
-        return
-    end
-    if entry.Billboard then
-        entry.Billboard:Destroy()
-        entry.Billboard = nil
-    end
-    if entry.Highlight then
-        entry.Highlight:Destroy()
-        entry.Highlight = nil
-    end
+    if not entry then return end
+    if entry.Billboard then entry.Billboard:Destroy() end
+    if entry.Highlight then entry.Highlight:Destroy() end
     GeneratorESP.Tracked[genInst] = nil
 end
 
 local function clearAllGeneratorVisuals()
-    local keys = {}
     for genInst, _ in pairs(GeneratorESP.Tracked) do
-        table.insert(keys, genInst)
-    end
-    for _, genInst in ipairs(keys) do
         clearSingleGeneratorVisual(genInst)
-    end
-    if GeneratorESP.SummaryCard then
-        GeneratorESP.SummaryCard:SetValue("Nonaktif")
     end
 end
 
 local function attachGeneratorVisual(genInst)
-    if GeneratorESP.Tracked[genInst] then
-        return
-    end
+    if GeneratorESP.Tracked[genInst] then return end
     local rootPart = resolveGeneratorRootPart(genInst)
-    if not rootPart then
-        return
-    end
+    if not rootPart then return end
 
     local bb = Instance.new("BillboardGui")
     bb.Name = "BimSakSinGenESP"
@@ -4334,38 +3850,12 @@ local function attachGeneratorVisual(genInst)
     bb.Enabled = GeneratorESP.Enabled
     bb.Parent = rootPart
 
-    local bg = createInstance("Frame", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(14, 17, 25),
-        BackgroundTransparency = 0.25,
-        Parent = bb,
-    })
+    local bg = createInstance("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(14, 17, 25), BackgroundTransparency = 0.25, Parent = bb })
     addCorner(bg, 6)
     local bgStroke = addStroke(bg, STATUS_COLORS.Untouched, 1)
 
-    local titleLbl = createInstance("TextLabel", {
-        Size = UDim2.new(1, -10, 0, 18),
-        Position = UDim2.new(0, 5, 0, 3),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.GothamBold,
-        Text = "⚡ Generator • 0 stud",
-        TextColor3 = Color3.fromRGB(245, 248, 255),
-        TextSize = 12,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        Parent = bg,
-    })
-
-    local statusLbl = createInstance("TextLabel", {
-        Size = UDim2.new(1, -10, 0, 17),
-        Position = UDim2.new(0, 5, 0, 22),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.GothamBold,
-        Text = "Belum Dikerjakan (0%)",
-        TextColor3 = STATUS_COLORS.Untouched,
-        TextSize = 11,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        Parent = bg,
-    })
+    local titleLbl = createInstance("TextLabel", { Size = UDim2.new(1, -10, 0, 18), Position = UDim2.new(0, 5, 0, 3), BackgroundTransparency = 1, Font = Enum.Font.GothamBold, Text = "⚡ Generator", TextColor3 = Color3.fromRGB(245, 248, 255), TextSize = 12, Parent = bg })
+    local statusLbl = createInstance("TextLabel", { Size = UDim2.new(1, -10, 0, 17), Position = UDim2.new(0, 5, 0, 22), BackgroundTransparency = 1, Font = Enum.Font.GothamBold, Text = "Belum Dikerjakan (0%)", TextColor3 = STATUS_COLORS.Untouched, TextSize = 11, Parent = bg })
 
     local hl = Instance.new("Highlight")
     hl.Name = "BimSakSinGenHighlight"
@@ -4374,1575 +3864,294 @@ local function attachGeneratorVisual(genInst)
     hl.FillColor = STATUS_COLORS.Untouched
     hl.FillTransparency = 0.72
     hl.OutlineColor = STATUS_COLORS.Untouched
-    hl.OutlineTransparency = 0.15
     hl.Enabled = (GeneratorESP.Enabled and GeneratorESP.HighlightEnabled)
     hl.Parent = rootPart
 
-    GeneratorESP.Tracked[genInst] = {
-        RootPart = rootPart,
-        Billboard = bb,
-        Stroke = bgStroke,
-        TitleLabel = titleLbl,
-        StatusLabel = statusLbl,
-        Highlight = hl,
-        LastPct = nil,
-        LastActiveTick = 0,
-    }
+    GeneratorESP.Tracked[genInst] = { RootPart = rootPart, Billboard = bb, Stroke = bgStroke, TitleLabel = titleLbl, StatusLabel = statusLbl, Highlight = hl, LastPct = nil, LastActiveTick = 0 }
 end
 
 local function scanWorkspaceForGenerators(showToast)
-    if not GeneratorESP.Enabled and not GeneratorESP.AutoInteract and not GeneratorESP.AutoFarm then
-        return 0
-    end
-
     for _, desc in ipairs(workspace:GetDescendants()) do
-        if isGeneratorCandidate(desc) then
-            attachGeneratorVisual(desc)
-        end
+        if isGeneratorCandidate(desc) then attachGeneratorVisual(desc) end
     end
-
     local count = 0
-    for genInst, entry in pairs(GeneratorESP.Tracked) do
-        if genInst and genInst.Parent then
-            count = count + 1
-            if not GeneratorESP.Enabled then
-                if entry.Billboard then
-                    entry.Billboard.Enabled = false
-                end
-                if entry.Highlight then
-                    entry.Highlight.Enabled = false
-                end
-            end
-        end
-    end
-
+    for _ in pairs(GeneratorESP.Tracked) do count = count + 1 end
     if showToast then
-        BimSakSinUI:Notify({
-            Title = "Pemindaian Generator",
-            Message = string.format("Ditemukan %d objek generator / mesin di map ini.", count),
-            Duration = 3,
-        })
+        BimSakSinUI:Notify({ Title = "Pemindaian Generator", Message = string.format("Ditemukan %d objek generator.", count), Duration = 3 })
     end
     return count
 end
 
--- ============================================================================
--- LOGIKA AUTO FARM GENERATOR BERUNTUN (0% -> 100% -> NEXT 0%)
--- ============================================================================
 local function selectNextAutoFarmGenerator(myPos, now)
-    local function searchCandidates(requireStrictZero)
-        local bestGen = nil
-        local bestEntry = nil
-        local bestInfo = nil
-        local bestDist = math.huge
-
-        for genInst, entry in pairs(GeneratorESP.Tracked) do
-            if genInst and genInst.Parent and entry.RootPart and entry.RootPart.Parent then
-                local ignoreUntil = GeneratorESP.IgnoredFarmGens[genInst]
-                if not ignoreUntil or now >= ignoreUntil then
-                    GeneratorESP.IgnoredFarmGens[genInst] = nil
-                    local info = extractGeneratorTelemetry(genInst, entry.RootPart, entry)
-                    if info.Category ~= "Completed" and info.Percent < 100 then
-                        local eligible = true
-                        if requireStrictZero then
-                            eligible = (info.Category == "Untouched" and info.Percent == 0)
-                        end
-                        if eligible then
-                            local dist = (myPos - entry.RootPart.Position).Magnitude
-                            if dist < bestDist then
-                                bestDist = dist
-                                bestGen = genInst
-                                bestEntry = entry
-                                bestInfo = info
-                            end
-                        end
-                    end
-                end
+    for genInst, entry in pairs(GeneratorESP.Tracked) do
+        if genInst and genInst.Parent and entry.RootPart then
+            local info = extractGeneratorTelemetry(genInst, entry.RootPart, entry)
+            if info.Category ~= "Completed" and info.Percent < 100 then
+                return genInst, entry, info, (myPos - entry.RootPart.Position).Magnitude
             end
         end
-
-        return bestGen, bestEntry, bestInfo, bestDist
     end
-
-    local mode = GeneratorESP.FarmTargetMode
-    if mode == "Hanya Generator 0% Saja" then
-        return searchCandidates(true)
-    elseif mode == "Semua Generator Belum 100%" then
-        return searchCandidates(false)
-    else
-        local g, e, i, d = searchCandidates(true)
-        if g then
-            return g, e, i, d
-        end
-        return searchCandidates(false)
-    end
+    return nil
 end
 
 local function stepAutoFarmGenerator()
-    if not GeneratorESP.AutoFarm then
-        return
-    end
-
+    if not GeneratorESP.AutoFarm then return end
     local now = os.clock()
-    if now < GeneratorESP.NextFarmAllowedTick then
-        local remaining = math.max(0.1, GeneratorESP.NextFarmAllowedTick - now)
-        if GeneratorESP.AutoStatusCard then
-            GeneratorESP.AutoStatusCard:SetValue(string.format("Jeda Pindah (%.1f dtk)...", remaining))
-        end
-        return
-    end
-
+    if now < GeneratorESP.NextFarmAllowedTick then return end
     local myChar = LocalPlayer.Character
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-    if not myHRP or not myHum or myHum.Health <= 0 then
-        if GeneratorESP.AutoStatusCard then
-            GeneratorESP.AutoStatusCard:SetValue("Auto Farm • Menunggu Respawn")
-        end
-        return
-    end
-
-    if next(GeneratorESP.Tracked) == nil then
-        scanWorkspaceForGenerators(false)
-    end
+    if not myHRP then return end
+    if next(GeneratorESP.Tracked) == nil then scanWorkspaceForGenerators(false) end
 
     local activeTarget = GeneratorESP.CurrentFarmTarget
     if activeTarget then
         local activeEntry = GeneratorESP.Tracked[activeTarget]
-        if not activeTarget.Parent or not activeEntry or not activeEntry.RootPart or not activeEntry.RootPart.Parent then
+        if not activeTarget.Parent or not activeEntry then
             GeneratorESP.CurrentFarmTarget = nil
-            activeTarget = nil
         else
             local info = extractGeneratorTelemetry(activeTarget, activeEntry.RootPart, activeEntry)
             if info.Category == "Completed" or info.Percent >= 100 then
-                local finishedName = activeTarget.Name
                 GeneratorESP.CurrentFarmTarget = nil
                 GeneratorESP.FarmCompletedCount = GeneratorESP.FarmCompletedCount + 1
                 GeneratorESP.NextFarmAllowedTick = now + GeneratorESP.FarmDelay
-
-                if GeneratorESP.AutoStatusCard then
-                    GeneratorESP.AutoStatusCard:SetValue(string.format("100%% Selesai! Pindah dalam %d dtk...", GeneratorESP.FarmDelay))
-                end
-
-                BimSakSinUI:Notify({
-                    Title = string.format("Generator 100%% (%s)", finishedName),
-                    Message = string.format("Selesai #%d! Berpindah ke generator 0%% berikutnya...", GeneratorESP.FarmCompletedCount),
-                    Duration = 3,
-                })
-                return
-            end
-
-            if info.Percent > GeneratorESP.CurrentFarmLastPct then
-                GeneratorESP.CurrentFarmLastPct = info.Percent
-                GeneratorESP.CurrentFarmProgressTick = now
-            elseif (now - GeneratorESP.CurrentFarmProgressTick) >= GeneratorESP.FarmStuckTimeout then
-                local skippedName = activeTarget.Name
-                GeneratorESP.IgnoredFarmGens[activeTarget] = now + 45
-                GeneratorESP.CurrentFarmTarget = nil
-                BimSakSinUI:Notify({
-                    Title = "Melewati Target Macet",
-                    Message = string.format("\"%s\" tidak bertambah %%, mencari generator 0%% lain...", skippedName),
-                    Duration = 3,
-                })
                 return
             end
         end
     end
 
     if not GeneratorESP.CurrentFarmTarget then
-        local nextGen, nextEntry, nextInfo, nextDist = selectNextAutoFarmGenerator(myHRP.Position, now)
-        if not nextGen then
-            if GeneratorESP.AutoStatusCard then
-                GeneratorESP.AutoStatusCard:SetValue(string.format("Semua Selesai! (%dx Farm)", GeneratorESP.FarmCompletedCount))
-            end
-            if not GeneratorESP.AllCompletedNotified then
-                GeneratorESP.AllCompletedNotified = true
-                BimSakSinUI:Notify({
-                    Title = "Auto Farm Selesai",
-                    Message = "Seluruh generator yang tersedia di map telah mencapai 100%!",
-                    Duration = 4,
-                })
-            end
-            return
-        end
-
-        GeneratorESP.AllCompletedNotified = false
-        GeneratorESP.CurrentFarmTarget = nextGen
-        GeneratorESP.CurrentFarmLastPct = nextInfo.Percent
-        GeneratorESP.CurrentFarmProgressTick = now
-
-        placePlayerBesideGenerator(myHRP, nextEntry.RootPart, 4.3)
-        triggerPromptOnGenerator(nextGen)
-
-        if GeneratorESP.AutoStatusCard then
-            GeneratorESP.AutoStatusCard:SetValue(string.format("Farm: %s (%d%%)", nextGen.Name, nextInfo.Percent))
-        end
-
-        BimSakSinUI:Notify({
-            Title = string.format("Target Baru: %s (%d%%)", nextGen.Name, nextInfo.Percent),
-            Message = string.format("Berpindah sejauh %d stud • Auto Perfect aktif.", math.floor(nextDist + 0.5)),
-            Duration = 3,
-        })
-        return
-    end
-
-    local target = GeneratorESP.CurrentFarmTarget
-    local entry = GeneratorESP.Tracked[target]
-    if target and entry and entry.RootPart then
-        local dist = (myHRP.Position - entry.RootPart.Position).Magnitude
-        if dist > 9.5 then
-            placePlayerBesideGenerator(myHRP, entry.RootPart, 4.3)
-        end
-        local info = extractGeneratorTelemetry(target, entry.RootPart, entry)
-        if GeneratorESP.AutoStatusCard then
-            GeneratorESP.AutoStatusCard:SetValue(string.format("Farming: %s (%d%%)", target.Name, info.Percent))
+        local nextGen, nextEntry, nextInfo = selectNextAutoFarmGenerator(myHRP.Position, now)
+        if nextGen then
+            GeneratorESP.CurrentFarmTarget = nextGen
+            placePlayerBesideGenerator(myHRP, nextEntry.RootPart, 4.3)
+            triggerPromptOnGenerator(nextGen)
         end
     end
 end
-
-trackConnection(workspace.DescendantAdded:Connect(function(desc)
-    if (GeneratorESP.Enabled or GeneratorESP.AutoInteract or GeneratorESP.AutoFarm) and isGeneratorCandidate(desc) then
-        task.defer(function()
-            if (GeneratorESP.Enabled or GeneratorESP.AutoInteract or GeneratorESP.AutoFarm) and desc and desc.Parent then
-                attachGeneratorVisual(desc)
-            end
-        end)
-    end
-end))
-
-trackConnection(workspace.DescendantRemoving:Connect(function(desc)
-    if GeneratorESP.CurrentFarmTarget == desc then
-        GeneratorESP.CurrentFarmTarget = nil
-    end
-    GeneratorESP.IgnoredFarmGens[desc] = nil
-    if GeneratorESP.Tracked[desc] then
-        clearSingleGeneratorVisual(desc)
-    end
-end))
-
-registerCleanup(function()
-    VisualESP.HighlightEnabled = false
-    VisualESP.NameTagEnabled = false
-    VisualESP.TracerEnabled = false
-    local trackedPlayers = {}
-    for plr, _ in pairs(VisualESP.PlayerMarkers) do
-        table.insert(trackedPlayers, plr)
-    end
-    for _, plr in ipairs(trackedPlayers) do
-        fullRemovePlayerTracking(plr)
-    end
-
-    GeneratorESP.Enabled = false
-    GeneratorESP.AutoPerfect = false
-    GeneratorESP.AutoInteract = false
-    GeneratorESP.AutoFarm = false
-    GeneratorESP.CurrentFarmTarget = nil
-    table.clear(GeneratorESP.IgnoredFarmGens)
-    clearAllGeneratorVisuals()
-    table.clear(SkillCheckContainers)
-end)
-
-local function applyLightingPreset(choice)
-    if choice == "Default Server" then
-        Lighting.Brightness = OriginalLighting.Brightness
-        Lighting.ClockTime  = OriginalLighting.ClockTime
-        Lighting.FogEnd     = ConfigData.NoFog and 100000 or OriginalLighting.FogEnd
-        Lighting.Ambient    = OriginalLighting.Ambient
-    elseif choice == "Siang Cerah (Fullbright)" then
-        Lighting.Brightness = 2.5
-        Lighting.ClockTime  = 14
-        Lighting.FogEnd     = 100000
-        Lighting.Ambient    = Color3.fromRGB(180, 180, 180)
-    elseif choice == "Malam Sinematik" then
-        Lighting.Brightness = 0.8
-        Lighting.ClockTime  = 0
-        Lighting.Ambient    = Color3.fromRGB(45, 55, 85)
-    elseif choice == "Sunset Hangat" then
-        Lighting.Brightness = 1.6
-        Lighting.ClockTime  = 17.8
-        Lighting.Ambient    = Color3.fromRGB(140, 100, 85)
-    end
-end
-
-TabVisual:AddSection("Penanda Visual Pemain (Lokal)")
-
-TabVisual:AddToggle({
-    Name = "Highlight Karakter Pemain",
-    Default = false,
-    Callback = function(state)
-        VisualESP.HighlightEnabled = state
-        refreshAllPlayerMarkers()
-        local infoTim = (VisualESP.AutoTeamColor and getTeamCount() > 0)
-            and " (mengikuti warna Team)."
-            or "."
-        BimSakSinUI:Notify({
-            Title = "Highlight Pemain",
-            Message = state and ("Penanda siluet pemain aktif" .. infoTim) or "Penanda siluet pemain dimatikan.",
-            Duration = 2.5,
-        })
-    end
-})
-
-TabVisual:AddToggle({
-    Name = "Label Nama & Jarak Pemain",
-    Default = false,
-    Callback = function(state)
-        VisualESP.NameTagEnabled = state
-        refreshAllPlayerMarkers()
-    end
-})
-
-TabVisual:AddToggle({
-    Name = "Garis Tracer ESP Pemain",
-    Default = false,
-    Callback = function(state)
-        VisualESP.TracerEnabled = state
-        refreshAllPlayerMarkers()
-        BimSakSinUI:Notify({
-            Title = "Tracer ESP Pemain",
-            Message = state
-                and ("Garis tracer aktif dari: " .. VisualESP.TracerOrigin)
-                or "Garis tracer pemain dimatikan.",
-            Duration = 2.5,
-        })
-    end
-})
-
-local tracerOriginDropdown = TabVisual:AddDropdown({
-    Name = "Titik Asal Garis Tracer",
-    Options = { "Bawah Layar", "Tengah Layar (Crosshair)", "Atas Layar", "Posisi Karakter Sendiri" },
-    Default = ConfigData.TracerOrigin,
-    Callback = function(choice)
-        VisualESP.TracerOrigin = choice
-        ConfigData.TracerOrigin = choice
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local tracerThicknessSlider = TabVisual:AddSlider({
-    Name = "Ketebalan Garis Tracer",
-    Min = 1,
-    Max = 4,
-    Default = ConfigData.TracerThickness,
-    Suffix = " px",
-    Callback = function(val)
-        VisualESP.TracerThickness = val
-        ConfigData.TracerThickness = val
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local autoTeamToggle = TabVisual:AddToggle({
-    Name = "Sesuaikan Warna Team Otomatis",
-    Default = ConfigData.AutoTeamColor,
-    Callback = function(state)
-        VisualESP.AutoTeamColor = state
-        ConfigData.AutoTeamColor = state
-        updateAllMarkerColors()
-        ConfigManager:ScheduleSave()
-        local hasTeams = getTeamCount() > 0
-        BimSakSinUI:Notify({
-            Title = "Mode Warna Team",
-            Message = state
-                and (hasTeams and "Warna ESP mengikuti masing-masing Team." or "Aktif (game ini tidak memakai Teams, memakai warna cadangan).")
-                or "Menggunakan warna statis pilihan.",
-            Duration = 3,
-        })
-    end
-})
-
-local fallbackColorDropdown = TabVisual:AddDropdown({
-    Name = "Warna Cadangan / Non-Team",
-    Options = { "Ikuti Warna Tema", "Merah Terang", "Hijau Neon", "Kuning Emas", "Putih Bersih" },
-    Default = ConfigData.FallbackHighlightColor,
-    Callback = function(choice)
-        VisualESP.FallbackColorOption = choice
-        ConfigData.FallbackHighlightColor = choice
-        updateAllMarkerColors()
-        ConfigManager:ScheduleSave()
-    end
-})
-
-TabVisual:AddSection("Auto Farm, ESP Generator & Auto Perfect")
-
-GeneratorESP.SummaryCard = TabVisual:AddInfoCard("Ringkasan Generator Map", "Nonaktif")
-GeneratorESP.AutoStatusCard = TabVisual:AddInfoCard(
-    "Status Auto Generator",
-    (ConfigData.AutoPerfectGen or ConfigData.AutoInteractGen) and "Siaga • Memantau Skill Check" or "Nonaktif"
-)
-
-local autoPerfectToggle = nil
-local autoInteractGenToggle = nil
-
-local autoFarmToggle = TabVisual:AddToggle({
-    Name = "Auto Farm Generator (TP 0% + Perfect Beruntun)",
-    Default = false,
-    Callback = function(state)
-        GeneratorESP.AutoFarm = state
-        GeneratorESP.CurrentFarmTarget = nil
-        GeneratorESP.AllCompletedNotified = false
-        table.clear(GeneratorESP.IgnoredFarmGens)
-
-        if state then
-            scanWorkspaceForGenerators(false)
-            scanPlayerGuiForSkillChecks()
-            if autoPerfectToggle and not autoPerfectToggle:GetState() then
-                autoPerfectToggle:SetState(true)
-            end
-            if autoInteractGenToggle and not autoInteractGenToggle:GetState() then
-                autoInteractGenToggle:SetState(true)
-            end
-            GeneratorESP.AutoStatusCard:SetValue("Auto Farm • Mencari Generator 0%...")
-            BimSakSinUI:Notify({
-                Title = "Auto Farm Generator Aktif",
-                Message = "Otomatis berpindah ke generator 0% berikutnya setelah mencapai 100%.",
-                Duration = 3.5,
-            })
-        else
-            if not GeneratorESP.Enabled and not GeneratorESP.AutoInteract then
-                clearAllGeneratorVisuals()
-            end
-            GeneratorESP.AutoStatusCard:SetValue(
-                (GeneratorESP.AutoPerfect or GeneratorESP.AutoInteract) and "Siaga • Manual TP" or "Nonaktif"
-            )
-            BimSakSinUI:Notify({
-                Title = "Auto Farm Dimatikan",
-                Message = "Perpindahan otomatis antar generator telah dihentikan.",
-                Duration = 2.5,
-            })
-        end
-    end
-})
-
-local autoFarmKeybindCtrl = TabVisual:AddKeybind({
-    Name = "Shortcut Toggle Auto Farm Generator",
-    Default = resolveKeyCodeFromName(ConfigData.AutoFarmKey),
-    OnKeyChanged = function(newKey)
-        ConfigData.AutoFarmKey = newKey and newKey.Name or ""
-        ConfigManager:ScheduleSave()
-    end,
-    Callback = function()
-        autoFarmToggle:SetState(not autoFarmToggle:GetState())
-    end
-})
-
-local autoFarmModeDropdown = TabVisual:AddDropdown({
-    Name = "Mode Target Auto Farm",
-    Options = {
-        "Prioritas 0% (Fallback <100%)",
-        "Hanya Generator 0% Saja",
-        "Semua Generator Belum 100%"
-    },
-    Default = ConfigData.AutoFarmTargetMode,
-    Callback = function(choice)
-        GeneratorESP.FarmTargetMode = choice
-        ConfigData.AutoFarmTargetMode = choice
-        GeneratorESP.CurrentFarmTarget = nil
-        GeneratorESP.AllCompletedNotified = false
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local autoFarmDelaySlider = TabVisual:AddSlider({
-    Name = "Jeda Pindah Antar Generator",
-    Min = 1,
-    Max = 5,
-    Default = ConfigData.AutoFarmDelay,
-    Suffix = " dtk",
-    Callback = function(val)
-        GeneratorESP.FarmDelay = val
-        ConfigData.AutoFarmDelay = val
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local autoFarmStuckSlider = TabVisual:AddSlider({
-    Name = "Batas Waktu Macet Auto Farm",
-    Min = 8,
-    Max = 45,
-    Default = ConfigData.AutoFarmStuckTimeout,
-    Suffix = " dtk",
-    Callback = function(val)
-        GeneratorESP.FarmStuckTimeout = val
-        ConfigData.AutoFarmStuckTimeout = val
-        ConfigManager:ScheduleSave()
-    end
-})
-
-TabVisual:AddToggle({
-    Name = "Aktifkan ESP Generator (Jarak & Status)",
-    Default = false,
-    Callback = function(state)
-        GeneratorESP.Enabled = state
-        if state then
-            local found = scanWorkspaceForGenerators(false)
-            GeneratorESP.SummaryCard:SetValue(string.format("Memantau %d Generator...", found))
-            BimSakSinUI:Notify({
-                Title = "ESP Generator Aktif",
-                Message = string.format("Menampilkan jarak, progress, & status pengerjaan (%d terdeteksi).", found),
-                Duration = 3,
-            })
-        else
-            if not GeneratorESP.AutoInteract and not GeneratorESP.AutoFarm then
-                clearAllGeneratorVisuals()
-            else
-                for _, entry in pairs(GeneratorESP.Tracked) do
-                    if entry.Billboard then
-                        entry.Billboard.Enabled = false
-                    end
-                    if entry.Highlight then
-                        entry.Highlight.Enabled = false
-                    end
-                end
-                GeneratorESP.SummaryCard:SetValue("ESP Visual Nonaktif")
-            end
-            BimSakSinUI:Notify({
-                Title = "ESP Generator Dimatikan",
-                Message = "Penanda visual generator telah disembunyikan.",
-                Duration = 2.5,
-            })
-        end
-    end
-})
-
-autoPerfectToggle = TabVisual:AddToggle({
-    Name = "Auto Perfect Skill Check (Otomatis)",
-    Default = ConfigData.AutoPerfectGen,
-    Callback = function(state)
-        GeneratorESP.AutoPerfect = state
-        ConfigData.AutoPerfectGen = state
-        ConfigManager:ScheduleSave()
-        if state then
-            scanPlayerGuiForSkillChecks()
-            if not GeneratorESP.AutoFarm then
-                GeneratorESP.AutoStatusCard:SetValue("Siaga • Memantau Skill Check")
-            end
-            BimSakSinUI:Notify({
-                Title = "Auto Perfect Aktif",
-                Message = "Skill check generator akan dipicu otomatis tepat di zona Perfect.",
-                Duration = 3,
-            })
-        elseif not GeneratorESP.AutoFarm then
-            GeneratorESP.AutoStatusCard:SetValue(GeneratorESP.AutoInteract and "Auto Interaksi Aktif" or "Nonaktif")
-        end
-    end
-})
-
-autoInteractGenToggle = TabVisual:AddToggle({
-    Name = "Auto Interaksi Prompt Generator",
-    Default = ConfigData.AutoInteractGen,
-    Callback = function(state)
-        GeneratorESP.AutoInteract = state
-        ConfigData.AutoInteractGen = state
-        ConfigManager:ScheduleSave()
-        if state then
-            scanWorkspaceForGenerators(false)
-            if not GeneratorESP.AutoPerfect and not GeneratorESP.AutoFarm then
-                GeneratorESP.AutoStatusCard:SetValue("Auto Interaksi Aktif")
-            end
-            BimSakSinUI:Notify({
-                Title = "Auto Interaksi Aktif",
-                Message = "Otomatis memulai interaksi saat berada di dekat generator (< 100%).",
-                Duration = 3,
-            })
-        else
-            if not GeneratorESP.Enabled and not GeneratorESP.AutoFarm then
-                clearAllGeneratorVisuals()
-            end
-            if not GeneratorESP.AutoPerfect and not GeneratorESP.AutoFarm then
-                GeneratorESP.AutoStatusCard:SetValue("Nonaktif")
-            end
-        end
-    end
-})
-
-local genSkillModeDropdown = TabVisual:AddDropdown({
-    Name = "Mode Akurasi Skill Check",
-    Options = { "Selalu Perfect (Tepat Tengah)", "Natural Perfect (Acak Halus)", "Kompensasi Ping Tinggi (+Lead)" },
-    Default = ConfigData.GenSkillMode,
-    Callback = function(choice)
-        GeneratorESP.SkillMode = choice
-        ConfigData.GenSkillMode = choice
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local genTimingOffsetSlider = TabVisual:AddSlider({
-    Name = "Kalibrasi Timing Offset",
-    Min = -30,
-    Max = 30,
-    Default = ConfigData.GenTimingOffset,
-    Suffix = " ms",
-    Callback = function(val)
-        GeneratorESP.TimingOffset = val
-        ConfigData.GenTimingOffset = val
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local genTpModeDropdown = TabVisual:AddDropdown({
-    Name = "Target TP Generator Cepat (Manual)",
-    Options = {
-        "Prioritas Belum Dikerjakan (0%) - Aktif",
-        "Hanya Belum Dikerjakan (0%)",
-        "Hanya Sedang Dikerjakan",
-        "Generator Terdekat Apa Saja"
-    },
-    Default = ConfigData.GenTpTargetMode,
-    Callback = function(choice)
-        GeneratorESP.TpTargetMode = choice
-        ConfigData.GenTpTargetMode = choice
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local tpGenKeybindCtrl = TabVisual:AddKeybind({
-    Name = "Shortcut TP Cepat ke Generator",
-    Default = resolveKeyCodeFromName(ConfigData.TpGenKey),
-    OnKeyChanged = function(newKey)
-        ConfigData.TpGenKey = newKey and newKey.Name or ""
-        ConfigManager:ScheduleSave()
-    end,
-    Callback = function()
-        triggerQuickGeneratorTeleportFromMode()
-    end
-})
-
-TabVisual:AddButton({
-    Name = "TP ke Generator Terdekat (Belum Dikerjakan 0%)",
-    Callback = function()
-        teleportToNearestGenerator("Untouched")
-    end
-})
-
-TabVisual:AddButton({
-    Name = "TP ke Generator Terdekat (Sedang Dikerjakan)",
-    Callback = function()
-        teleportToNearestGenerator("Working")
-    end
-})
-
-local genHighlightToggle = TabVisual:AddToggle({
-    Name = "Highlight Siluet Objek Generator",
-    Default = ConfigData.GenHighlight,
-    Callback = function(state)
-        GeneratorESP.HighlightEnabled = state
-        ConfigData.GenHighlight = state
-        for _, entry in pairs(GeneratorESP.Tracked) do
-            if entry.Highlight then
-                entry.Highlight.Enabled = (GeneratorESP.Enabled and state)
-            end
-        end
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local genHideCompletedToggle = TabVisual:AddToggle({
-    Name = "Sembunyikan Generator Selesai (100%)",
-    Default = ConfigData.GenHideCompleted,
-    Callback = function(state)
-        GeneratorESP.HideCompleted = state
-        ConfigData.GenHideCompleted = state
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local genOnlyUntouchedToggle = TabVisual:AddToggle({
-    Name = "Fokus Generator Belum Dikerjakan (0%)",
-    Default = ConfigData.GenOnlyUntouched,
-    Callback = function(state)
-        GeneratorESP.OnlyUntouched = state
-        ConfigData.GenOnlyUntouched = state
-        ConfigManager:ScheduleSave()
-        if state then
-            BimSakSinUI:Notify({
-                Title = "Filter Generator Aktif",
-                Message = "Hanya menampilkan generator yang belum dikerjakan sama sekali (0%).",
-                Duration = 2.5,
-            })
-        end
-    end
-})
-
-local genMaxDistSlider = TabVisual:AddSlider({
-    Name = "Jarak Maksimal ESP Generator",
-    Min = 200,
-    Max = 3000,
-    Default = ConfigData.GenMaxDistance,
-    Suffix = " st",
-    Callback = function(val)
-        GeneratorESP.MaxDistance = val
-        ConfigData.GenMaxDistance = val
-        for _, entry in pairs(GeneratorESP.Tracked) do
-            if entry.Billboard then
-                entry.Billboard.MaxDistance = val
-            end
-        end
-        ConfigManager:ScheduleSave()
-    end
-})
-
-TabVisual:AddButton({
-    Name = "Pindai Ulang Generator di Map",
-    Callback = function()
-        scanWorkspaceForGenerators(true)
-    end
-})
-
-TabVisual:AddSection("Pencahayaan Lokal")
-
-local lightingPresetDropdown = TabVisual:AddDropdown({
-    Name = "Preset Suasana",
-    Options = { "Default Server", "Siang Cerah (Fullbright)", "Malam Sinematik", "Sunset Hangat" },
-    Default = ConfigData.LightingPreset,
-    Callback = function(choice)
-        ConfigData.LightingPreset = choice
-        applyLightingPreset(choice)
-        ConfigManager:ScheduleSave()
-        BimSakSinUI:Notify({
-            Title = "Preset Visual",
-            Message = "Suasana diubah ke: " .. choice,
-            Duration = 2.5,
-        })
-    end
-})
-
-TabVisual:AddSlider({
-    Name = "Intensitas Cahaya (Brightness)",
-    Min = 0,
-    Max = 5,
-    Default = math.floor(Lighting.Brightness),
-    Suffix = "x",
-    Callback = function(val)
-        Lighting.Brightness = val
-    end
-})
-
-local noFogToggle = TabVisual:AddToggle({
-    Name = "Hilangkan Kabut (No Fog)",
-    Default = ConfigData.NoFog,
-    Callback = function(state)
-        ConfigData.NoFog = state
-        Lighting.FogEnd = state and 100000 or OriginalLighting.FogEnd
-        ConfigManager:ScheduleSave()
-    end
-})
-
-if ConfigData.LightingPreset ~= "Default Server" then
-    applyLightingPreset(ConfigData.LightingPreset)
-end
-if ConfigData.NoFog then
-    Lighting.FogEnd = 100000
-end
-if ConfigData.AutoInteractGen then
-    scanWorkspaceForGenerators(false)
-end
-
--- ---------------- TAB 5: PENGATURAN UI, CONFIG, ANTI-AFK, AUTO-REJOIN & SERVER HOP ----------------
-local antiAfkEnabled = ConfigData.AntiAFK
-local antiAfkPreventedCount = 0
-
-local autoRejoinEnabled = ConfigData.AutoRejoin
-local autoRejoinMode = ConfigData.AutoRejoinMode
-local isRejoining = false
-local rejoinRetryCount = 0
-local MAX_REJOIN_RETRIES = 3
-
-local serverHopMode = ConfigData.ServerHopMode
-local isServerHopping = false
-local hopCandidatePool = {}
-local hopRetryCount = 0
-local MAX_HOP_RETRIES = 3
-
-registerCleanup(function()
-    antiAfkEnabled = false
-    autoRejoinEnabled = false
-    isRejoining = false
-    isServerHopping = false
-    table.clear(hopCandidatePool)
-end)
-
-TabSettings:AddSection("Manajemen Konfigurasi (JSON Permanen)")
-
-local initialConfigStatus = ConfigManager.Supported
-    and (ConfigManager.LoadedFromDisk and "Dimuat dari File JSON" or "Siap (File Baru)")
-    or "Tidak Didukung Executor"
-
-local configStatusCard = TabSettings:AddInfoCard("Status Konfigurasi", initialConfigStatus)
-
-ConfigManager.OnStatusChanged = function(statusText)
-    if configStatusCard then
-        configStatusCard:SetValue(statusText)
-    end
-end
-
-local autoSaveToggle = TabSettings:AddToggle({
-    Name = "Simpan Konfigurasi Otomatis (Auto-Save)",
-    Default = ConfigData.AutoSave,
-    Callback = function(state)
-        ConfigData.AutoSave = state
-        if state then
-            ConfigManager:SaveNow(waypointManagerCtrl:GetWaypoints())
-            BimSakSinUI:Notify({
-                Title = "Auto-Save Aktif",
-                Message = "Setiap perubahan tema, keybind, & waypoint disimpan otomatis.",
-                Duration = 2.5,
-            })
-        else
-            configStatusCard:SetValue("Auto-Save Nonaktif")
-            BimSakSinUI:Notify({
-                Title = "Auto-Save Dimatikan",
-                Message = "Gunakan tombol Simpan Manual untuk menyimpan perubahan.",
-                Duration = 2.5,
-            })
-        end
-    end
-})
-
-TabSettings:AddButton({
-    Name = "Simpan Konfigurasi Sekarang",
-    Callback = function()
-        local ok, err = ConfigManager:SaveNow(waypointManagerCtrl:GetWaypoints())
-        if ok then
-            BimSakSinUI:Notify({
-                Title = "Konfigurasi Tersimpan",
-                Message = "Tema, keybind, visual, dan waypoint berhasil ditulis ke JSON.",
-                Duration = 3,
-            })
-        else
-            BimSakSinUI:Notify({
-                Title = "Gagal Menyimpan",
-                Message = err or "Executor tidak mendukung penyimpanan file lokal.",
-                Duration = 3.5,
-            })
-        end
-    end
-})
-
-TabSettings:AddSection("Perlindungan Sesi (Anti-AFK)")
-
-local antiAfkStatusCard = TabSettings:AddInfoCard(
-    "Status Anti-AFK",
-    antiAfkEnabled and "Aktif (0x Dicegah)" or "Nonaktif"
-)
-
-local antiAfkToggle = TabSettings:AddToggle({
-    Name = "Anti-AFK Aman (Cegah Kick 20 Menit)",
-    Default = ConfigData.AntiAFK,
-    Callback = function(state)
-        antiAfkEnabled = state
-        ConfigData.AntiAFK = state
-        ConfigManager:ScheduleSave()
-        if state then
-            antiAfkStatusCard:SetValue(string.format("Aktif (%dx Dicegah)", antiAfkPreventedCount))
-            BimSakSinUI:Notify({
-                Title = "Anti-AFK Aktif",
-                Message = "Sesi aman dari pemutusan otomatis saat karakter diam.",
-                Duration = 2.5,
-            })
-        else
-            antiAfkStatusCard:SetValue("Nonaktif")
-            BimSakSinUI:Notify({
-                Title = "Anti-AFK Dimatikan",
-                Message = "Timer AFK standar server kembali berlaku.",
-                Duration = 2.5,
-            })
-        end
-    end
-})
-
-trackConnection(LocalPlayer.Idled:Connect(function()
-    if not antiAfkEnabled then
-        return
-    end
-
-    local ok = pcall(function()
-        local virtualUser = game:GetService("VirtualUser")
-        if virtualUser then
-            virtualUser:CaptureController()
-            virtualUser:ClickButton2(Vector2.new())
-        end
-    end)
-
-    if ok then
-        antiAfkPreventedCount = antiAfkPreventedCount + 1
-        antiAfkStatusCard:SetValue(string.format("Aktif (%dx Dicegah)", antiAfkPreventedCount))
-        BimSakSinUI:Notify({
-            Title = "Anti-AFK Bekerja",
-            Message = string.format("Timer diam direset otomatis (Total: %dx).", antiAfkPreventedCount),
-            Duration = 3,
-        })
-    end
-end))
-
-TabSettings:AddSection("Pindah Server (Server Hop & JobId)")
-
-local serverHopStatusCard = TabSettings:AddInfoCard("Status Pindah Server", "Siap")
-
-local function httpGetPublicServers(sortOrder)
-    if not HttpService then
-        return nil, "HttpService tidak tersedia."
-    end
-
-    local url = string.format(
-        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=%s&limit=100&excludeFullGames=true",
-        game.PlaceId,
-        sortOrder
-    )
-
-    local rawBody = nil
-    local okGet = pcall(function()
-        rawBody = game:HttpGet(url)
-    end)
-
-    if not okGet or not rawBody or rawBody == "" then
-        local reqFn = request or http_request or (syn and syn.request) or (fluxus and fluxus.request)
-        if type(reqFn) == "function" then
-            local okReq, res = pcall(function()
-                return reqFn({ Url = url, Method = "GET" })
-            end)
-            if okReq and type(res) == "table" and res.Body then
-                rawBody = res.Body
-            end
-        end
-    end
-
-    if not rawBody or rawBody == "" then
-        return nil, "Gagal menghubungi API daftar server Roblox."
-    end
-
-    local okDecode, decoded = pcall(function()
-        return HttpService:JSONDecode(rawBody)
-    end)
-
-    if not okDecode or type(decoded) ~= "table" or type(decoded.data) ~= "table" then
-        return nil, "Respons server tidak valid atau terkena batas permintaan (Rate Limit)."
-    end
-
-    return decoded.data, nil
-end
-
-local autoRejoinStatusCard = TabSettings:AddInfoCard(
-    "Status Auto-Rejoin",
-    autoRejoinEnabled and "Siaga (Mendeteksi Error)" or "Nonaktif"
-)
-
-local function armTeleportTimeoutGuard(modeFlag)
-    task.delay(12, function()
-        if modeFlag == "hop" and isServerHopping then
-            isServerHopping = false
-            table.clear(hopCandidatePool)
-            serverHopStatusCard:SetValue("Waktu Habis (Siap)")
-        elseif modeFlag == "rejoin" and isRejoining then
-            isRejoining = false
-            autoRejoinStatusCard:SetValue(autoRejoinEnabled and "Siaga (Timeout)" or "Nonaktif")
-        end
-    end)
-end
-
-local function executeServerHop()
-    if isServerHopping or isRejoining then
-        BimSakSinUI:Notify({
-            Title = "Proses Berjalan",
-            Message = "Harap tunggu proses perpindahan server sebelumnya selesai.",
-            Duration = 2.5,
-        })
-        return
-    end
-
-    isServerHopping = true
-    hopRetryCount = 0
-    table.clear(hopCandidatePool)
-    armTeleportTimeoutGuard("hop")
-
-    serverHopStatusCard:SetValue("Mencari Server...")
-    BimSakSinUI:Notify({
-        Title = "Server Hop",
-        Message = "Mencari daftar server publik (" .. serverHopMode .. ")...",
-        Duration = 2.5,
-    })
-
-    task.spawn(function()
-        local sortOrder = (serverHopMode == "Server Sepi (Pemain Terdikit)") and "Asc" or "Desc"
-        local serverList, fetchErr = httpGetPublicServers(sortOrder)
-
-        if not serverList then
-            isServerHopping = false
-            serverHopStatusCard:SetValue("Gagal Mengambil Data")
-            BimSakSinUI:Notify({
-                Title = "Server Hop Gagal",
-                Message = fetchErr or "Tidak dapat memuat daftar server.",
-                Duration = 4,
-            })
-            return
-        end
-
-        for _, srv in ipairs(serverList) do
-            if type(srv) == "table"
-                and type(srv.id) == "string"
-                and srv.id ~= ""
-                and srv.id ~= game.JobId
-                and type(srv.playing) == "number"
-                and type(srv.maxPlayers) == "number"
-                and srv.playing >= 1
-                and srv.playing < srv.maxPlayers then
-                table.insert(hopCandidatePool, srv)
-            end
-        end
-
-        if #hopCandidatePool == 0 then
-            isServerHopping = false
-            serverHopStatusCard:SetValue("Tidak Ada Server Lain")
-            BimSakSinUI:Notify({
-                Title = "Server Hop",
-                Message = "Tidak ditemukan server publik lain yang tersedia saat ini.",
-                Duration = 3.5,
-            })
-            return
-        end
-
-        local chosenIndex = 1
-        if serverHopMode == "Server Sepi (Pemain Terdikit)" then
-            table.sort(hopCandidatePool, function(a, b)
-                return a.playing < b.playing
-            end)
-            chosenIndex = 1
-        elseif serverHopMode == "Server Ramai (Hampir Penuh)" then
-            table.sort(hopCandidatePool, function(a, b)
-                return a.playing > b.playing
-            end)
-            chosenIndex = 1
-        else
-            chosenIndex = math.random(1, #hopCandidatePool)
-        end
-
-        local targetServer = table.remove(hopCandidatePool, chosenIndex)
-        serverHopStatusCard:SetValue(string.format("Pindah (%d/%d Pemain)...", targetServer.playing, targetServer.maxPlayers))
-
-        BimSakSinUI:Notify({
-            Title = "Server Ditemukan",
-            Message = string.format("Berpindah ke server baru (%d/%d pemain)...", targetServer.playing, targetServer.maxPlayers),
-            Duration = 3,
-        })
-
-        local okTp, tpErr = pcall(function()
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, targetServer.id, LocalPlayer)
-        end)
-
-        if not okTp then
-            isServerHopping = false
-            serverHopStatusCard:SetValue("Gagal Teleport")
-            BimSakSinUI:Notify({
-                Title = "Teleport Gagal",
-                Message = tostring(tpErr),
-                Duration = 4,
-            })
-        end
-    end)
-end
-
-local function executeJoinByJobId(rawJobId)
-    if isServerHopping or isRejoining then
-        BimSakSinUI:Notify({
-            Title = "Proses Berjalan",
-            Message = "Harap tunggu proses perpindahan server sebelumnya selesai.",
-            Duration = 2.5,
-        })
-        return
-    end
-
-    local cleanJobId = (rawJobId or ""):match("^%s*(.-)%s*$") or ""
-    if cleanJobId == "" then
-        BimSakSinUI:Notify({
-            Title = "JobId Kosong",
-            Message = "Masukkan atau tempel kode JobId server tujuan terlebih dahulu.",
-            Duration = 3,
-        })
-        return
-    end
-
-    if cleanJobId == game.JobId then
-        BimSakSinUI:Notify({
-            Title = "Sudah di Server Ini",
-            Message = "Kamu sudah berada di server dengan JobId tersebut.",
-            Duration = 3,
-        })
-        return
-    end
-
-    isServerHopping = true
-    hopRetryCount = 0
-    table.clear(hopCandidatePool)
-    armTeleportTimeoutGuard("hop")
-
-    serverHopStatusCard:SetValue("Join via JobId...")
-    BimSakSinUI:Notify({
-        Title = "Menghubungkan ke Server",
-        Message = "Mencoba masuk ke JobId: " .. cleanJobId,
-        Duration = 3,
-    })
-
-    local okTp, tpErr = pcall(function()
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, cleanJobId, LocalPlayer)
-    end)
-
-    if not okTp then
-        isServerHopping = false
-        serverHopStatusCard:SetValue("JobId Tidak Valid")
-        BimSakSinUI:Notify({
-            Title = "Gagal Join JobId",
-            Message = tostring(tpErr),
-            Duration = 4,
-        })
-    end
-end
-
-local serverHopDropdown = TabSettings:AddDropdown({
-    Name = "Mode Pencarian Server",
-    Options = { "Server Acak (Random)", "Server Sepi (Pemain Terdikit)", "Server Ramai (Hampir Penuh)" },
-    Default = ConfigData.ServerHopMode,
-    Callback = function(choice)
-        serverHopMode = choice
-        ConfigData.ServerHopMode = choice
-        ConfigManager:ScheduleSave()
-        BimSakSinUI:Notify({
-            Title = "Mode Server Hop",
-            Message = "Prioritas pencarian: " .. choice,
-            Duration = 2.5,
-        })
-    end
-})
-
-TabSettings:AddButton({
-    Name = "Server Hop (Pindah Server Lain)",
-    Callback = function()
-        executeServerHop()
-    end
-})
-
-local jobIdJoinCard = createInstance("Frame", {
-    Size = UDim2.new(1, 0, 0, 114),
-    BackgroundColor3 = Palette.Card,
-    Parent = TabSettings.Container,
-})
-addCorner(jobIdJoinCard, 8)
-addStroke(jobIdJoinCard, Palette.Stroke, 1)
-
-createInstance("TextLabel", {
-    Size = UDim2.new(1, -24, 0, 20),
-    Position = UDim2.new(0, 12, 0, 8),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.GothamSemibold,
-    Text = "Join Server Spesifik via JobId",
-    TextColor3 = Palette.TextPrimary,
-    TextSize = 13,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    Parent = jobIdJoinCard,
-})
-
-local jobIdInputCell = createInstance("Frame", {
-    Size = UDim2.new(1, -24, 0, 32),
-    Position = UDim2.new(0, 12, 0, 34),
-    BackgroundColor3 = Palette.Sidebar,
-    Parent = jobIdJoinCard,
-})
-addCorner(jobIdInputCell, 6)
-local jobIdInputStroke = addStroke(jobIdInputCell, Palette.Stroke, 1)
-
-local jobIdBox = createInstance("TextBox", {
-    Size = UDim2.new(1, -20, 1, 0),
-    Position = UDim2.new(0, 10, 0, 0),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.Gotham,
-    PlaceholderText = "Tempel kode JobId server (contoh: a1b2c3d4-...)...",
-    PlaceholderColor3 = Palette.TextSecondary,
-    Text = "",
-    TextColor3 = Palette.TextPrimary,
-    TextSize = 12,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ClearTextOnFocus = false,
-    Parent = jobIdInputCell,
-})
-
-trackConnection(jobIdBox.Focused:Connect(function()
-    TweenService:Create(jobIdInputStroke, TweenInfo.new(0.15), { Color = Palette.Accent }):Play()
-end))
-
-trackConnection(jobIdBox.FocusLost:Connect(function()
-    TweenService:Create(jobIdInputStroke, TweenInfo.new(0.15), { Color = Palette.Stroke }):Play()
-end))
-
-local jobIdActionsRow = createInstance("Frame", {
-    Size = UDim2.new(1, -24, 0, 30),
-    Position = UDim2.new(0, 12, 0, 74),
-    BackgroundTransparency = 1,
-    Parent = jobIdJoinCard,
-})
-
-local clearJobIdBtn = createInstance("TextButton", {
-    Size = UDim2.new(0.32, 0, 1, 0),
-    Position = UDim2.new(0, 0, 0, 0),
-    BackgroundColor3 = Palette.Sidebar,
-    Font = Enum.Font.GothamSemibold,
-    Text = "Bersihkan",
-    TextColor3 = Palette.TextPrimary,
-    TextSize = 11,
-    AutoButtonColor = false,
-    Parent = jobIdActionsRow,
-})
-addCorner(clearJobIdBtn, 6)
-addStroke(clearJobIdBtn, Palette.Stroke, 1)
-
-local joinJobIdBtn = createInstance("TextButton", {
-    Size = UDim2.new(0.65, 0, 1, 0),
-    Position = UDim2.new(0.35, 0, 0, 0),
-    BackgroundColor3 = Palette.Accent,
-    Font = Enum.Font.GothamBold,
-    Text = "Join Server via JobId",
-    TextColor3 = Color3.fromRGB(15, 20, 28),
-    TextSize = 11,
-    AutoButtonColor = false,
-    Parent = jobIdActionsRow,
-})
-addCorner(joinJobIdBtn, 6)
-registerAccent(joinJobIdBtn, "BackgroundColor3")
-
-trackConnection(clearJobIdBtn.MouseButton1Click:Connect(function()
-    jobIdBox.Text = ""
-end))
-
-trackConnection(joinJobIdBtn.MouseButton1Click:Connect(function()
-    executeJoinByJobId(jobIdBox.Text)
-end))
-
-TabSettings:AddSection("Pemulihan Koneksi (Auto-Rejoin)")
-
-local function executeServerRejoin(isAutomatic, reasonText)
-    if isRejoining or isServerHopping then
-        return
-    end
-    isRejoining = true
-    rejoinRetryCount = 0
-    armTeleportTimeoutGuard("rejoin")
-
-    local placeId = game.PlaceId
-    local jobId = game.JobId
-    local preferSameInstance = (autoRejoinMode == "Server Sama (Fallback Publik)") and (jobId ~= nil and jobId ~= "")
-
-    autoRejoinStatusCard:SetValue("Menghubungkan Ulang...")
-    BimSakSinUI:Notify({
-        Title = isAutomatic and "Koneksi Terputus" or "Memulai Rejoin",
-        Message = (reasonText and (reasonText .. " • ") or "") .. "Masuk kembali dalam 2 detik...",
-        Duration = 3,
-    })
-
-    task.spawn(function()
-        task.wait(2)
-        if isAutomatic and not autoRejoinEnabled then
-            isRejoining = false
-            autoRejoinStatusCard:SetValue("Nonaktif")
-            return
-        end
-
-        local ok, err = pcall(function()
-            if preferSameInstance then
-                TeleportService:TeleportToPlaceInstance(placeId, jobId, LocalPlayer)
-            else
-                TeleportService:Teleport(placeId, LocalPlayer)
-            end
-        end)
-
-        if not ok then
-            isRejoining = false
-            autoRejoinStatusCard:SetValue(autoRejoinEnabled and "Siaga (Gagal Rejoin)" or "Nonaktif")
-            BimSakSinUI:Notify({
-                Title = "Rejoin Gagal",
-                Message = tostring(err),
-                Duration = 4,
-            })
-        end
-    end)
-end
-
-if TeleportService then
-    trackConnection(TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
-        if player ~= LocalPlayer then
-            return
-        end
-
-        if isServerHopping then
-            hopRetryCount = hopRetryCount + 1
-            if hopRetryCount <= MAX_HOP_RETRIES and #hopCandidatePool > 0 then
-                local nextIdx = (serverHopMode == "Server Acak (Random)") and math.random(1, #hopCandidatePool) or 1
-                local nextServer = table.remove(hopCandidatePool, nextIdx)
-                serverHopStatusCard:SetValue(string.format("Mencoba Server Lain (%d/%d)...", hopRetryCount, MAX_HOP_RETRIES))
-                BimSakSinUI:Notify({
-                    Title = "Server Tujuan Penuh",
-                    Message = string.format("Mengalihkan ke server cadangan (%d/%d pemain)...", nextServer.playing, nextServer.maxPlayers),
-                    Duration = 2.5,
-                })
-                task.delay(1.5, function()
-                    if isServerHopping then
-                        pcall(function()
-                            TeleportService:TeleportToPlaceInstance(game.PlaceId, nextServer.id, LocalPlayer)
-                        end)
-                    end
-                end)
-            else
-                isServerHopping = false
-                table.clear(hopCandidatePool)
-                serverHopStatusCard:SetValue("Gagal Pindah Server")
-                BimSakSinUI:Notify({
-                    Title = "Gagal Masuk Server",
-                    Message = "Tidak berhasil masuk ke server tujuan: " .. tostring(errorMessage),
-                    Duration = 4,
-                })
-            end
-            return
-        end
-
-        if isRejoining then
-            rejoinRetryCount = rejoinRetryCount + 1
-            if rejoinRetryCount <= MAX_REJOIN_RETRIES then
-                autoRejoinStatusCard:SetValue(string.format("Mencoba Server Publik (%d/%d)...", rejoinRetryCount, MAX_REJOIN_RETRIES))
-                BimSakSinUI:Notify({
-                    Title = "Server Lama Penuh / Tutup",
-                    Message = "Mengalihkan otomatis ke server publik yang tersedia...",
-                    Duration = 3,
-                })
-                task.delay(2, function()
-                    if isRejoining then
-                        pcall(function()
-                            TeleportService:Teleport(game.PlaceId, LocalPlayer)
-                        end)
-                    end
-                end)
-            else
-                isRejoining = false
-                autoRejoinStatusCard:SetValue(autoRejoinEnabled and "Siaga (Batas Coba Tercapai)" or "Nonaktif")
-                BimSakSinUI:Notify({
-                    Title = "Auto-Rejoin Berhenti",
-                    Message = "Gagal masuk setelah " .. tostring(MAX_REJOIN_RETRIES) .. " percobaan: " .. tostring(errorMessage),
-                    Duration = 4,
-                })
-            end
-        end
-    end))
-end
-
-if GuiService then
-    trackConnection(GuiService.ErrorMessageChanged:Connect(function()
-        if not autoRejoinEnabled or isRejoining or isServerHopping then
-            return
-        end
-        local errCode = GuiService:GetErrorCode()
-        local errMsg = GuiService:GetErrorMessage()
-        if errCode ~= Enum.ConnectionError.OK or (errMsg and errMsg ~= "") then
-            executeServerRejoin(true, "Error Koneksi Terdeteksi")
-        end
-    end))
-end
-
-pcall(function()
-    local coreGui = game:GetService("CoreGui")
-    local promptGui = coreGui and coreGui:FindFirstChild("RobloxPromptGui")
-    local promptOverlay = promptGui and promptGui:FindFirstChild("promptOverlay")
-    if promptOverlay then
-        trackConnection(promptOverlay.ChildAdded:Connect(function(child)
-            if autoRejoinEnabled and not isRejoining and not isServerHopping and child.Name == "ErrorPrompt" then
-                executeServerRejoin(true, "Dialog Disconnect Terdeteksi")
-            end
-        end))
-    end
-end)
-
-local autoRejoinToggle = TabSettings:AddToggle({
-    Name = "Auto-Rejoin Saat Terputus",
-    Default = ConfigData.AutoRejoin,
-    Callback = function(state)
-        autoRejoinEnabled = state
-        ConfigData.AutoRejoin = state
-        ConfigManager:ScheduleSave()
-        if state then
-            autoRejoinStatusCard:SetValue("Siaga (Mendeteksi Error)")
-            BimSakSinUI:Notify({
-                Title = "Auto-Rejoin Aktif",
-                Message = "Otomatis masuk kembali jika koneksi server terputus.",
-                Duration = 2.5,
-            })
-        else
-            isRejoining = false
-            autoRejoinStatusCard:SetValue("Nonaktif")
-            BimSakSinUI:Notify({
-                Title = "Auto-Rejoin Dimatikan",
-                Message = "Pemulihan koneksi otomatis dinonaktifkan.",
-                Duration = 2.5,
-            })
-        end
-    end
-})
-
-local autoRejoinDropdown = TabSettings:AddDropdown({
-    Name = "Target Server Rejoin",
-    Options = { "Server Sama (Fallback Publik)", "Server Publik Acak" },
-    Default = ConfigData.AutoRejoinMode,
-    Callback = function(choice)
-        autoRejoinMode = choice
-        ConfigData.AutoRejoinMode = choice
-        ConfigManager:ScheduleSave()
-        BimSakSinUI:Notify({
-            Title = "Mode Rejoin Diubah",
-            Message = "Target: " .. choice,
-            Duration = 2.5,
-        })
-    end
-})
-
-TabSettings:AddButton({
-    Name = "Rejoin Server Sekarang",
-    Callback = function()
-        executeServerRejoin(false, "Rejoin Manual")
-    end
-})
-
-TabSettings:AddSection("Tampilan & Kontrol Panel")
-
-local themeDropdown = TabSettings:AddDropdown({
-    Name = "Warna Aksen Tema",
-    Options = { "Cyan Electric", "Emerald Green", "Royal Purple", "Sunset Orange" },
-    Default = ConfigData.Theme,
-    Callback = function(themeName)
-        ConfigData.Theme = themeName
-        applyThemeAccent(themeName)
-        ConfigManager:ScheduleSave()
-        BimSakSinUI:Notify({
-            Title = "Tema Diperbarui",
-            Message = "Warna aksen diganti ke " .. themeName,
-            Duration = 2.5,
-        })
-    end
-})
-
-local wmVisibleToggle = TabSettings:AddToggle({
-    Name = "Tampilkan Watermark HUD (FPS, Ping & Waktu)",
-    Default = ConfigData.WatermarkVisible,
-    Callback = function(state)
-        ConfigData.WatermarkVisible = state
-        if WatermarkFrame and WatermarkFrame.Parent then
-            WatermarkFrame.Visible = state
-        end
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local wmCornerDropdown = TabSettings:AddDropdown({
-    Name = "Posisi Sudut Watermark",
-    Options = { "Kiri Atas", "Kanan Atas", "Kiri Bawah", "Kanan Bawah" },
-    Default = ConfigData.WatermarkCorner,
-    Callback = function(cornerName)
-        ConfigData.WatermarkCorner = cornerName
-        setWatermarkCorner(cornerName)
-        ConfigManager:ScheduleSave()
-    end
-})
-
-local uiToggleKeybindCtrl = TabSettings:AddKeybind({
-    Name = "Tombol Buka / Sembunyikan Panel",
-    Default = initialUiKey,
-    OnKeyChanged = function(newKey)
-        ConfigData.ToggleUIKey = newKey and newKey.Name or ""
-        Window:SetToggleKey(newKey)
-        ConfigManager:ScheduleSave()
-    end,
-})
-
-local windowLockToggle = TabSettings:AddToggle({
-    Name = "Kunci Posisi Window & Watermark",
-    Default = ConfigData.WindowLocked,
-    Callback = function(state)
-        WindowLocked = state
-        ConfigData.WindowLocked = state
-        ConfigManager:ScheduleSave()
-    end
-})
-
-TabSettings:AddButton({
-    Name = "Reset Konfigurasi ke Default",
-    Callback = function()
-        ConfigManager.IsApplying = true
-        ConfigData = cloneDefaultConfig()
-        table.clear(SavedWaypointsData)
-
-        themeDropdown:SetValue(ConfigData.Theme, false)
-        wmVisibleToggle:SetState(ConfigData.WatermarkVisible, false)
-        wmCornerDropdown:SetValue(ConfigData.WatermarkCorner, false)
-        windowLockToggle:SetState(ConfigData.WindowLocked, false)
-        autoSaveToggle:SetState(ConfigData.AutoSave, true)
-
-        uiToggleKeybindCtrl:SetKey(resolveKeyCodeFromName(ConfigData.ToggleUIKey), false)
-        flyKeybindCtrl:SetKey(resolveKeyCodeFromName(ConfigData.FlyKey), false)
-        noclipKeybindCtrl:SetKey(resolveKeyCodeFromName(ConfigData.NoclipKey), false)
-        infJumpKeybindCtrl:SetKey(resolveKeyCodeFromName(ConfigData.InfJumpKey), false)
-        tpCoordKeybindCtrl:SetKey(resolveKeyCodeFromName(ConfigData.TpCoordKey), false)
-        tpGenKeybindCtrl:SetKey(resolveKeyCodeFromName(ConfigData.TpGenKey), false)
-        autoFarmKeybindCtrl:SetKey(resolveKeyCodeFromName(ConfigData.AutoFarmKey), false)
-
-        flySpeedSlider:SetValue(ConfigData.FlySpeed, false)
-        walkSlider:SetValue(ConfigData.WalkSpeed, false)
-        jumpSlider:SetValue(ConfigData.JumpPower, false)
-        lockStatsToggle:SetState(ConfigData.LockStats, false)
-        fovSlider:SetValue(ConfigData.FOV, false)
-
-        tracerOriginDropdown:SetValue(ConfigData.TracerOrigin, false)
-        tracerThicknessSlider:SetValue(ConfigData.TracerThickness, false)
-        autoTeamToggle:SetState(ConfigData.AutoTeamColor, false)
-        fallbackColorDropdown:SetValue(ConfigData.FallbackHighlightColor, false)
-        autoFarmToggle:SetState(false, false)
-        autoFarmModeDropdown:SetValue(ConfigData.AutoFarmTargetMode, false)
-        autoFarmDelaySlider:SetValue(ConfigData.AutoFarmDelay, false)
-        autoFarmStuckSlider:SetValue(ConfigData.AutoFarmStuckTimeout, false)
-        autoPerfectToggle:SetState(ConfigData.AutoPerfectGen, false)
-        autoInteractGenToggle:SetState(ConfigData.AutoInteractGen, false)
-        genSkillModeDropdown:SetValue(ConfigData.GenSkillMode, false)
-        genTimingOffsetSlider:SetValue(ConfigData.GenTimingOffset, false)
-        genTpModeDropdown:SetValue(ConfigData.GenTpTargetMode, false)
-        genHighlightToggle:SetState(ConfigData.GenHighlight, false)
-        genHideCompletedToggle:SetState(ConfigData.GenHideCompleted, false)
-        genOnlyUntouchedToggle:SetState(ConfigData.GenOnlyUntouched, false)
-        genMaxDistSlider:SetValue(ConfigData.GenMaxDistance, false)
-        lightingPresetDropdown:SetValue(ConfigData.LightingPreset, false)
-        noFogToggle:SetState(ConfigData.NoFog, false)
-
-        antiAfkToggle:SetState(ConfigData.AntiAFK, false)
-        autoRejoinToggle:SetState(ConfigData.AutoRejoin, false)
-        autoRejoinDropdown:SetValue(ConfigData.AutoRejoinMode, false)
-        serverHopDropdown:SetValue(ConfigData.ServerHopMode, false)
-
-        waypointManagerCtrl:ClearWaypoints(true)
-        ConfigManager.IsApplying = false
-
-        ConfigManager:SaveNow(waypointManagerCtrl:GetWaypoints())
-        BimSakSinUI:Notify({
-            Title = "Konfigurasi Direset",
-            Message = "Seluruh pengaturan & waypoint map ini dikembalikan ke standar.",
-            Duration = 3,
-        })
-    end
-})
-
-TabSettings:AddButton({
-    Name = "Tutup & Hapus Panel UI",
-    Callback = function()
-        if ConfigData.AutoSave then
-            ConfigManager:SaveNow(waypointManagerCtrl:GetWaypoints())
-        end
-        Window:Destroy()
-    end
-})
 
 -- ============================================================================
--- SINKRONISASI PEMAIN MASUK/KELUAR, INFINITE JUMP, FLY, NOCLIP & TELEMETRI
+-- INISIALISASI TAB VISUAL (Dibungkus fungsi modular agar hemat register)
 -- ============================================================================
+local function initTabVisual()
+    TabVisual:AddSection("Penanda Visual Pemain (Lokal)")
+
+    TabVisual:AddToggle({
+        Name = "Highlight Karakter Pemain",
+        Default = false,
+        Callback = function(state)
+            VisualESP.HighlightEnabled = state
+            refreshAllPlayerMarkers()
+            BimSakSinUI:Notify({ Title = "Highlight Pemain", Message = state and "Aktif" or "Dimatikan", Duration = 2.5 })
+        end
+    })
+
+    TabVisual:AddToggle({
+        Name = "Label Nama & Jarak Pemain",
+        Default = false,
+        Callback = function(state)
+            VisualESP.NameTagEnabled = state
+            refreshAllPlayerMarkers()
+        end
+    })
+
+    TabVisual:AddToggle({
+        Name = "Garis Tracer ESP Pemain",
+        Default = false,
+        Callback = function(state)
+            VisualESP.TracerEnabled = state
+            refreshAllPlayerMarkers()
+        end
+    })
+
+    TabVisual:AddDropdown({
+        Name = "Titik Asal Garis Tracer",
+        Options = { "Bawah Layar", "Tengah Layar (Crosshair)", "Atas Layar", "Posisi Karakter Sendiri" },
+        Default = ConfigData.TracerOrigin,
+        Callback = function(choice)
+            VisualESP.TracerOrigin = choice
+            ConfigData.TracerOrigin = choice
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    TabVisual:AddSlider({
+        Name = "Ketebalan Garis Tracer",
+        Min = 1,
+        Max = 4,
+        Default = ConfigData.TracerThickness,
+        Suffix = " px",
+        Callback = function(val)
+            VisualESP.TracerThickness = val
+            ConfigData.TracerThickness = val
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    TabVisual:AddToggle({
+        Name = "Sesuaikan Warna Team Otomatis",
+        Default = ConfigData.AutoTeamColor,
+        Callback = function(state)
+            VisualESP.AutoTeamColor = state
+            ConfigData.AutoTeamColor = state
+            updateAllMarkerColors()
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    TabVisual:AddDropdown({
+        Name = "Warna Cadangan / Non-Team",
+        Options = { "Ikuti Warna Tema", "Merah Terang", "Hijau Neon", "Kuning Emas", "Putih Bersih" },
+        Default = ConfigData.FallbackHighlightColor,
+        Callback = function(choice)
+            VisualESP.FallbackColorOption = choice
+            ConfigData.FallbackHighlightColor = choice
+            updateAllMarkerColors()
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    TabVisual:AddSection("Auto Farm, ESP Generator & Auto Perfect")
+
+    GeneratorESP.SummaryCard = TabVisual:AddInfoCard("Ringkasan Generator Map", "Nonaktif")
+    GeneratorESP.AutoStatusCard = TabVisual:AddInfoCard("Status Auto Generator", "Nonaktif")
+
+    local autoPerfectToggle = nil
+
+    TabVisual:AddToggle({
+        Name = "Auto Farm Generator (TP 0% + Perfect Beruntun)",
+        Default = false,
+        Callback = function(state)
+            GeneratorESP.AutoFarm = state
+            GeneratorESP.CurrentFarmTarget = nil
+            if state then
+                scanWorkspaceForGenerators(false)
+                scanPlayerGuiForSkillChecks()
+                if autoPerfectToggle then autoPerfectToggle:SetState(true) end
+                BimSakSinUI:Notify({ Title = "Auto Farm Aktif", Message = "Otomatis berpindah antar generator.", Duration = 3 })
+            end
+        end
+    })
+
+    TabVisual:AddToggle({
+        Name = "Aktifkan ESP Generator (Jarak & Status)",
+        Default = false,
+        Callback = function(state)
+            GeneratorESP.Enabled = state
+            if state then scanWorkspaceForGenerators(true) end
+        end
+    })
+
+    autoPerfectToggle = TabVisual:AddToggle({
+        Name = "Auto Perfect Skill Check (Otomatis)",
+        Default = ConfigData.AutoPerfectGen,
+        Callback = function(state)
+            GeneratorESP.AutoPerfect = state
+            ConfigData.AutoPerfectGen = state
+            ConfigManager:ScheduleSave()
+            if state then scanPlayerGuiForSkillChecks() end
+        end
+    })
+
+    TabVisual:AddToggle({
+        Name = "Auto Interaksi Prompt Generator",
+        Default = ConfigData.AutoInteractGen,
+        Callback = function(state)
+            GeneratorESP.AutoInteract = state
+            ConfigData.AutoInteractGen = state
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    TabVisual:AddButton({ Name = "Pindai Ulang Generator di Map", Callback = function() scanWorkspaceForGenerators(true) end })
+end
+
+initTabVisual()
+
+-- ---------------- TAB 5: PENGATURAN, ANTI-AFK & REJOIN (Modular) ----------------
+local function initTabSettings()
+    TabSettings:AddSection("Manajemen Konfigurasi (JSON Permanen)")
+
+    local initialConfigStatus = ConfigManager.Supported
+        and (ConfigManager.LoadedFromDisk and "Dimuat dari File JSON" or "Siap (File Baru)")
+        or "Tidak Didukung Executor"
+
+    local configStatusCard = TabSettings:AddInfoCard("Status Konfigurasi", initialConfigStatus)
+
+    ConfigManager.OnStatusChanged = function(statusText)
+        if configStatusCard then configStatusCard:SetValue(statusText) end
+    end
+
+    TabSettings:AddToggle({
+        Name = "Simpan Konfigurasi Otomatis (Auto-Save)",
+        Default = ConfigData.AutoSave,
+        Callback = function(state)
+            ConfigData.AutoSave = state
+            if state then ConfigManager:SaveNow(waypointManagerCtrl:GetWaypoints()) end
+        end
+    })
+
+    TabSettings:AddButton({
+        Name = "Simpan Konfigurasi Sekarang",
+        Callback = function()
+            ConfigManager:SaveNow(waypointManagerCtrl:GetWaypoints())
+            BimSakSinUI:Notify({ Title = "Tersimpan", Message = "Konfigurasi berhasil ditulis ke file.", Duration = 2.5 })
+        end
+    })
+
+    TabSettings:AddSection("Perlindungan Sesi (Anti-AFK)")
+
+    local antiAfkEnabled = ConfigData.AntiAFK
+    local antiAfkStatusCard = TabSettings:AddInfoCard("Status Anti-AFK", antiAfkEnabled and "Aktif" or "Nonaktif")
+
+    TabSettings:AddToggle({
+        Name = "Anti-AFK Aman (Cegah Kick 20 Menit)",
+        Default = antiAfkEnabled,
+        Callback = function(state)
+            antiAfkEnabled = state
+            ConfigData.AntiAFK = state
+            ConfigManager:ScheduleSave()
+            antiAfkStatusCard:SetValue(state and "Aktif" or "Nonaktif")
+        end
+    })
+
+    trackConnection(LocalPlayer.Idled:Connect(function()
+        if not antiAfkEnabled then return end
+        pcall(function()
+            local virtualUser = game:GetService("VirtualUser")
+            if virtualUser then
+                virtualUser:CaptureController()
+                virtualUser:ClickButton2(Vector2.new())
+            end
+        end)
+    end))
+
+    TabSettings:AddSection("Tampilan & Kontrol Panel")
+
+    TabSettings:AddDropdown({
+        Name = "Warna Aksen Tema",
+        Options = { "Cyan Electric", "Emerald Green", "Royal Purple", "Sunset Orange" },
+        Default = ConfigData.Theme,
+        Callback = function(themeName)
+            ConfigData.Theme = themeName
+            applyThemeAccent(themeName)
+            ConfigManager:ScheduleSave()
+        end
+    })
+
+    TabSettings:AddButton({
+        Name = "Tutup & Hapus Panel UI",
+        Callback = function()
+            if ConfigData.AutoSave then
+                ConfigManager:SaveNow(waypointManagerCtrl:GetWaypoints())
+            end
+            Window:Destroy()
+        end
+    })
+end
+
+initTabSettings()
+
+-- Sinkronisasi Player & Render Loop Utama
 trackConnection(Players.PlayerAdded:Connect(function()
     rebuildPlayerList()
     refreshAllPlayerMarkers()
@@ -5951,14 +4160,7 @@ end))
 trackConnection(Players.PlayerRemoving:Connect(function(leavingPlayer)
     ThumbnailCache[leavingPlayer.UserId] = nil
     fullRemovePlayerTracking(leavingPlayer)
-    if spectatedPlayer == leavingPlayer then
-        stopSpectate(true)
-        BimSakSinUI:Notify({
-            Title = "Target Keluar Server",
-            Message = leavingPlayer.DisplayName .. " keluar. Kamera kembali ke kamu.",
-            Duration = 3,
-        })
-    end
+    if spectatedPlayer == leavingPlayer then stopSpectate(true) end
     task.defer(rebuildPlayerList)
 end))
 
@@ -5966,47 +4168,23 @@ rebuildPlayerList()
 refreshAllPlayerMarkers()
 
 trackConnection(UserInputService.JumpRequest:Connect(function()
-    if not infiniteJumpEnabled or flyEnabled then
-        return
-    end
-
+    if not infiniteJumpEnabled or flyEnabled then return end
     local now = os.clock()
-    if now - lastAirJumpTime < AIR_JUMP_COOLDOWN then
-        return
-    end
-
+    if now - lastAirJumpTime < AIR_JUMP_COOLDOWN then return end
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hum or not hrp or hum.Health <= 0 then
-        return
-    end
-
-    local currentState = hum:GetState()
-    if currentState == Enum.HumanoidStateType.Dead
-        or currentState == Enum.HumanoidStateType.Seated
-        or currentState == Enum.HumanoidStateType.Swimming
-        or currentState == Enum.HumanoidStateType.Physics then
-        return
-    end
-
+    if not hum or hum.Health <= 0 then return end
     lastAirJumpTime = now
     hum:ChangeState(Enum.HumanoidStateType.Jumping)
 end))
 
 trackConnection(RunService.Stepped:Connect(function()
-    if not noclipEnabled then
-        return
-    end
+    if not noclipEnabled then return end
     for i = 1, #cachedCharParts do
         local part = cachedCharParts[i]
         if part and part.Parent then
-            if originalCollideStates[part] == nil then
-                originalCollideStates[part] = part.CanCollide
-            end
-            if part.CanCollide then
-                part.CanCollide = false
-            end
+            if originalCollideStates[part] == nil then originalCollideStates[part] = part.CanCollide end
+            if part.CanCollide then part.CanCollide = false end
         end
     end
 end))
@@ -6024,183 +4202,17 @@ local elapsed = 0
 local genRescanTimer = 0
 local autoFarmTickTimer = 0
 
-local function updateTracerLinesFrame()
-    local cam = workspace.CurrentCamera
-    if not VisualESP.TracerEnabled or not cam then
-        for _, entry in pairs(VisualESP.PlayerMarkers) do
-            if entry.TracerLine then
-                entry.TracerLine.Visible = false
-            end
-        end
-        return
-    end
-
-    local vp = cam.ViewportSize
-    local originX = vp.X * 0.5
-    local originY = vp.Y
-
-    if VisualESP.TracerOrigin == "Tengah Layar (Crosshair)" then
-        originX = vp.X * 0.5
-        originY = vp.Y * 0.5
-    elseif VisualESP.TracerOrigin == "Atas Layar" then
-        originX = vp.X * 0.5
-        originY = 0
-    elseif VisualESP.TracerOrigin == "Posisi Karakter Sendiri" then
-        local myChar = LocalPlayer.Character
-        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if myHRP then
-            local myScreen, onScr = cam:WorldToViewportPoint(myHRP.Position)
-            if onScr and myScreen.Z > 0 then
-                originX = myScreen.X
-                originY = myScreen.Y
-            end
-        end
-    end
-
-    for plr, entry in pairs(VisualESP.PlayerMarkers) do
-        local line = entry.TracerLine
-        local targetChar = plr and plr.Parent and plr.Character
-        local targetHRP = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-        local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
-
-        if targetHRP and targetHum and targetHum.Health > 0 then
-            if not line or not line.Parent then
-                line = ensurePlayerTracerLine(plr, entry)
-            end
-
-            local sp, _ = cam:WorldToViewportPoint(targetHRP.Position)
-            local destX = sp.X
-            local destY = sp.Y
-
-            if sp.Z < 0 then
-                local dxRaw = (vp.X * 0.5) - destX
-                local dyRaw = (vp.Y * 0.5) - destY
-                local angleBehind = math.atan2(dyRaw, dxRaw)
-                local radius = math.max(vp.X, vp.Y)
-                destX = (vp.X * 0.5) + math.cos(angleBehind) * radius
-                destY = (vp.Y * 0.5) + math.sin(angleBehind) * radius
-            end
-
-            local dx = destX - originX
-            local dy = destY - originY
-            local length = math.sqrt((dx * dx) + (dy * dy))
-
-            if length > 2 then
-                line.Position = UDim2.fromOffset((originX + destX) * 0.5, (originY + destY) * 0.5)
-                line.Size = UDim2.fromOffset(length, VisualESP.TracerThickness)
-                line.Rotation = math.deg(math.atan2(dy, dx))
-                line.Visible = true
-            else
-                line.Visible = false
-            end
-        elseif line then
-            line.Visible = false
-        end
-    end
-end
-
-local function updateGeneratorsTelemetry()
-    if not GeneratorESP.Enabled then
-        return
-    end
-
-    local myChar = LocalPlayer.Character
-    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    local myPos = myHRP and myHRP.Position
-
-    local totalCount = 0
-    local untouchedCount = 0
-    local workingCount = 0
-    local completedCount = 0
-
-    local invalidGens = {}
-
-    for genInst, entry in pairs(GeneratorESP.Tracked) do
-        if not genInst or not genInst.Parent or not entry.RootPart or not entry.RootPart.Parent then
-            table.insert(invalidGens, genInst)
-        else
-            totalCount = totalCount + 1
-            local info = extractGeneratorTelemetry(genInst, entry.RootPart, entry)
-
-            if info.Category == "Completed" then
-                completedCount = completedCount + 1
-            elseif info.Category == "Working" then
-                workingCount = workingCount + 1
-            elseif info.Category == "Untouched" then
-                untouchedCount = untouchedCount + 1
-            end
-
-            local dist = myPos and math.floor((myPos - entry.RootPart.Position).Magnitude + 0.5) or 0
-            local withinRange = (dist <= GeneratorESP.MaxDistance)
-
-            local shouldShow = withinRange
-            if GeneratorESP.HideCompleted and info.Category == "Completed" then
-                shouldShow = false
-            end
-            if GeneratorESP.OnlyUntouched and info.Category ~= "Untouched" then
-                shouldShow = false
-            end
-
-            if entry.Billboard then
-                entry.Billboard.Enabled = shouldShow
-                if shouldShow then
-                    entry.TitleLabel.Text = string.format("⚡ %s • %d stud", genInst.Name, dist)
-                    entry.StatusLabel.Text = info.StatusText
-                    entry.StatusLabel.TextColor3 = info.Color
-                    entry.Stroke.Color = info.Color
-                end
-            end
-
-            if entry.Highlight then
-                entry.Highlight.Enabled = (shouldShow and GeneratorESP.HighlightEnabled)
-                if shouldShow and GeneratorESP.HighlightEnabled then
-                    entry.Highlight.FillColor = info.Color
-                    entry.Highlight.OutlineColor = info.Color
-                end
-            end
-        end
-    end
-
-    for _, badGen in ipairs(invalidGens) do
-        clearSingleGeneratorVisual(badGen)
-    end
-
-    if GeneratorESP.SummaryCard then
-        if totalCount == 0 then
-            GeneratorESP.SummaryCard:SetValue("0 Generator Terdeteksi")
-        else
-            GeneratorESP.SummaryCard:SetValue(string.format(
-                "Total:%d • Belum:%d • Aktif:%d • Selesai:%d",
-                totalCount,
-                untouchedCount,
-                workingCount,
-                completedCount
-            ))
-        end
-    end
-end
-
 trackConnection(RunService.RenderStepped:Connect(function(dt)
     frameCounter = frameCounter + 1
     elapsed = elapsed + dt
     genRescanTimer = genRescanTimer + dt
     autoFarmTickTimer = autoFarmTickTimer + dt
 
-    if GeneratorESP.AutoPerfect or GeneratorESP.AutoFarm then
-        evaluateSkillCheckContainers(lastKnownPingMs)
-    end
-
-    if GeneratorESP.AutoInteract or GeneratorESP.AutoFarm then
-        autoInteractNearbyGenerators()
-    end
-
+    if GeneratorESP.AutoPerfect or GeneratorESP.AutoFarm then evaluateSkillCheckContainers(lastKnownPingMs) end
+    if GeneratorESP.AutoInteract or GeneratorESP.AutoFarm then autoInteractNearbyGenerators() end
     if GeneratorESP.AutoFarm and autoFarmTickTimer >= 0.25 then
         autoFarmTickTimer = 0
         stepAutoFarmGenerator()
-    end
-
-    if VisualESP.TracerEnabled then
-        updateTracerLinesFrame()
     end
 
     if flyEnabled then
@@ -6208,185 +4220,33 @@ trackConnection(RunService.RenderStepped:Connect(function(dt)
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         local cam = workspace.CurrentCamera
-
         if hrp and hum and cam then
-            if not flyLinearVel or not flyLinearVel.Parent or not flyAlignOrient or not flyAlignOrient.Parent then
-                setupFlyConstraints(char)
-            end
-
+            if not flyLinearVel or not flyLinearVel.Parent then setupFlyConstraints(char) end
             hum.PlatformStand = true
-
             local moveDir = hum.MoveDirection
-            local flatLook = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
-            if flatLook.Magnitude > 0.001 then
-                flatLook = flatLook.Unit
-            else
-                flatLook = Vector3.new(0, 0, -1)
-            end
-
-            local flatRight = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
-            if flatRight.Magnitude > 0.001 then
-                flatRight = flatRight.Unit
-            else
-                flatRight = Vector3.new(1, 0, 0)
-            end
-
-            local forwardInput = moveDir:Dot(flatLook)
-            local rightInput = moveDir:Dot(flatRight)
-            local verticalInput = 0
-
-            if mobileFlyUpHeld then
-                verticalInput = verticalInput + 1
-            end
-            if mobileFlyDownHeld then
-                verticalInput = verticalInput - 1
-            end
-
-            if not UserInputService:GetFocusedTextBox() then
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) or hum.Jump then
-                    verticalInput = verticalInput + 1
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-                    verticalInput = verticalInput - 1
-                end
-            end
-
-            local wishDir = (cam.CFrame.LookVector * forwardInput)
-                + (cam.CFrame.RightVector * rightInput)
-                + Vector3.new(0, verticalInput, 0)
-
-            if wishDir.Magnitude > 1 then
-                wishDir = wishDir.Unit
-            end
-
-            local targetVel = wishDir * flySpeed
-            local smoothAlpha = 1 - math.exp(-12 * math.clamp(dt, 0.001, 0.1))
-            currentFlyVelocity = currentFlyVelocity:Lerp(targetVel, smoothAlpha)
-
-            if flyLinearVel then
-                flyLinearVel.VectorVelocity = currentFlyVelocity
-            end
-            if flyAlignOrient then
-                local camLook = cam.CFrame.LookVector
-                local horizLook = Vector3.new(camLook.X, 0, camLook.Z)
-                if horizLook.Magnitude > 0.001 then
-                    flyAlignOrient.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + horizLook.Unit)
-                end
-            end
+            local flatLook = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z).Unit
+            local wishDir = (flatLook * moveDir:Dot(flatLook)) + Vector3.new(0, (mobileFlyUpHeld and 1 or (mobileFlyDownHeld and -1 or 0)), 0)
+            currentFlyVelocity = currentFlyVelocity:Lerp(wishDir * flySpeed, 1 - math.exp(-12 * dt))
+            if flyLinearVel then flyLinearVel.VectorVelocity = currentFlyVelocity end
         end
     end
 
     if elapsed >= 0.4 then
         local fps = math.floor((frameCounter / elapsed) + 0.5)
-        local fpsText = tostring(fps) .. " FPS"
-        fpsCard:SetValue(fpsText)
-
-        if wmFpsLabel and wmFpsLabel.Parent then
-            wmFpsLabel.Text = fpsText
-        end
-
+        fpsCard:SetValue(tostring(fps) .. " FPS")
+        if wmFpsLabel then wmFpsLabel.Text = tostring(fps) .. " FPS" end
         if cachedDataPingItem then
-            local ok, pingVal = pcall(function()
-                return math.floor(cachedDataPingItem:GetValue())
-            end)
-            if ok and pingVal then
-                lastKnownPingMs = pingVal
-                local pingText = tostring(pingVal) .. " ms"
-                pingCard:SetValue(pingText)
-
-                if wmPingLabel and wmPingLabel.Parent then
-                    wmPingLabel.Text = pingText
-                    if pingVal < 90 then
-                        wmPingLabel.TextColor3 = Palette.Success
-                    elseif pingVal < 180 then
-                        wmPingLabel.TextColor3 = Palette.Warning
-                    else
-                        wmPingLabel.TextColor3 = Palette.Danger
-                    end
-                end
-            end
+            pcall(function() lastKnownPingMs = math.floor(cachedDataPingItem:GetValue()) end)
+            pingCard:SetValue(tostring(lastKnownPingMs) .. " ms")
         end
-
-        if wmTimeLabel and wmTimeLabel.Parent then
-            wmTimeLabel.Text = getSafeTimeString()
-        end
-
         playerCountCard:SetValue(tostring(#Players:GetPlayers()) .. " Pemain")
-
-        if VisualESP.NameTagEnabled then
-            local myChar = LocalPlayer.Character
-            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if myHRP then
-                local myPos = myHRP.Position
-                for plr, entry in pairs(VisualESP.PlayerMarkers) do
-                    if entry.DistanceLabel and entry.DistanceLabel.Parent and plr.Character then
-                        local targetHRP = plr.Character:FindFirstChild("HumanoidRootPart")
-                        if targetHRP then
-                            local dist = math.floor((myPos - targetHRP.Position).Magnitude + 0.5)
-                            entry.DistanceLabel.Text = tostring(dist) .. " stud"
-                        end
-                    end
-                end
-            end
-        end
-
-        if GeneratorESP.Enabled then
-            updateGeneratorsTelemetry()
-        end
-
         frameCounter = 0
         elapsed = 0
     end
-
-    if genRescanTimer >= 4.0 then
-        genRescanTimer = 0
-        if GeneratorESP.Enabled or GeneratorESP.AutoInteract or GeneratorESP.AutoFarm then
-            scanWorkspaceForGenerators(false)
-        end
-        if GeneratorESP.AutoPerfect or GeneratorESP.AutoFarm then
-            scanPlayerGuiForSkillChecks()
-        end
-    end
-
-    if spectatedPlayer and spectatedPlayer.Parent then
-        local targetChar = spectatedPlayer.Character
-        local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
-        local cam = workspace.CurrentCamera
-        if cam and targetHum and cam.CameraSubject ~= targetHum then
-            cam.CameraSubject = targetHum
-        end
-    end
 end))
-
-trackConnection(LocalPlayer.CharacterRemoving:Connect(function()
-    destroyFlyConstraints()
-    table.clear(originalCollideStates)
-    table.clear(cachedCharParts)
-end))
-
-trackConnection(LocalPlayer.CharacterAdded:Connect(function(newChar)
-    table.clear(originalCollideStates)
-    rebuildCharacterPartsCache(newChar)
-    bindCharacterStatLocks(newChar)
-
-    if flyEnabled then
-        newChar:WaitForChild("HumanoidRootPart", 5)
-        task.wait(0.15)
-        if flyEnabled then
-            setupFlyConstraints(newChar)
-        end
-    elseif lockCharacterStats then
-        task.wait(0.2)
-        applyCharacterStats()
-    end
-end))
-
-local startupMsg = ConfigManager.LoadedFromDisk
-    and string.format("Config dimuat • Auto Farm [%s] & TP Gen [%s] siap di Tab Visual.", ConfigData.AutoFarmKey ~= "" and ConfigData.AutoFarmKey or "-", ConfigData.TpGenKey ~= "" and ConfigData.TpGenKey or "-")
-    or string.format("Auto Farm [%s], Auto Perfect & TP Gen [%s] siap di Tab Visual.", ConfigData.AutoFarmKey, ConfigData.TpGenKey)
 
 BimSakSinUI:Notify({
-    Title = "BimSakSin Hub v4.5 Aktif",
-    Message = startupMsg,
+    Title = "BimSakSin Hub v4.6 Aktif",
+    Message = "Berhasil dimuat tanpa error register!",
     Duration = 4,
 })

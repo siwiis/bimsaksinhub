@@ -273,26 +273,26 @@ do
 end
 
 local Theme = {
-    BgPrimary = Color3.fromRGB(12, 11, 16),
-    BgSecondary = Color3.fromRGB(19, 17, 25),
-    BgCard = Color3.fromRGB(26, 23, 34),
-    BgControl = Color3.fromRGB(38, 33, 48),
-    Border = Color3.fromRGB(238, 184, 56),
-    BorderSubtle = Color3.fromRGB(84, 68, 42),
+    BgPrimary = Color3.fromRGB(13, 11, 19),
+    BgSecondary = Color3.fromRGB(20, 16, 30),
+    BgCard = Color3.fromRGB(28, 22, 41),
+    BgControl = Color3.fromRGB(40, 31, 58),
+    Border = Color3.fromRGB(255, 132, 36),
+    BorderSubtle = Color3.fromRGB(78, 56, 108),
 
-    TextPrimary = Color3.fromRGB(255, 248, 236),
-    TextSecondary = Color3.fromRGB(214, 198, 174),
-    TextMuted = Color3.fromRGB(148, 134, 116),
+    TextPrimary = Color3.fromRGB(255, 246, 235),
+    TextSecondary = Color3.fromRGB(204, 186, 172),
+    TextMuted = Color3.fromRGB(142, 124, 150),
 
     FontFamily = Enum.Font.GothamSemibold,
     FontBold = Enum.Font.GothamBold,
     FontColorMode = "Auto",
     FontBgEnabled = false,
-    FontBgColor = Color3.fromRGB(16, 14, 22),
+    FontBgColor = Color3.fromRGB(18, 14, 26),
     FontBgTransparency = 0.65,
 
-    Accent = Color3.fromRGB(238, 184, 56),
-    AccentDark = Color3.fromRGB(168, 118, 22),
+    Accent = Color3.fromRGB(255, 118, 26),
+    AccentDark = Color3.fromRGB(184, 72, 12),
     Crimson = Color3.fromRGB(214, 48, 74),
     Spectral = Color3.fromRGB(155, 89, 245),
     Success = Color3.fromRGB(46, 213, 115),
@@ -389,6 +389,11 @@ local GeneratorESP = {
     Enabled = false,
     Font = Enum.Font.GothamBold,
     Color = Color3.fromRGB(255, 196, 54),
+    ActiveColor = Color3.fromRGB(46, 213, 115),
+    IdleColor = Color3.fromRGB(255, 196, 54),
+    DoneColor = Color3.fromRGB(96, 175, 255),
+    ShowProgressBar = true,
+    ShowWorkerInfo = true,
     Folder = nil,
     Entries = {},
     Candidates = {},
@@ -414,9 +419,17 @@ local Combat = {
     EnemyToolParts = {},
 
     AutoParryEnabled = false,
-    ParryRange = 16,
+    AutoParryVisual = true,
+    ParryRange = 18,
+    ParryReactionDelay = 0.02,
+    ParryKey = "Auto",
     LastParryTime = 0,
-    ParryCooldown = 0.4,
+    ParryCooldown = 0.35,
+    ParryCount = 0,
+    ParryRingPart = nil,
+    ParryShieldHL = nil,
+    ParryRemoteCache = {},
+    ParryRemoteScanned = false,
 }
 
 local Carry = {
@@ -425,6 +438,13 @@ local Carry = {
     Style = "Depan",
     AnimTrack = nil,
     NativePromptTriggered = false,
+    ShowVisualBeam = true,
+    VisualBeam = nil,
+    VisualAtt0 = nil,
+    VisualAtt1 = nil,
+    TargetHL = nil,
+    CarryRemoteCache = {},
+    CarryRemoteScanned = false,
 }
 
 local Emotes = {
@@ -544,6 +564,274 @@ function SafeEngine.AutoRepair(contextName, errMsg)
             UI.StatusLabel.Text = string.format("Anti-Bug Aktif (%d Fix)", Protection.AutoRepairs)
         end
     end)
+end
+
+-- ============================================================================
+-- 2A. UNIVERSAL FEATURE API, LIFECYCLE HOOKS & ANTI-CRASH BRIDGE (FeatureAPI)
+-- ============================================================================
+local FeatureAPI = {
+    Registry = {},
+    Listeners = {},
+    RemoteIndex = {
+        Parry = {},
+        Carry = {},
+        Combat = {},
+        Interact = {},
+        LastScan = 0,
+    },
+    Capabilities = {
+        Clipboard = (typeof(setclipboard) == "function" or typeof(toclipboard) == "function"),
+        FileSystem = (typeof(writefile) == "function" and typeof(readfile) == "function" and typeof(isfile) == "function"),
+        ProximityPrompt = (typeof(fireproximityprompt) == "function"),
+        HttpRequest = (typeof(request) == "function" or typeof(http_request) == "function" or (syn and typeof(syn.request) == "function")),
+        GetHui = (typeof(gethui) == "function"),
+        VirtualInput = (VirtualInputManager ~= nil),
+        VirtualUser = (VirtualUser ~= nil),
+    },
+}
+
+function FeatureAPI.On(eventName, callback)
+    if type(eventName) ~= "string" or type(callback) ~= "function" then return nil end
+    FeatureAPI.Listeners[eventName] = FeatureAPI.Listeners[eventName] or {}
+    table.insert(FeatureAPI.Listeners[eventName], callback)
+    return function()
+        local list = FeatureAPI.Listeners[eventName]
+        if not list then return end
+        for i = #list, 1, -1 do
+            if list[i] == callback then
+                table.remove(list, i)
+            end
+        end
+    end
+end
+
+function FeatureAPI.Emit(eventName, ...)
+    local list = FeatureAPI.Listeners[eventName]
+    if not list then return end
+    for i = 1, #list do
+        local fn = list[i]
+        if type(fn) == "function" then
+            SafeEngine.Run("Event:" .. tostring(eventName), fn, ...)
+        end
+    end
+end
+
+function FeatureAPI.Register(featureId, spec)
+    assert(type(featureId) == "string", "featureId harus string")
+    spec = spec or {}
+    FeatureAPI.Registry[featureId] = {
+        Id = featureId,
+        Category = spec.Category or "General",
+        Enabled = false,
+        Cooldown = spec.Cooldown or 0,
+        LastToggle = 0,
+        Validate = spec.Validate,
+        OnEnable = spec.OnEnable,
+        OnDisable = spec.OnDisable,
+        OnRespawn = spec.OnRespawn,
+        SyncState = spec.SyncState,
+    }
+    return FeatureAPI.Registry[featureId]
+end
+
+function FeatureAPI.SetEnabled(featureId, state, silent)
+    local entry = FeatureAPI.Registry[featureId]
+    if not entry then return false, "Feature tidak terdaftar: " .. tostring(featureId) end
+
+    local targetState = (state == true)
+    if entry.Enabled == targetState then
+        return true
+    end
+
+    local now = os.clock()
+    if entry.Cooldown > 0 and (now - entry.LastToggle) < entry.Cooldown then
+        return false, "Cooldown aktif"
+    end
+
+    if targetState and type(entry.Validate) == "function" then
+        local validOk, validRes, reason = SafeEngine.Run("Validate:" .. featureId, entry.Validate)
+        if not validOk or validRes == false then
+            if not silent then
+                Utils.Notify(
+                    LocaleEngine.Text("Prasyarat Fitur", "Feature Requirement"),
+                    tostring(reason or "Karakter atau kondisi map belum siap."),
+                    Theme.Warning
+                )
+            end
+            return false, reason
+        end
+    end
+
+    entry.LastToggle = now
+    if targetState then
+        local ok, err = true, nil
+        if type(entry.OnEnable) == "function" then
+            ok, err = SafeEngine.Run("Enable:" .. featureId, entry.OnEnable)
+        end
+        if not ok then
+            entry.Enabled = false
+            pcall(function()
+                if type(entry.OnDisable) == "function" then entry.OnDisable() end
+            end)
+            if not silent then
+                Utils.Notify("Auto-Recovery: " .. featureId, LocaleEngine.Text("Fitur dipulihkan dari error.", "Feature recovered from error."), Theme.Danger)
+            end
+            return false, err
+        end
+        entry.Enabled = true
+    else
+        entry.Enabled = false
+        if type(entry.OnDisable) == "function" then
+            SafeEngine.Run("Disable:" .. featureId, entry.OnDisable)
+        end
+    end
+
+    FeatureAPI.Emit("FeatureStateChanged", featureId, entry.Enabled)
+    FeatureAPI.Emit("Feature:" .. featureId, entry.Enabled)
+    return true
+end
+
+function FeatureAPI.Sync(featureId, isOn)
+    local entry = FeatureAPI.Registry[featureId]
+    if not entry then return end
+    local target = (isOn == true)
+    if entry.Enabled ~= target then
+        entry.Enabled = target
+        FeatureAPI.Emit("FeatureStateChanged", featureId, target)
+        FeatureAPI.Emit("Feature:" .. featureId, target)
+    end
+end
+
+function FeatureAPI.Toggle(featureId, silent)
+    local entry = FeatureAPI.Registry[featureId]
+    if not entry then return false end
+    return FeatureAPI.SetEnabled(featureId, not entry.Enabled, silent)
+end
+
+function FeatureAPI.IsEnabled(featureId)
+    local entry = FeatureAPI.Registry[featureId]
+    return entry and entry.Enabled == true or false
+end
+
+function FeatureAPI.GetActiveCount()
+    local total = 0
+    for _, entry in pairs(FeatureAPI.Registry) do
+        if entry.Enabled then
+            total = total + 1
+        end
+    end
+    return total
+end
+
+function FeatureAPI.ScanGameRemotes(force)
+    local now = os.clock()
+    if not force and (now - FeatureAPI.RemoteIndex.LastScan) < 12 then
+        return FeatureAPI.RemoteIndex
+    end
+    FeatureAPI.RemoteIndex.LastScan = now
+    table.clear(FeatureAPI.RemoteIndex.Parry)
+    table.clear(FeatureAPI.RemoteIndex.Carry)
+    table.clear(FeatureAPI.RemoteIndex.Combat)
+    table.clear(FeatureAPI.RemoteIndex.Interact)
+
+    local containers = {
+        ReplicatedStorage,
+        LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"),
+        LocalPlayer and LocalPlayer.Character,
+    }
+
+    for _, root in ipairs(containers) do
+        if root then
+            for _, inst in ipairs(root:GetDescendants()) do
+                if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") then
+                    local lower = string.lower(inst.Name)
+                    if string.find(lower, "parry") or string.find(lower, "block") or string.find(lower, "deflect") or string.find(lower, "guard") or string.find(lower, "counter") or string.find(lower, "tangkis") then
+                        table.insert(FeatureAPI.RemoteIndex.Parry, inst)
+                    elseif string.find(lower, "carry") or string.find(lower, "gendong") or string.find(lower, "angkat") or string.find(lower, "grab") or string.find(lower, "pick") or string.find(lower, "drop") then
+                        table.insert(FeatureAPI.RemoteIndex.Carry, inst)
+                    elseif string.find(lower, "attack") or string.find(lower, "swing") or string.find(lower, "hit") or string.find(lower, "damage") or string.find(lower, "shoot") then
+                        table.insert(FeatureAPI.RemoteIndex.Combat, inst)
+                    elseif string.find(lower, "interact") or string.find(lower, "prompt") or string.find(lower, "use") or string.find(lower, "collect") then
+                        table.insert(FeatureAPI.RemoteIndex.Interact, inst)
+                    end
+                end
+            end
+        end
+    end
+    return FeatureAPI.RemoteIndex
+end
+
+function FeatureAPI.SafeFireRemote(remote, ...)
+    if not remote or not remote.Parent then return false end
+    local args = { ... }
+    if remote:IsA("RemoteEvent") then
+        local ok = pcall(function()
+            remote:FireServer(table.unpack(args))
+        end)
+        return ok
+    elseif remote:IsA("RemoteFunction") then
+        local ok, res = pcall(function()
+            return remote:InvokeServer(table.unpack(args))
+        end)
+        return ok, res
+    end
+    return false
+end
+
+function FeatureAPI.TriggerProximity(prompt)
+    if not prompt or not prompt.Parent or not prompt:IsA("ProximityPrompt") then
+        return false
+    end
+    if typeof(fireproximityprompt) == "function" then
+        local ok = pcall(fireproximityprompt, prompt)
+        if ok then return true end
+    end
+    local okHold = pcall(function()
+        prompt:InputHoldBegin()
+        task.delay(math.max(0.05, prompt.HoldDuration or 0.05), function()
+            if prompt and prompt.Parent then
+                pcall(function() prompt:InputHoldEnd() end)
+            end
+        end)
+    end)
+    return okHold
+end
+
+-- Auto-Rebind & Pemulihan Fisika Saat Karakter Respawn
+Utils.Track(LocalPlayer.CharacterAdded:Connect(function(newChar)
+    task.wait(0.25)
+    SafeEngine.Run("CharacterAddedAPI", function()
+        local hum = newChar:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if State.WalkSpeed ~= 16 then hum.WalkSpeed = State.WalkSpeed end
+            if State.JumpPower ~= 50 then
+                hum.UseJumpPower = true
+                hum.JumpPower = State.JumpPower
+            end
+        end
+        if State.FlyEnabled and type(Physics.CleanupFly) == "function" then
+            Physics.CleanupFly()
+        end
+        if Carry.Enabled then
+            Carry.Stop()
+        end
+        if Emotes.Playing then
+            Emotes.Stop()
+        end
+        Combat.ParryRemoteScanned = false
+        Carry.CarryRemoteScanned = false
+        FeatureAPI.ScanGameRemotes(true)
+        for _, entry in pairs(FeatureAPI.Registry) do
+            if entry.Enabled and type(entry.OnRespawn) == "function" then
+                SafeEngine.Run("Respawn:" .. entry.Id, entry.OnRespawn, newChar)
+            end
+        end
+        FeatureAPI.Emit("CharacterRespawned", newChar)
+    end)
+end))
+
+if typeof(getgenv) == "function" then
+    getgenv().BSS_FeatureAPI = FeatureAPI
 end
 
 -- ============================================================================
@@ -1219,7 +1507,7 @@ do
 
         local filesText = (#fileList > 0) and table.concat(fileList, "\n• ") or "Tidak ada file tersimpan"
         local textMsg = table.concat({
-            "👑 *BimSakSin Hub v3.0 — Copy Asset / Map Alert*",
+            "🎃 *BimSakSin Hub v3.0 — Copy Asset / Map Alert*",
             "━━━━━━━━━━━━━━━━━━━━",
             "• *Status:* Copy & File Export Selesai",
             "• *Game:* " .. tostring(summaryMeta.GameTitle) .. " (`" .. tostring(summaryMeta.PlaceId) .. "`)",
@@ -1387,7 +1675,7 @@ function Utils.CreateSkull3D(parent, pixelSize, position, anchorPoint, zIndex, i
         Size = UDim2.new(1.22, 0, 1.22, 0),
         Position = UDim2.new(0.5, 0, 0.50, 0),
         AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundColor3 = Color3.fromRGB(242, 188, 58),
+        BackgroundColor3 = Color3.fromRGB(255, 138, 36),
         BackgroundTransparency = isHero and 0.65 or 0.78,
         BorderSizePixel = 0,
         ZIndex = z,
@@ -1953,15 +2241,15 @@ function Utils.Notify(title, message, color)
 end
 
 -- ============================================================================
--- 7. BUILD MAIN WINDOW (LUXURY SKULL 3D TRANSPARENT + 4 CORNER ROYAL SKULLS)
+-- 7. BUILD MAIN WINDOW (HALLOWEEN LUXURY TRANSPARENT + 4 CORNER PUMPKINS)
 -- ============================================================================
 do
     UI.FloatingToggle = Utils.Create("TextButton", {
-        Name = "FloatingLuxurySkullToggle",
+        Name = "FloatingPumpkinToggle",
         Size = UDim2.new(0, 56, 0, 56),
         Position = UDim2.new(0, 18, 0.5, -28),
-        BackgroundColor3 = Color3.fromRGB(14, 13, 20),
-        BackgroundTransparency = 0.22,
+        BackgroundColor3 = Color3.fromRGB(18, 14, 28),
+        BackgroundTransparency = 0.25,
         Text = "",
         AutoButtonColor = false,
         ZIndex = 45,
@@ -2003,12 +2291,12 @@ do
     local bgGradient = Utils.Create("UIGradient", {
         Rotation = 135,
         Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(36, 29, 18)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(14, 13, 19)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(44, 34, 18)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 20, 48)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(16, 13, 24)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(42, 22, 16)),
         }),
     }, UI.MainFrame)
-    bgGradient.Name = "LuxurySkullGradient"
+    bgGradient.Name = "HalloweenLuxuryGradient"
 
     Utils.CreatePumpkin3D(UI.MainFrame, 28, UDim2.new(0, -8, 0, -8), Vector2.new(0, 0), 30, false, true)
     Utils.CreatePumpkin3D(UI.MainFrame, 28, UDim2.new(1, 8, 0, -8), Vector2.new(1, 0), 30, false, true)
@@ -2065,14 +2353,14 @@ do
         BackgroundTransparency = 1,
         Font = Theme.FontFamily,
         Text = App.Subtitle,
-        TextColor3 = Color3.fromRGB(238, 206, 132),
+        TextColor3 = Color3.fromRGB(255, 198, 128),
         TextSize = 11,
         TextTruncate = Enum.TextTruncate.AtEnd,
         TextXAlignment = Enum.TextXAlignment.Left,
         ZIndex = 14,
     }, UI.Topbar)
     UI.SubLabel = subLbl
-    Utils.RegisterText(subLbl, false, Color3.fromRGB(238, 206, 132))
+    Utils.RegisterText(subLbl, false, Color3.fromRGB(255, 198, 128))
 
     local function createTopBtn(text, offsetX, hoverColor)
         local btn = Utils.Create("TextButton", {
@@ -2364,7 +2652,7 @@ function Components.AddSectionHeader(parent, titleSpec, order)
         Size = UDim2.new(1, 0, 0, 20),
         BackgroundTransparency = 1,
         Font = Theme.FontBold,
-        Text = "👑 " .. string.upper(resolveTextSpec(titleSpec)),
+        Text = "🎃 " .. string.upper(resolveTextSpec(titleSpec)),
         TextColor3 = Theme.Accent,
         TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -2375,7 +2663,7 @@ function Components.AddSectionHeader(parent, titleSpec, order)
 
     LocaleEngine.Bind(function()
         if lbl and lbl.Parent then
-            lbl.Text = "👑 " .. string.upper(resolveTextSpec(titleSpec))
+            lbl.Text = "🎃 " .. string.upper(resolveTextSpec(titleSpec))
         end
     end)
 
@@ -3101,74 +3389,146 @@ do
         return nil
     end
 
+    local genNameKeywords = {
+        "generator", "genset", "reactor", "repairmachine", "powerbox",
+        "dynamo", "turbine", "fusebox", "breaker", "panel", "terminal",
+        "engine", "mesin", "listrik", "gardu", "trafo", "pump", "boiler", "hackstation"
+    }
+
     local function isGeneratorObject(inst)
+        if not inst or not inst.Parent or isPlayerDescendant(inst) then
+            return false
+        end
         local n = string.lower(inst.Name)
-        if string.find(n, "generator", 1, true)
-            or string.find(n, "reactor", 1, true)
-            or string.find(n, "repairmachine", 1, true)
-            or string.find(n, "powerbox", 1, true)
-            or n == "gen"
-            or string.match(n, "^gen[%d_%-]")
-            or string.match(n, "[%d_%-]gen$") then
+        if n == "gen" or string.match(n, "^gen[%d_%-]") or string.match(n, "[%d_%-]gen$") then
             return true
         end
-        local prompt = inst:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt then
-            local pText = string.lower((prompt.ActionText or "") .. " " .. (prompt.ObjectText or ""))
-            if string.find(pText, "generator", 1, true)
-                or ((string.find(pText, "repair", 1, true) or string.find(pText, "perbaiki", 1, true))
-                    and (string.find(pText, "gen", 1, true) or string.find(pText, "mesin", 1, true) or string.find(pText, "power", 1, true) or string.find(pText, "listrik", 1, true))) then
+        for _, kw in ipairs(genNameKeywords) do
+            if string.find(n, kw, 1, true) then
                 return true
             end
         end
+
+        local prompt = inst:IsA("Model") and inst:FindFirstChildWhichIsA("ProximityPrompt", true) or inst:FindFirstChildWhichIsA("ProximityPrompt")
+        if prompt then
+            local pText = string.lower((prompt.ActionText or "") .. " " .. (prompt.ObjectText or "") .. " " .. prompt.Name)
+            if string.find(pText, "generator", 1, true)
+                or string.find(pText, "genset", 1, true)
+                or string.find(pText, "distrik", 1, true)
+                or ((string.find(pText, "repair", 1, true) or string.find(pText, "perbaiki", 1, true) or string.find(pText, "fix", 1, true) or string.find(pText, "charge", 1, true) or string.find(pText, "isi", 1, true) or string.find(pText, "nyalakan", 1, true) or string.find(pText, "aktifkan", 1, true))
+                    and (string.find(pText, "gen", 1, true) or string.find(pText, "mesin", 1, true) or string.find(pText, "power", 1, true) or string.find(pText, "listrik", 1, true) or string.find(pText, "panel", 1, true) or string.find(pText, "daya", 1, true))) then
+                return true
+            end
+        end
+
+        -- Deteksi via atribut / ValueObject khas generator (Progress / Repair / Power)
+        local hasGenValue = false
+        pcall(function()
+            for attrName, _ in pairs(inst:GetAttributes()) do
+                local ak = string.lower(attrName)
+                if string.find(ak, "repairprogress", 1, true) or string.find(ak, "genprogress", 1, true) or string.find(ak, "isrepaired", 1, true) then
+                    hasGenValue = true
+                    break
+                end
+            end
+        end)
+        if hasGenValue then return true end
+
         return false
     end
 
     local function collectGeneratorStatusValues(genObj, entry)
         local vals = {}
+        local guiTexts = {}
+        local sounds = {}
+        local lights = {}
         for _, desc in ipairs(genObj:GetDescendants()) do
             local k = string.lower(desc.Name)
             if desc:IsA("BoolValue") then
                 if string.find(k, "complete") or string.find(k, "fixed") or string.find(k, "done") or string.find(k, "repaired")
-                    or string.find(k, "repairing") or string.find(k, "working") or string.find(k, "inuse") then
+                    or string.find(k, "repairing") or string.find(k, "working") or string.find(k, "inuse") or string.find(k, "active") or string.find(k, "on") then
                     table.insert(vals, desc)
                 end
-            elseif desc:IsA("NumberValue") or desc:IsA("IntValue") then
-                if string.find(k, "progress") or string.find(k, "percent") or string.find(k, "charge") or string.find(k, "repair") or string.find(k, "power") then
+            elseif desc:IsA("NumberValue") or desc:IsA("IntValue") or desc:IsA("StringValue") then
+                if string.find(k, "progress") or string.find(k, "percent") or string.find(k, "charge") or string.find(k, "repair") or string.find(k, "power") or string.find(k, "status") or string.find(k, "state") or string.find(k, "worker") or string.find(k, "user") then
                     table.insert(vals, desc)
                 end
+            elseif desc:IsA("TextLabel") then
+                table.insert(guiTexts, desc)
+            elseif desc:IsA("Sound") then
+                table.insert(sounds, desc)
+            elseif desc:IsA("PointLight") or desc:IsA("SpotLight") or desc:IsA("SurfaceLight") then
+                table.insert(lights, desc)
             end
         end
         entry.StatusValues = vals
+        entry.GuiTexts = guiTexts
+        entry.Sounds = sounds
+        entry.Lights = lights
+    end
+
+    local function readAttrProgress(targetObj)
+        local pPct = nil
+        local done = false
+        local working = false
+        local worker = nil
+        if not targetObj then return nil, false, false, nil end
+        pcall(function()
+            for attrName, attrVal in pairs(targetObj:GetAttributes()) do
+                local k = string.lower(attrName)
+                if type(attrVal) == "boolean" then
+                    if (string.find(k, "complete") or string.find(k, "fixed") or string.find(k, "done") or string.find(k, "repaired") or string.find(k, "finished")) and attrVal == true then
+                        done = true
+                    elseif (string.find(k, "repairing") or string.find(k, "active") or string.find(k, "working") or string.find(k, "inuse") or string.find(k, "occupied")) and attrVal == true then
+                        working = true
+                    end
+                elseif type(attrVal) == "number" then
+                    if string.find(k, "progress") or string.find(k, "percent") or string.find(k, "charge") or string.find(k, "repair") or string.find(k, "power") or string.find(k, "fuel") then
+                        local maxAttr = targetObj:GetAttribute("Max" .. attrName) or targetObj:GetAttribute("MaxProgress") or targetObj:GetAttribute("MaxRepair") or 100
+                        if attrVal <= 1 and maxAttr == 100 and attrVal > 0 then
+                            pPct = math.floor(attrVal * 100 + 0.5)
+                        else
+                            pPct = math.floor((attrVal / math.max(1, maxAttr)) * 100 + 0.5)
+                        end
+                    end
+                elseif type(attrVal) == "string" and attrVal ~= "" then
+                    local lowV = string.lower(attrVal)
+                    if string.find(k, "worker") or string.find(k, "player") or string.find(k, "user") or string.find(k, "occupant") then
+                        worker = attrVal
+                        working = true
+                    elseif string.find(lowV, "done") or string.find(lowV, "complete") or string.find(lowV, "selesai") or string.find(lowV, "fixed") then
+                        done = true
+                    elseif string.find(lowV, "repair") or string.find(lowV, "work") or string.find(lowV, "proses") then
+                        working = true
+                    end
+                end
+            end
+        end)
+        return pPct, done, working, worker
     end
 
     local function getGeneratorStatus(genObj, entry)
         local progressPct = nil
         local isCompleted = false
         local isBeingWorked = false
+        local workerName = nil
 
-        pcall(function()
-            for attrName, attrVal in pairs(genObj:GetAttributes()) do
-                local k = string.lower(attrName)
-                if type(attrVal) == "boolean" then
-                    if (string.find(k, "complete") or string.find(k, "fixed") or string.find(k, "done") or string.find(k, "repaired")) and attrVal == true then
-                        isCompleted = true
-                    elseif (string.find(k, "repairing") or string.find(k, "active") or string.find(k, "working") or string.find(k, "inuse")) and attrVal == true then
-                        isBeingWorked = true
-                    end
-                elseif type(attrVal) == "number" then
-                    if string.find(k, "progress") or string.find(k, "percent") or string.find(k, "charge") or string.find(k, "repair") or string.find(k, "power") then
-                        local maxAttr = genObj:GetAttribute("Max" .. attrName) or genObj:GetAttribute("MaxProgress") or 100
-                        if attrVal <= 1 and maxAttr == 100 and attrVal > 0 then
-                            progressPct = math.floor(attrVal * 100 + 0.5)
-                        else
-                            progressPct = math.floor((attrVal / math.max(1, maxAttr)) * 100 + 0.5)
-                        end
-                    end
-                end
-            end
-        end)
+        -- 1. Baca Atribut pada genObj & seluruh descendant-nya (Map Distrik sering menyimpan atribut di Core/Prompt)
+        local p0, d0, w0, wk0 = readAttrProgress(genObj)
+        if p0 then progressPct = p0 end
+        if d0 then isCompleted = true end
+        if w0 then isBeingWorked = true end
+        if wk0 then workerName = wk0 end
 
+        for _, desc in ipairs(genObj:GetDescendants()) do
+            local p1, d1, w1, wk1 = readAttrProgress(desc)
+            if p1 and (not progressPct or p1 > progressPct) then progressPct = p1 end
+            if d1 then isCompleted = true end
+            if w1 then isBeingWorked = true end
+            if wk1 and not workerName then workerName = wk1 end
+        end
+
+        -- 2. Baca ValueObjects (BoolValue, NumberValue, IntValue, StringValue)
         if entry and entry.StatusValues then
             for _, desc in ipairs(entry.StatusValues) do
                 if desc and desc.Parent then
@@ -3176,17 +3536,28 @@ do
                     if desc:IsA("BoolValue") then
                         if (string.find(k, "complete") or string.find(k, "fixed") or string.find(k, "done") or string.find(k, "repaired")) and desc.Value == true then
                             isCompleted = true
-                        elseif (string.find(k, "repairing") or string.find(k, "working") or string.find(k, "inuse")) and desc.Value == true then
+                        elseif (string.find(k, "repairing") or string.find(k, "working") or string.find(k, "inuse") or string.find(k, "active")) and desc.Value == true then
+                            isBeingWorked = true
+                        end
+                    elseif desc:IsA("StringValue") and desc.Value ~= "" then
+                        local lowV = string.lower(desc.Value)
+                        if string.find(k, "worker") or string.find(k, "user") then
+                            workerName = desc.Value
+                            isBeingWorked = true
+                        elseif string.find(lowV, "selesai") or string.find(lowV, "complete") or string.find(lowV, "fixed") then
+                            isCompleted = true
+                        elseif string.find(lowV, "proses") or string.find(lowV, "repair") then
                             isBeingWorked = true
                         end
                     elseif (desc:IsA("NumberValue") or desc:IsA("IntValue")) then
                         if string.find(k, "progress") or string.find(k, "percent") or string.find(k, "charge") or string.find(k, "repair") or string.find(k, "power") then
-                            local maxObj = desc.Parent and (desc.Parent:FindFirstChild("Max" .. desc.Name) or desc.Parent:FindFirstChild("MaxProgress"))
+                            local maxObj = desc.Parent and (desc.Parent:FindFirstChild("Max" .. desc.Name) or desc.Parent:FindFirstChild("MaxProgress") or desc.Parent:FindFirstChild("MaxValue"))
                             local maxV = (maxObj and (maxObj:IsA("NumberValue") or maxObj:IsA("IntValue")) and maxObj.Value > 0) and maxObj.Value or 100
-                            if desc.Value <= 1 and maxV == 100 and desc.Value > 0 then
-                                progressPct = math.floor(desc.Value * 100 + 0.5)
-                            else
-                                progressPct = math.floor((desc.Value / maxV) * 100 + 0.5)
+                            local pctVal = (desc.Value <= 1 and maxV == 100 and desc.Value > 0)
+                                and math.floor(desc.Value * 100 + 0.5)
+                                or math.floor((desc.Value / maxV) * 100 + 0.5)
+                            if not progressPct or pctVal > progressPct then
+                                progressPct = pctVal
                             end
                         end
                     end
@@ -3194,14 +3565,27 @@ do
             end
         end
 
-        local part = (entry and entry.Part) or getAdorneePart(genObj)
-        local workerName = nil
-        if part and not isCompleted then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer then
-                    local _, _, pRoot = Utils.GetCharacter(plr)
-                    if pRoot and (pRoot.Position - part.Position).Magnitude <= 11 then
-                        workerName = plr.DisplayName
+        -- 3. Baca SurfaceGui / BillboardGui bawaan generator (angka persen seperti "45%" atau "100%")
+        if entry and entry.GuiTexts then
+            for _, lbl in ipairs(entry.GuiTexts) do
+                if lbl and lbl.Parent and lbl.Text ~= "" then
+                    local pctMatch = string.match(lbl.Text, "(%d+)%s*%%")
+                    if pctMatch then
+                        local num = tonumber(pctMatch)
+                        if num and (not progressPct or num > progressPct) then
+                            progressPct = num
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 4. Cek Suara / Lampu aktif pada generator sebagai indikator sedang dikerjakan
+        if not isCompleted and entry and entry.Sounds then
+            for _, snd in ipairs(entry.Sounds) do
+                if snd and snd.Parent and snd.IsPlaying then
+                    local sn = string.lower(snd.Name)
+                    if string.find(sn, "repair") or string.find(sn, "fix") or string.find(sn, "spark") or string.find(sn, "weld") or string.find(sn, "work") then
                         isBeingWorked = true
                         break
                     end
@@ -3209,17 +3593,54 @@ do
             end
         end
 
-        if isCompleted or (progressPct and progressPct >= 100) then
-            return "Status: Selesai Diproses (100%)"
-        elseif progressPct and progressPct > 0 then
-            if workerName then
-                return string.format("Status: Diproses %s (%d%%)", workerName, math.clamp(progressPct, 0, 100))
+        -- 5. Deteksi pemain lain di sekitar generator (radius 13 studs + cek animasi kerja/repair)
+        local part = (entry and entry.Part) or getAdorneePart(genObj)
+        local nearbyWorkers = {}
+        if part and not isCompleted then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
+                    local _, pHum, pRoot = Utils.GetCharacter(plr)
+                    if pRoot and pHum and pHum.Health > 0 then
+                        local d = (pRoot.Position - part.Position).Magnitude
+                        if d <= 13 then
+                            local animWorking = false
+                            local anim = pHum:FindFirstChildOfClass("Animator")
+                            if anim then
+                                for _, tr in ipairs(anim:GetPlayingAnimationTracks()) do
+                                    local an = string.lower((tr.Name or "") .. " " .. (tr.Animation and tr.Animation.Name or ""))
+                                    if string.find(an, "repair") or string.find(an, "fix") or string.find(an, "work") or string.find(an, "interact") or string.find(an, "kneel") or string.find(an, "crouch") then
+                                        animWorking = true
+                                        break
+                                    end
+                                end
+                            end
+                            if d <= 9.5 or animWorking then
+                                table.insert(nearbyWorkers, plr.DisplayName)
+                                isBeingWorked = true
+                            end
+                        end
+                    end
+                end
             end
-            return string.format("Status: Sudah Diproses (%d%%)", math.clamp(progressPct, 0, 100))
-        elseif isBeingWorked and workerName then
-            return string.format("Status: Sedang Diproses (%s)", workerName)
+        end
+
+        if #nearbyWorkers > 0 then
+            workerName = table.concat(nearbyWorkers, ", ")
+        end
+
+        local clampedPct = progressPct and math.clamp(progressPct, 0, 100) or 0
+        if isCompleted or clampedPct >= 100 then
+            return "✅ SELESAI DIPROSES (100%)", 100, "Done"
+        elseif isBeingWorked then
+            local who = workerName or "Pemain Lain"
+            if progressPct and clampedPct > 0 then
+                return string.format("🔧 SEDANG DIKERJAKAN: %s (%d%%)", who, clampedPct), clampedPct, "Active"
+            end
+            return string.format("🔧 SEDANG DIKERJAKAN: %s", who), math.max(clampedPct, 15), "Active"
+        elseif progressPct and clampedPct > 0 then
+            return string.format("⏸ TERTUNDA / PROGRES (%d%%)", clampedPct), clampedPct, "Partial"
         else
-            return "Status: Belum Diproses (0%)"
+            return "⏳ BELUM DIKERJAKAN (0%)", 0, "Idle"
         end
     end
 
@@ -3467,53 +3888,110 @@ do
                         local hl = Utils.Create("Highlight", {
                             Name = "GenHL",
                             DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-                            FillTransparency = 0.65,
-                            OutlineTransparency = 0.1,
+                            FillTransparency = 0.58,
+                            OutlineTransparency = 0.08,
                         }, GeneratorESP.Folder)
 
                         local bb = Utils.Create("BillboardGui", {
                             Name = "GenBB",
-                            Size = UDim2.new(0, 240, 0, 54),
-                            StudsOffset = Vector3.new(0, 3.0, 0),
+                            Size = UDim2.new(0, 260, 0, 68),
+                            StudsOffset = Vector3.new(0, 3.2, 0),
                             AlwaysOnTop = true,
                             MaxDistance = math.huge,
                             ResetOnSpawn = false,
                         }, GeneratorESP.Folder)
 
-                        local lbl = Utils.Create("TextLabel", {
+                        local card = Utils.Create("Frame", {
                             Size = UDim2.new(1, 0, 1, 0),
+                            BackgroundColor3 = Color3.fromRGB(16, 14, 22),
+                            BackgroundTransparency = 0.35,
+                            BorderSizePixel = 0,
+                        }, bb)
+                        Utils.AddCorner(card, 7)
+                        local cardStroke = Utils.AddStroke(card, GeneratorESP.Color, 1.2, 0.2)
+
+                        local lbl = Utils.Create("TextLabel", {
+                            Size = UDim2.new(1, -10, 0, 44),
+                            Position = UDim2.new(0, 5, 0, 3),
                             BackgroundTransparency = 1,
                             Font = GeneratorESP.Font,
                             Text = inst.Name,
                             TextColor3 = GeneratorESP.Color,
                             TextStrokeColor3 = Color3.fromRGB(10, 10, 14),
-                            TextStrokeTransparency = 0.2,
-                            TextSize = 12,
-                        }, bb)
+                            TextStrokeTransparency = 0.25,
+                            TextSize = 11,
+                            TextWrapped = true,
+                        }, card)
 
-                        entry = { Highlight = hl, Billboard = bb, Label = lbl, Part = part, StatusValues = {} }
+                        local barBg = Utils.Create("Frame", {
+                            Size = UDim2.new(1, -16, 0, 7),
+                            Position = UDim2.new(0, 8, 1, -12),
+                            BackgroundColor3 = Color3.fromRGB(36, 32, 46),
+                            BorderSizePixel = 0,
+                        }, card)
+                        Utils.AddCorner(barBg, 4)
+
+                        local barFill = Utils.Create("Frame", {
+                            Size = UDim2.new(0, 0, 1, 0),
+                            BackgroundColor3 = GeneratorESP.Color,
+                            BorderSizePixel = 0,
+                        }, barBg)
+                        Utils.AddCorner(barFill, 4)
+
+                        entry = {
+                            Highlight = hl,
+                            Billboard = bb,
+                            Card = card,
+                            Stroke = cardStroke,
+                            Label = lbl,
+                            BarBg = barBg,
+                            BarFill = barFill,
+                            Part = part,
+                            StatusValues = {},
+                            GuiTexts = {},
+                            Sounds = {},
+                            Lights = {},
+                        }
                         collectGeneratorStatusValues(inst, entry)
                         entry.DescConn = Utils.Track(inst.DescendantAdded:Connect(function(d)
-                            if d:IsA("BoolValue") or d:IsA("NumberValue") or d:IsA("IntValue") then
+                            if d:IsA("BoolValue") or d:IsA("NumberValue") or d:IsA("IntValue") or d:IsA("StringValue") then
                                 table.insert(entry.StatusValues, d)
+                            elseif d:IsA("TextLabel") then
+                                table.insert(entry.GuiTexts, d)
+                            elseif d:IsA("Sound") then
+                                table.insert(entry.Sounds, d)
                             end
                         end))
                         GeneratorESP.Entries[inst] = entry
                     end
 
                     local dist = (part.Position - originPos).Magnitude
-                    local statusText = getGeneratorStatus(inst, entry)
+                    local statusText, pct, stateCode = getGeneratorStatus(inst, entry)
+
+                    local stateColor = GeneratorESP.Color
+                    if stateCode == "Active" then
+                        stateColor = GeneratorESP.ActiveColor
+                    elseif stateCode == "Done" then
+                        stateColor = GeneratorESP.DoneColor
+                    elseif stateCode == "Idle" then
+                        stateColor = GeneratorESP.IdleColor
+                    end
 
                     entry.Highlight.Adornee = inst
-                    entry.Highlight.FillColor = GeneratorESP.Color
-                    entry.Highlight.OutlineColor = GeneratorESP.Color
+                    entry.Highlight.FillColor = stateColor
+                    entry.Highlight.OutlineColor = stateColor:Lerp(Color3.new(1, 1, 1), 0.3)
                     entry.Highlight.Enabled = true
 
                     entry.Billboard.Adornee = part
                     entry.Billboard.Enabled = true
+                    entry.Stroke.Color = stateColor
                     entry.Label.Font = GeneratorESP.Font
-                    entry.Label.TextColor3 = GeneratorESP.Color
-                    entry.Label.Text = string.format("⚡ %s\nJarak: %.0f m\n%s", inst.Name, dist, statusText)
+                    entry.Label.TextColor3 = stateColor
+                    entry.Label.Text = string.format("⚡ %s  [%.0f m]\n%s", inst.Name, dist, statusText)
+
+                    entry.BarBg.Visible = GeneratorESP.ShowProgressBar
+                    entry.BarFill.BackgroundColor3 = stateColor
+                    entry.BarFill.Size = UDim2.new(math.clamp((pct or 0) / 100, 0, 1), 0, 1, 0)
                 end
             end
         end
@@ -3662,28 +4140,111 @@ do
         return bestTarget, bestAimPart
     end
 
-    function Combat.TriggerParryAction(attackerName)
+    function Combat.CleanupParryVisuals()
+        if Combat.ParryRingPart then
+            pcall(function() Combat.ParryRingPart:Destroy() end)
+            Combat.ParryRingPart = nil
+        end
+        if Combat.ParryShieldHL then
+            pcall(function() Combat.ParryShieldHL:Destroy() end)
+            Combat.ParryShieldHL = nil
+        end
+    end
+
+    function Combat.UpdateParryRangeVisual()
+        if not Combat.AutoParryEnabled or not Combat.AutoParryVisual then
+            if Combat.ParryRingPart then
+                Combat.ParryRingPart.Transparency = 1
+            end
+            return
+        end
+        local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
+        if not myRoot then return end
+
+        if not Combat.ParryRingPart or not Combat.ParryRingPart.Parent then
+            Combat.ParryRingPart = Utils.Create("Part", {
+                Name = "BSS_AutoParry_Dome",
+                Shape = Enum.PartType.Ball,
+                Anchored = true,
+                CanCollide = false,
+                CanTouch = false,
+                CanQuery = false,
+                CastShadow = false,
+                Material = Enum.Material.ForceField,
+                Color = Color3.fromRGB(46, 213, 115),
+                Transparency = 0.88,
+            }, workspace)
+        end
+
+        local diam = Combat.ParryRange * 2
+        Combat.ParryRingPart.Size = Vector3.new(diam, diam, diam)
+        Combat.ParryRingPart.CFrame = myRoot.CFrame
+        local isCooling = (os.clock() - Combat.LastParryTime) < 0.25
+        Combat.ParryRingPart.Color = isCooling and Color3.fromRGB(255, 214, 70) or Color3.fromRGB(46, 213, 115)
+        Combat.ParryRingPart.Transparency = isCooling and 0.62 or 0.90
+    end
+
+    function Combat.ScanParryRemotes()
+        if Combat.ParryRemoteScanned then return end
+        Combat.ParryRemoteScanned = true
+        table.clear(Combat.ParryRemoteCache)
+        local parryWords = { "parry", "block", "deflect", "guard", "counter", "tangkis", "shield" }
+        for _, container in ipairs({ ReplicatedStorage, LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"), LocalPlayer and LocalPlayer.Character }) do
+            if container then
+                for _, desc in ipairs(container:GetDescendants()) do
+                    if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+                        local rn = string.lower(desc.Name)
+                        for _, pw in ipairs(parryWords) do
+                            if string.find(rn, pw, 1, true) then
+                                table.insert(Combat.ParryRemoteCache, desc)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    function Combat.TriggerParryAction(attackerName, attackerChar)
         local now = os.clock()
         if (now - Combat.LastParryTime) < Combat.ParryCooldown then
             return
         end
         Combat.LastParryTime = now
+        Combat.ParryCount = Combat.ParryCount + 1
 
-        local myChar, myHum = Utils.GetCharacter(LocalPlayer)
+        local myChar, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
         if not myChar or not myHum or myHum.Health <= 0 then return end
 
+        -- Hadapkan karakter ke penyerang agar tangkisan arah depan (directional parry) akurat
+        if myRoot and attackerChar then
+            local aRoot = attackerChar:FindFirstChild("HumanoidRootPart")
+            if aRoot then
+                local flatTarget = Vector3.new(aRoot.Position.X, myRoot.Position.Y, aRoot.Position.Z)
+                if (flatTarget - myRoot.Position).Magnitude > 0.1 then
+                    myRoot.CFrame = CFrame.lookAt(myRoot.Position, flatTarget)
+                end
+            end
+        end
+
+        -- 1. Equip & Activate Tool Parry / Melee / Shield (juga cek remote di dalam Tool)
         local activeTool = myChar:FindFirstChildOfClass("Tool")
+        local toolKeywords = { "parry", "block", "shield", "sword", "blade", "bat", "katana", "knife", "weapon", "fists", "combat", "melee", "crowbar", "pipe" }
         if not activeTool then
             local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
             if bp then
                 for _, t in ipairs(bp:GetChildren()) do
                     if t:IsA("Tool") then
                         local tn = string.lower(t.Name)
-                        if string.find(tn, "parry") or string.find(tn, "block") or string.find(tn, "shield") or string.find(tn, "sword") or string.find(tn, "blade") or string.find(tn, "bat") then
-                            myHum:EquipTool(t)
-                            activeTool = t
-                            break
+                        for _, kw in ipairs(toolKeywords) do
+                            if string.find(tn, kw, 1, true) then
+                                myHum:EquipTool(t)
+                                activeTool = t
+                                break
+                            end
                         end
+                        if activeTool then break end
                     end
                 end
             end
@@ -3691,32 +4252,175 @@ do
 
         if activeTool then
             pcall(function() activeTool:Activate() end)
+            for _, desc in ipairs(activeTool:GetDescendants()) do
+                if desc:IsA("RemoteEvent") then
+                    local dn = string.lower(desc.Name)
+                    if string.find(dn, "parry") or string.find(dn, "block") or string.find(dn, "deflect") or string.find(dn, "guard") then
+                        pcall(function() desc:FireServer(true) end)
+                        pcall(function() desc:FireServer() end)
+                    end
+                end
+            end
         end
 
+        -- 2. Fire Server Parry/Block RemoteEvents jika map menggunakan API Remote (seperti Map Distrik)
+        Combat.ScanParryRemotes()
+        for _, rem in ipairs(Combat.ParryRemoteCache) do
+            if rem and rem.Parent and rem:IsA("RemoteEvent") then
+                pcall(function() rem:FireServer(true) end)
+                pcall(function() rem:FireServer() end)
+            end
+        end
+
+        -- 3. Simulasi Tombol Input (F / RMB / E / Q) via VirtualInputManager
         if VirtualInputManager then
-            pcall(function()
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                task.delay(0.06, function()
-                    pcall(function()
-                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+            local keysToTap = {}
+            if Combat.ParryKey == "F" then
+                keysToTap = { Enum.KeyCode.F }
+            elseif Combat.ParryKey == "E" then
+                keysToTap = { Enum.KeyCode.E }
+            elseif Combat.ParryKey == "Q" then
+                keysToTap = { Enum.KeyCode.Q }
+            elseif Combat.ParryKey == "RMB" then
+                pcall(function()
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 1, true, game, 1)
+                    task.delay(0.08, function()
+                        pcall(function()
+                            VirtualInputManager:SendMouseButtonEvent(0, 0, 1, false, game, 1)
+                        end)
                     end)
                 end)
+            else
+                -- Mode Auto: kirim F dan klik kanan mouse (standar game combat & Distrik Roblox)
+                keysToTap = { Enum.KeyCode.F }
+                pcall(function()
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 1, true, game, 1)
+                    task.delay(0.08, function()
+                        pcall(function()
+                            VirtualInputManager:SendMouseButtonEvent(0, 0, 1, false, game, 1)
+                        end)
+                    end)
+                end)
+            end
+
+            for _, kc in ipairs(keysToTap) do
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, kc, false, game)
+                    task.delay(0.08, function()
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(false, kc, false, game)
+                        end)
+                    end)
+                end)
+            end
+        end
+
+        -- 4. Efek Visual Perisai Tangkisan pada Karakter
+        if Combat.AutoParryVisual and myChar then
+            if not Combat.ParryShieldHL or not Combat.ParryShieldHL.Parent then
+                Combat.ParryShieldHL = Utils.Create("Highlight", {
+                    Name = "BSS_ParryFlashHL",
+                    DepthMode = Enum.HighlightDepthMode.Occluded,
+                    FillColor = Color3.fromRGB(46, 213, 115),
+                    OutlineColor = Color3.fromRGB(255, 255, 255),
+                    FillTransparency = 0.35,
+                    OutlineTransparency = 0,
+                }, UI.ScreenGui)
+            end
+            Combat.ParryShieldHL.Adornee = myChar
+            Combat.ParryShieldHL.Enabled = true
+            task.delay(0.28, function()
+                if Combat.ParryShieldHL then
+                    Combat.ParryShieldHL.Enabled = false
+                end
             end)
         end
 
-        Utils.Notify("Auto Parry!", "Menangkis serangan dari " .. tostring(attackerName), Theme.Success)
+        Utils.Notify(
+            string.format("Auto Parry #%d ✓", Combat.ParryCount),
+            "Menangkis serangan dari " .. tostring(attackerName),
+            Theme.Success
+        )
+    end
+
+    local function isAttackerStriking(char, hum, root, myRoot)
+        -- A. Cek Atribut / State Value sedang menyerang (IsAttacking, Swinging, Combat, Dashing)
+        local attrAttack = false
+        pcall(function()
+            for k, v in pairs(char:GetAttributes()) do
+                local lk = string.lower(k)
+                if v == true and (string.find(lk, "attack") or string.find(lk, "swing") or string.find(lk, "slash") or string.find(lk, "punch") or string.find(lk, "hit") or string.find(lk, "lunge")) then
+                    attrAttack = true
+                    break
+                end
+            end
+        end)
+        if attrAttack then return true end
+
+        -- B. Cek Track Animasi Serangan (nama animasi atau kecepatan ayunan tinggi)
+        local attackKeywords = {
+            "slash", "punch", "attack", "strike", "jab", "kick", "swing", "hit",
+            "heavy", "bash", "slam", "uppercut", "combo", "lunge", "chop", "melee", "stab", "m1", "m2", "skill"
+        }
+        local animator = hum:FindFirstChildOfClass("Animator")
+        if animator then
+            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                if track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Core and track.Priority ~= Enum.AnimationPriority.Idle and track.Priority ~= Enum.AnimationPriority.Movement then
+                    local animName = string.lower((track.Name or "") .. " " .. (track.Animation and track.Animation.Name or ""))
+                    for _, kw in ipairs(attackKeywords) do
+                        if string.find(animName, kw, 1, true) then
+                            return true
+                        end
+                    end
+                    -- Jika track berprioritas Action/Action2-4 dan waktu masih fase awal ayunan (< 0.45s)
+                    if (track.Priority == Enum.AnimationPriority.Action or track.Priority == Enum.AnimationPriority.Action2 or track.Priority == Enum.AnimationPriority.Action3 or track.Priority == Enum.AnimationPriority.Action4)
+                        and track.TimePosition < 0.45 and not track.Looped then
+                        return true
+                    end
+                end
+            end
+        end
+
+        -- C. Cek Tool yang dipegang musuh (Sound ayunan / Trail aktif / Hitbox aktif)
+        local enemyTool = char:FindFirstChildOfClass("Tool")
+        if enemyTool then
+            for _, desc in ipairs(enemyTool:GetDescendants()) do
+                if desc:IsA("Trail") and desc.Enabled then
+                    return true
+                elseif desc:IsA("Sound") and desc.IsPlaying then
+                    local sn = string.lower(desc.Name)
+                    if string.find(sn, "swing") or string.find(sn, "slash") or string.find(sn, "whoosh") or string.find(sn, "punch") or string.find(sn, "hit") then
+                        return true
+                    end
+                end
+            end
+        end
+
+        -- D. Cek Lunge / Dash mendadak ke arah pemain dalam jarak sangat dekat (< 8.5 studs)
+        local toMe = myRoot.Position - root.Position
+        local dist = toMe.Magnitude
+        if dist > 0.1 and dist <= 8.5 then
+            local vel = root.AssemblyLinearVelocity
+            local approachSpeed = vel:Dot(toMe.Unit)
+            if approachSpeed > 26 then
+                return true
+            end
+        end
+
+        return false
     end
 
     function Combat.StepAutoParry()
-        if not Combat.AutoParryEnabled then return end
+        if not Combat.AutoParryEnabled then
+            Combat.CleanupParryVisuals()
+            return
+        end
+        Combat.UpdateParryRangeVisual()
+
         local _, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
         if not myHum or not myRoot or myHum.Health <= 0 then return end
 
-        local attackKeywords = {
-            "slash", "punch", "attack", "strike", "jab", "kick",
-            "heavy", "bash", "slam", "uppercut", "combo", "lunge", "chop", "melee", "stab"
-        }
-
+        -- 1. Deteksi serangan dari Pemain lain
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 local isAlly = (#Teams:GetTeams() > 0 and LocalPlayer.Team ~= nil and plr.Team == LocalPlayer.Team)
@@ -3724,19 +4428,34 @@ do
                     local char, hum, root = Utils.GetCharacter(plr)
                     if char and hum and hum.Health > 0 and root then
                         local dist = (root.Position - myRoot.Position).Magnitude
-                        if dist <= Combat.ParryRange then
-                            local animator = hum:FindFirstChildOfClass("Animator")
-                            if animator then
-                                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                                    local animName = string.lower((track.Name or "") .. " " .. (track.Animation and track.Animation.Name or ""))
-                                    for _, kw in ipairs(attackKeywords) do
-                                        if string.find(animName, kw, 1, true) then
-                                            Combat.TriggerParryAction(plr.DisplayName)
-                                            return
-                                        end
+                        if dist <= Combat.ParryRange and isAttackerStriking(char, hum, root, myRoot) then
+                            if Combat.ParryReactionDelay > 0 then
+                                task.delay(Combat.ParryReactionDelay, function()
+                                    if Combat.AutoParryEnabled then
+                                        Combat.TriggerParryAction(plr.DisplayName, char)
                                     end
-                                end
+                                end)
+                            else
+                                Combat.TriggerParryAction(plr.DisplayName, char)
                             end
+                            return
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 2. Deteksi proyektil / tebasan terbang yang mengarah ke karakter
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("BasePart") and not obj.Anchored and obj.Name ~= "BSS_AutoParry_Dome" and obj.Name ~= "BSS_RGB_AimLaser" then
+                local dist = (obj.Position - myRoot.Position).Magnitude
+                if dist <= Combat.ParryRange and obj.AssemblyLinearVelocity.Magnitude > 30 then
+                    local on = string.lower(obj.Name)
+                    if string.find(on, "slash") or string.find(on, "wave") or string.find(on, "proj") or string.find(on, "ball") or string.find(on, "arrow") or string.find(on, "blade") then
+                        local dirToMe = (myRoot.Position - obj.Position).Unit
+                        if obj.AssemblyLinearVelocity.Unit:Dot(dirToMe) > 0.72 then
+                            Combat.TriggerParryAction("Proyektil (" .. obj.Name .. ")", nil)
+                            return
                         end
                     end
                 end
@@ -3787,6 +4506,88 @@ do
         end
     end
 
+    function Carry.CleanupVisuals()
+        if Carry.VisualBeam then
+            pcall(function() Carry.VisualBeam:Destroy() end)
+            Carry.VisualBeam = nil
+        end
+        if Carry.VisualAtt0 then
+            pcall(function() Carry.VisualAtt0:Destroy() end)
+            Carry.VisualAtt0 = nil
+        end
+        if Carry.VisualAtt1 then
+            pcall(function() Carry.VisualAtt1:Destroy() end)
+            Carry.VisualAtt1 = nil
+        end
+        if Carry.TargetHL then
+            pcall(function() Carry.TargetHL:Destroy() end)
+            Carry.TargetHL = nil
+        end
+    end
+
+    function Carry.UpdateVisuals(myRoot, tChar, tRoot)
+        if not Carry.Enabled or not Carry.ShowVisualBeam or not myRoot or not tChar or not tRoot then
+            Carry.CleanupVisuals()
+            return
+        end
+
+        if not Carry.TargetHL or not Carry.TargetHL.Parent then
+            Carry.TargetHL = Utils.Create("Highlight", {
+                Name = "BSS_CarryTargetHL",
+                DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+                FillColor = Theme.Accent,
+                OutlineColor = Color3.new(1, 1, 1),
+                FillTransparency = 0.65,
+                OutlineTransparency = 0.1,
+            }, UI.ScreenGui)
+        end
+        Carry.TargetHL.Adornee = tChar
+        Carry.TargetHL.FillColor = Theme.Accent
+        Carry.TargetHL.Enabled = true
+
+        if not Carry.VisualAtt0 or Carry.VisualAtt0.Parent ~= myRoot then
+            if Carry.VisualAtt0 then pcall(function() Carry.VisualAtt0:Destroy() end) end
+            Carry.VisualAtt0 = Utils.Create("Attachment", { Name = "BSS_CarryAtt0" }, myRoot)
+        end
+        if not Carry.VisualAtt1 or Carry.VisualAtt1.Parent ~= tRoot then
+            if Carry.VisualAtt1 then pcall(function() Carry.VisualAtt1:Destroy() end) end
+            Carry.VisualAtt1 = Utils.Create("Attachment", { Name = "BSS_CarryAtt1" }, tRoot)
+        end
+        if not Carry.VisualBeam or not Carry.VisualBeam.Parent then
+            Carry.VisualBeam = Utils.Create("Beam", {
+                Name = "BSS_CarryTetherBeam",
+                Attachment0 = Carry.VisualAtt0,
+                Attachment1 = Carry.VisualAtt1,
+                Width0 = 0.14,
+                Width1 = 0.14,
+                FaceCamera = true,
+                LightEmission = 1,
+                Transparency = NumberSequence.new(0.25),
+            }, myRoot)
+        end
+        Carry.VisualBeam.Attachment0 = Carry.VisualAtt0
+        Carry.VisualBeam.Attachment1 = Carry.VisualAtt1
+        Carry.VisualBeam.Color = ColorSequence.new(Theme.Accent, Color3.fromRGB(46, 213, 115))
+    end
+
+    function Carry.ScanCarryRemotes()
+        if Carry.CarryRemoteScanned then return end
+        Carry.CarryRemoteScanned = true
+        table.clear(Carry.CarryRemoteCache)
+        local carryWords = { "carry", "gendong", "angkat", "grab", "pick", "piggy", "hold", "drop", "release" }
+        for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
+            if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+                local rn = string.lower(desc.Name)
+                for _, cw in ipairs(carryWords) do
+                    if string.find(rn, cw, 1, true) then
+                        table.insert(Carry.CarryRemoteCache, desc)
+                        break
+                    end
+                end
+            end
+        end
+    end
+
     function Carry.TryNativeMapCarry(targetPlr)
         local tChar, _, tRoot = Utils.GetCharacter(targetPlr)
         local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
@@ -3801,8 +4602,8 @@ do
                         Utils.SafeTeleport(tRoot.CFrame * CFrame.new(0, 0, 2))
                         task.spawn(function()
                             task.wait(0.12)
-                            if typeof(fireproximityprompt) == "function" and desc and desc.Parent then
-                                pcall(fireproximityprompt, desc)
+                            if desc and desc.Parent then
+                                FeatureAPI.TriggerProximity(desc)
                             end
                         end)
                         return true
@@ -3810,6 +4611,19 @@ do
                 end
             end
         end
+
+        -- Coba API RemoteEvent Carry milik server jika tersedia
+        Carry.ScanCarryRemotes()
+        for _, rem in ipairs(Carry.CarryRemoteCache) do
+            if rem and rem.Parent and rem:IsA("RemoteEvent") then
+                local rn = string.lower(rem.Name)
+                if not string.find(rn, "drop") and not string.find(rn, "release") then
+                    pcall(function() rem:FireServer(targetPlr) end)
+                    pcall(function() rem:FireServer(tChar) end)
+                end
+            end
+        end
+
         return false
     end
 
@@ -3825,7 +4639,7 @@ do
         Carry.Enabled = true
         Carry.PlayReplicatedPose()
 
-        local modeInfo = Carry.NativePromptTriggered and "Mode Server/Map" or "Mode Visual Lokal"
+        local modeInfo = Carry.NativePromptTriggered and "Mode Server/Map" or "Mode Visual & Fisika"
         Utils.Notify(
             "Carry Aktif",
             "Meng-carry " .. Carry.TargetPlayer.DisplayName .. " (Gaya: " .. Carry.Style .. " | " .. modeInfo .. ")",
@@ -3837,14 +4651,32 @@ do
     function Carry.Stop()
         Carry.Enabled = false
         Carry.NativePromptTriggered = false
+        Carry.CleanupVisuals()
 
         if Carry.AnimTrack then
             pcall(function() Carry.AnimTrack:Stop(0.15) end)
             Carry.AnimTrack = nil
         end
 
+        for _, rem in ipairs(Carry.CarryRemoteCache) do
+            if rem and rem.Parent and rem:IsA("RemoteEvent") then
+                local rn = string.lower(rem.Name)
+                if string.find(rn, "drop") or string.find(rn, "release") or string.find(rn, "carry") then
+                    pcall(function() rem:FireServer(false) end)
+                    pcall(function() rem:FireServer() end)
+                end
+            end
+        end
+
         if Carry.TargetPlayer then
-            local _, tHum = Utils.GetCharacter(Carry.TargetPlayer)
+            local tChar, tHum = Utils.GetCharacter(Carry.TargetPlayer)
+            if tChar then
+                for _, part in ipairs(tChar:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                    end
+                end
+            end
             if tHum then
                 tHum.PlatformStand = false
                 if tHum:GetState() == Enum.HumanoidStateType.Physics then
@@ -3863,12 +4695,19 @@ do
             return
         end
 
+        Carry.UpdateVisuals(myRoot, tChar, tRoot)
+
         if Carry.NativePromptTriggered then
             return
         end
 
         local offset = carryOffsets[Carry.Style] or carryOffsets.Depan
         tHum.PlatformStand = true
+        for _, part in ipairs(tChar:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
         tRoot.AssemblyLinearVelocity = Vector3.zero
         tRoot.AssemblyAngularVelocity = Vector3.zero
         tRoot.CFrame = myRoot.CFrame * offset
@@ -4283,7 +5122,7 @@ do
         Size = UDim2.new(1, 0, 0, 20),
         BackgroundTransparency = 1,
         Font = Theme.FontBold,
-        Text = "👑 " .. App.Name .. " — Edisi Universal",
+        Text = "🎃 " .. App.Name .. " — Edisi Universal",
         TextColor3 = Theme.TextPrimary,
         TextSize = 14,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -4325,8 +5164,8 @@ do
     LocaleEngine.Bind(function()
         if h1 and h1.Parent then
             h1.Text = LocaleEngine.Text(
-                "👑 " .. App.Name .. " — Edisi Universal",
-                "👑 " .. App.Name .. " — Universal Edition"
+                "🎃 " .. App.Name .. " — Edisi Universal",
+                "🎃 " .. App.Name .. " — Universal Edition"
             )
         end
         if h2 and h2.Parent then
@@ -4748,6 +5587,17 @@ do
         GeneratorESP.Font = val
     end)
 
+    Components.AddToggle(
+        page,
+        { id = "Tampilkan Progress Bar Generator", en = "Show Generator Progress Bar" },
+        { id = "Menampilkan bilah visual persentase pengerjaan generator oleh pemain lain", en = "Display visual progress bar showing live repair percentage" },
+        true,
+        22,
+        function(on)
+            GeneratorESP.ShowProgressBar = on
+        end
+    )
+
     Components.AddChipSelector(page, { id = "Warna Sorotan ESP Generator", en = "Generator ESP Color" }, {
         { Label = { id = "Emas Listrik", en = "Electric Gold" }, Value = Color3.fromRGB(255, 196, 54), Color = Color3.fromRGB(255, 196, 54) },
         { Label = { id = "Hijau Mesin", en = "Engine Green" }, Value = Color3.fromRGB(72, 245, 140), Color = Color3.fromRGB(72, 245, 140) },
@@ -4755,8 +5605,9 @@ do
         { Label = { id = "Merah Siaga", en = "Alert Red" }, Value = Color3.fromRGB(255, 85, 105), Color = Color3.fromRGB(255, 85, 105) },
         { Label = { id = "Ungu Spektral", en = "Spectral Purple" }, Value = Color3.fromRGB(185, 115, 255), Color = Color3.fromRGB(185, 115, 255) },
         { Label = { id = "Putih Terang", en = "Bright White" }, Value = Color3.fromRGB(255, 255, 255), Color = Color3.fromRGB(255, 255, 255) },
-    }, Color3.fromRGB(255, 196, 54), 22, function(val)
+    }, Color3.fromRGB(255, 196, 54), 23, function(val)
         GeneratorESP.Color = val
+        GeneratorESP.IdleColor = val
     end)
 end
 
@@ -4873,7 +5724,31 @@ do
         end
     )
 
-    Components.AddSlider(page, { id = "Jarak Deteksi Tangkisan (Studs)", en = "Auto Parry Detection Range (Studs)" }, 6, 35, 16, 0, 12, function(val)
+    Components.AddToggle(
+        page,
+        { id = "Visual Radius & Perisai Auto Parry", en = "Auto Parry Visual Dome & Shield" },
+        { id = "Menampilkan kubah radar jangkauan parry dan kilau perisai saat menangkis", en = "Display 3D parry detection dome and shield flash upon deflecting" },
+        true,
+        12,
+        function(on)
+            Combat.AutoParryVisual = on
+            if not on then
+                Combat.CleanupParryVisuals()
+            end
+        end
+    )
+
+    Components.AddChipSelector(page, { id = "Tombol / API Tangkisan (Parry Key)", en = "Parry Input / API Trigger" }, {
+        { Label = { id = "Otomatis (Semua API)", en = "Auto (All APIs)" }, Value = "Auto" },
+        { Label = { id = "Tombol F", en = "Key F" }, Value = "F" },
+        { Label = { id = "Klik Kanan (RMB)", en = "Right Click" }, Value = "RMB" },
+        { Label = { id = "Tombol E", en = "Key E" }, Value = "E" },
+        { Label = { id = "Tombol Q", en = "Key Q" }, Value = "Q" },
+    }, "Auto", 13, function(val)
+        Combat.ParryKey = val
+    end)
+
+    Components.AddSlider(page, { id = "Jarak Deteksi Tangkisan (Studs)", en = "Auto Parry Detection Range (Studs)" }, 6, 40, 18, 0, 14, function(val)
         Combat.ParryRange = val
     end)
 
@@ -5478,6 +6353,20 @@ do
         end)
     end)
 
+    Components.AddToggle(
+        page,
+        { id = "Visual Sorotan & Tali Energi Carry", en = "Carry Visual Highlight & Tether Beam" },
+        { id = "Menampilkan sorotan avatar target dan garis penghubung visual saat menggendong", en = "Display target avatar highlight and glowing tether beam while carrying" },
+        true,
+        4,
+        function(on)
+            Carry.ShowVisualBeam = on
+            if not on then
+                Carry.CleanupVisuals()
+            end
+        end
+    )
+
     Components.AddChipSelector(page, { id = "Pilih Posisi / Gaya Gendong", en = "Select Carry Style" }, {
         { Label = { id = "Gendong Depan", en = "Front Carry" }, Value = "Depan" },
         { Label = { id = "Gendong Belakang", en = "Piggyback" }, Value = "Belakang" },
@@ -5485,7 +6374,7 @@ do
         { Label = { id = "Seret Tanah", en = "Drag" }, Value = "Seret" },
         { Label = { id = "Angkat Kepala", en = "Head Carry" }, Value = "Kepala" },
         { Label = { id = "Melayang Samping", en = "Side Float" }, Value = "Melayang" },
-    }, "Depan", 4, function(val)
+    }, "Depan", 5, function(val)
         Carry.Style = val
         if Carry.Enabled and Carry.TargetPlayer then
             local modeTag = Carry.NativePromptTriggered and "Server" or "Lokal"
@@ -6336,16 +7225,14 @@ do
     end)
 
     Components.AddChipSelector(page, { id = "Tema Aksen Panel Utama", en = "Main Accent Theme" }, {
-        { Label = { id = "Emas Kerajaan", en = "Royal Gold" }, Value = "Gold", Color = Color3.fromRGB(238, 184, 56) },
         { Label = { id = "Emas Labu", en = "Pumpkin Gold" }, Value = "Pumpkin", Color = Color3.fromRGB(255, 118, 26) },
         { Label = { id = "Merah Darah", en = "Blood Crimson" }, Value = "Crimson", Color = Color3.fromRGB(225, 48, 78) },
         { Label = { id = "Ungu Spektral", en = "Spectral Violet" }, Value = "Violet", Color = Color3.fromRGB(155, 89, 245) },
         { Label = { id = "Hijau Racun", en = "Toxic Emerald" }, Value = "Emerald", Color = Color3.fromRGB(46, 213, 115) },
         { Label = { id = "Sian Hantu", en = "Phantom Cyan" }, Value = "Cyan", Color = Color3.fromRGB(24, 220, 255) },
-    }, "Gold", 15, function(val)
-        if val == "Gold" then
-            Utils.SetAccentColor(Color3.fromRGB(238, 184, 56), Color3.fromRGB(168, 118, 22))
-        elseif val == "Pumpkin" then
+        { Label = { id = "Emas Kerajaan", en = "Royal Gold" }, Value = "Gold", Color = Color3.fromRGB(255, 196, 54) },
+    }, "Pumpkin", 15, function(val)
+        if val == "Pumpkin" then
             Utils.SetAccentColor(Color3.fromRGB(255, 118, 26), Color3.fromRGB(184, 72, 12))
         elseif val == "Crimson" then
             Utils.SetAccentColor(Color3.fromRGB(225, 48, 78), Color3.fromRGB(155, 25, 48))
@@ -6355,6 +7242,8 @@ do
             Utils.SetAccentColor(Color3.fromRGB(46, 213, 115), Color3.fromRGB(24, 148, 76))
         elseif val == "Cyan" then
             Utils.SetAccentColor(Color3.fromRGB(24, 220, 255), Color3.fromRGB(14, 145, 175))
+        elseif val == "Gold" then
+            Utils.SetAccentColor(Color3.fromRGB(255, 196, 54), Color3.fromRGB(184, 134, 22))
         end
     end)
 
@@ -6890,6 +7779,277 @@ do
     end))
 end
 
+
+-- ============================================================================
+-- 18A. FEATURE API REGISTRATION & LIVE MODULE SYNCHRONIZATION
+-- ============================================================================
+do
+    local function requireAliveCharacter()
+        local char, hum, root = Utils.GetCharacter(LocalPlayer)
+        if not char or not hum or not root or hum.Health <= 0 then
+            return false, LocaleEngine.Text("Karakter belum siap atau sedang respawn.", "Character is not ready or respawning.")
+        end
+        return true
+    end
+
+    -- Tab 3: Radar ESP APIs
+    FeatureAPI.Register("PlayerESP", {
+        Category = "RadarESP",
+        OnEnable = function()
+            ESP.Enabled = true
+            ESP.UpdateAll()
+        end,
+        OnDisable = function()
+            ESP.Enabled = false
+            ESP.ClearAll()
+        end,
+    })
+
+    FeatureAPI.Register("ItemESP", {
+        Category = "RadarESP",
+        OnEnable = function()
+            ItemESP.Enabled = true
+            ItemESP.ScanAndRender()
+        end,
+        OnDisable = function()
+            ItemESP.Enabled = false
+            ItemESP.ClearAll()
+        end,
+    })
+
+    FeatureAPI.Register("GeneratorESP", {
+        Category = "RadarESP",
+        OnEnable = function()
+            GeneratorESP.Enabled = true
+            GeneratorESP.ScanAndRender()
+        end,
+        OnDisable = function()
+            GeneratorESP.Enabled = false
+            GeneratorESP.ClearAll()
+        end,
+    })
+
+    -- Tab 4: Combat & Survival APIs
+    FeatureAPI.Register("Aimbot", {
+        Category = "Combat",
+        Validate = requireAliveCharacter,
+        OnEnable = function()
+            Combat.AimbotEnabled = true
+            if Combat.FOVCircle then
+                Combat.FOVCircle.Visible = Combat.ShowFOVCircle
+            end
+        end,
+        OnDisable = function()
+            Combat.AimbotEnabled = false
+            Combat.CurrentTarget = nil
+            Combat.HideLaser()
+            if Combat.FOVCircle then
+                Combat.FOVCircle.Visible = false
+            end
+        end,
+    })
+
+    FeatureAPI.Register("AutoParry", {
+        Category = "Combat",
+        Validate = requireAliveCharacter,
+        OnEnable = function()
+            Combat.AutoParryEnabled = true
+            Combat.ParryRemoteScanned = false
+            Combat.ScanParryRemotes()
+            FeatureAPI.ScanGameRemotes(true)
+        end,
+        OnDisable = function()
+            Combat.AutoParryEnabled = false
+            Combat.CleanupParryVisuals()
+        end,
+        OnRespawn = function()
+            Combat.ParryRemoteScanned = false
+            Combat.ScanParryRemotes()
+        end,
+    })
+
+    FeatureAPI.Register("MeleeImmunity", {
+        Category = "Combat",
+        Validate = requireAliveCharacter,
+        OnEnable = function()
+            Combat.MeleeImmunity = true
+        end,
+        OnDisable = function()
+            Combat.MeleeImmunity = false
+            Protection.RestoreEnemyHitboxes()
+        end,
+    })
+
+    FeatureAPI.Register("HungerThirstGuard", {
+        Category = "Combat",
+        OnEnable = function()
+            Combat.HungerThirstGuard = true
+            Protection.BindSurvivalContainer(LocalPlayer)
+            if LocalPlayer.Character then
+                Protection.BindSurvivalContainer(LocalPlayer.Character)
+            end
+        end,
+        OnDisable = function()
+            Combat.HungerThirstGuard = false
+        end,
+    })
+
+    -- Tab 5: Movement & Physics APIs
+    FeatureAPI.Register("SmoothFly", {
+        Category = "Movement",
+        Validate = requireAliveCharacter,
+        OnEnable = function()
+            local _, hum = Utils.GetCharacter(LocalPlayer)
+            if hum and hum.Sit then hum.Sit = false end
+            State.FlyEnabled = true
+        end,
+        OnDisable = function()
+            State.FlyEnabled = false
+            Physics.CleanupFly()
+        end,
+    })
+
+    FeatureAPI.Register("NoClip", {
+        Category = "Movement",
+        Validate = requireAliveCharacter,
+        OnEnable = function()
+            State.NoclipEnabled = true
+        end,
+        OnDisable = function()
+            State.NoclipEnabled = false
+            Physics.RestoreNoclip()
+        end,
+    })
+
+    FeatureAPI.Register("InfiniteJump", {
+        Category = "Movement",
+        Validate = requireAliveCharacter,
+        OnEnable = function()
+            State.InfiniteJumpEnabled = true
+        end,
+        OnDisable = function()
+            State.InfiniteJumpEnabled = false
+        end,
+    })
+
+    -- Tab 7 & 8: Carry & Emote APIs
+    FeatureAPI.Register("CarryPlayer", {
+        Category = "Social",
+        Validate = function()
+            local ok, reason = requireAliveCharacter()
+            if not ok then return false, reason end
+            if not Carry.TargetPlayer or not Carry.TargetPlayer.Parent then
+                return false, LocaleEngine.Text("Pilih target pemain terlebih dahulu.", "Select a target player first.")
+            end
+            return true
+        end,
+        OnEnable = function()
+            FeatureAPI.ScanGameRemotes(false)
+            Carry.Start()
+        end,
+        OnDisable = function()
+            Carry.Stop()
+        end,
+    })
+
+    FeatureAPI.Register("DanceEmote", {
+        Category = "Social",
+        Validate = requireAliveCharacter,
+        OnEnable = function()
+            Emotes.Playing = true
+        end,
+        OnDisable = function()
+            Emotes.Stop()
+        end,
+    })
+
+    -- Tab 9: Visual APIs
+    FeatureAPI.Register("Fullbright", {
+        Category = "Visual",
+        OnEnable = function()
+            State.FullbrightEnabled = true
+        end,
+        OnDisable = function()
+            State.FullbrightEnabled = false
+            Lighting.Brightness = State.OriginalLighting.Brightness
+            Lighting.ClockTime = State.OriginalLighting.ClockTime
+            Lighting.GlobalShadows = State.OriginalLighting.GlobalShadows
+            Lighting.Ambient = State.OriginalLighting.Ambient
+            Lighting.OutdoorAmbient = State.OriginalLighting.OutdoorAmbient
+        end,
+    })
+
+    FeatureAPI.Register("NoFog", {
+        Category = "Visual",
+        OnEnable = function()
+            State.NoFogEnabled = true
+        end,
+        OnDisable = function()
+            State.NoFogEnabled = false
+            Lighting.FogEnd = State.OriginalLighting.FogEnd
+            Lighting.FogStart = State.OriginalLighting.FogStart
+            if State.OriginalAtmosphere and State.OriginalAtmosphere.Instance then
+                State.OriginalAtmosphere.Instance.Density = State.OriginalAtmosphere.Density
+            end
+        end,
+    })
+
+    -- Tab 11 & 12: Security & Protection APIs
+    FeatureAPI.Register("ZoneScanner", {
+        Category = "Security",
+        OnEnable = function()
+            SecurityHub.ZoneScannerEnabled = true
+            SecurityHub.ScanCurrentZone()
+        end,
+        OnDisable = function()
+            SecurityHub.ZoneScannerEnabled = false
+        end,
+    })
+
+    FeatureAPI.Register("LogCapture", {
+        Category = "Security",
+        OnEnable = function()
+            SecurityHub.LogCaptureEnabled = true
+        end,
+        OnDisable = function()
+            SecurityHub.LogCaptureEnabled = false
+        end,
+    })
+
+    FeatureAPI.Register("AntiAFK", {
+        Category = "Protection",
+        OnEnable = function()
+            Protection.AntiAFKEnabled = true
+        end,
+        OnDisable = function()
+            Protection.AntiAFKEnabled = false
+        end,
+    })
+
+    -- Sinkronisasi otomatis status fitur dengan state table eksisting
+    Utils.Track(RunService.Heartbeat:Connect(function()
+        FeatureAPI.Sync("PlayerESP", ESP.Enabled)
+        FeatureAPI.Sync("ItemESP", ItemESP.Enabled)
+        FeatureAPI.Sync("GeneratorESP", GeneratorESP.Enabled)
+        FeatureAPI.Sync("Aimbot", Combat.AimbotEnabled)
+        FeatureAPI.Sync("AutoParry", Combat.AutoParryEnabled)
+        FeatureAPI.Sync("MeleeImmunity", Combat.MeleeImmunity)
+        FeatureAPI.Sync("HungerThirstGuard", Combat.HungerThirstGuard)
+        FeatureAPI.Sync("SmoothFly", State.FlyEnabled)
+        FeatureAPI.Sync("NoClip", State.NoclipEnabled)
+        FeatureAPI.Sync("InfiniteJump", State.InfiniteJumpEnabled)
+        FeatureAPI.Sync("CarryPlayer", Carry.Enabled)
+        FeatureAPI.Sync("DanceEmote", Emotes.Playing)
+        FeatureAPI.Sync("Fullbright", State.FullbrightEnabled)
+        FeatureAPI.Sync("NoFog", State.NoFogEnabled)
+        FeatureAPI.Sync("ZoneScanner", SecurityHub.ZoneScannerEnabled)
+        FeatureAPI.Sync("LogCapture", SecurityHub.LogCaptureEnabled)
+        FeatureAPI.Sync("AntiAFK", Protection.AntiAFKEnabled)
+    end))
+
+    FeatureAPI.ScanGameRemotes(true)
+end
+
 -- ============================================================================
 -- 19. GLOBAL CLEANUP & UNLOAD HANDLER
 -- ============================================================================
@@ -6915,6 +8075,9 @@ local function unloadScript()
     ItemESP.ClearAll()
     GeneratorESP.ClearAll()
 
+    Combat.CleanupParryVisuals()
+    Carry.CleanupVisuals()
+
     if Combat.LaserPart then
         pcall(function() Combat.LaserPart:Destroy() end)
         Combat.LaserPart = nil
@@ -6924,6 +8087,13 @@ local function unloadScript()
         pcall(function() conn:Disconnect() end)
     end
     table.clear(Connections)
+
+    if FeatureAPI then
+        table.clear(FeatureAPI.Listeners)
+        for _, entry in pairs(FeatureAPI.Registry) do
+            entry.Enabled = false
+        end
+    end
 
     local _, hum = Utils.GetCharacter()
     if hum then

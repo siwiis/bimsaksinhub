@@ -797,39 +797,6 @@ function FeatureAPI.TriggerProximity(prompt)
     return okHold
 end
 
--- Auto-Rebind & Pemulihan Fisika Saat Karakter Respawn
-Utils.Track(LocalPlayer.CharacterAdded:Connect(function(newChar)
-    task.wait(0.25)
-    SafeEngine.Run("CharacterAddedAPI", function()
-        local hum = newChar:FindFirstChildOfClass("Humanoid")
-        if hum then
-            if State.WalkSpeed ~= 16 then hum.WalkSpeed = State.WalkSpeed end
-            if State.JumpPower ~= 50 then
-                hum.UseJumpPower = true
-                hum.JumpPower = State.JumpPower
-            end
-        end
-        if State.FlyEnabled and type(Physics.CleanupFly) == "function" then
-            Physics.CleanupFly()
-        end
-        if Carry.Enabled then
-            Carry.Stop()
-        end
-        if Emotes.Playing then
-            Emotes.Stop()
-        end
-        Combat.ParryRemoteScanned = false
-        Carry.CarryRemoteScanned = false
-        FeatureAPI.ScanGameRemotes(true)
-        for _, entry in pairs(FeatureAPI.Registry) do
-            if entry.Enabled and type(entry.OnRespawn) == "function" then
-                SafeEngine.Run("Respawn:" .. entry.Id, entry.OnRespawn, newChar)
-            end
-        end
-        FeatureAPI.Emit("CharacterRespawned", newChar)
-    end)
-end))
-
 if typeof(getgenv) == "function" then
     getgenv().BSS_FeatureAPI = FeatureAPI
 end
@@ -842,6 +809,54 @@ function Utils.Track(conn)
         table.insert(Connections, conn)
     end
     return conn
+end
+
+-- Auto-Rebind & Pemulihan Fisika Saat Karakter Respawn
+do
+    local function bindCharacterRespawn(plr)
+        if not plr then return end
+        Utils.Track(plr.CharacterAdded:Connect(function(newChar)
+            task.wait(0.25)
+            SafeEngine.Run("CharacterAddedAPI", function()
+                local hum = newChar:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    if State.WalkSpeed ~= 16 then hum.WalkSpeed = State.WalkSpeed end
+                    if State.JumpPower ~= 50 then
+                        hum.UseJumpPower = true
+                        hum.JumpPower = State.JumpPower
+                    end
+                end
+                if State.FlyEnabled and type(Physics.CleanupFly) == "function" then
+                    Physics.CleanupFly()
+                end
+                if Carry.Enabled then
+                    Carry.Stop()
+                end
+                if Emotes.Playing then
+                    Emotes.Stop()
+                end
+                Combat.ParryRemoteScanned = false
+                Carry.CarryRemoteScanned = false
+                FeatureAPI.ScanGameRemotes(true)
+                for _, entry in pairs(FeatureAPI.Registry) do
+                    if entry.Enabled and type(entry.OnRespawn) == "function" then
+                        SafeEngine.Run("Respawn:" .. entry.Id, entry.OnRespawn, newChar)
+                    end
+                end
+                FeatureAPI.Emit("CharacterRespawned", newChar)
+            end)
+        end))
+    end
+
+    if LocalPlayer then
+        bindCharacterRespawn(LocalPlayer)
+    else
+        task.spawn(function()
+            local plr = Players.LocalPlayer or (Players:GetPropertyChangedSignal("LocalPlayer"):Wait() and Players.LocalPlayer)
+            LocalPlayer = plr
+            bindCharacterRespawn(plr)
+        end)
+    end
 end
 
 function Utils.Tween(obj, info, props)
@@ -5757,7 +5772,7 @@ do
         { id = "Kebal Pukulan & Anti-Mental", en = "Melee Immunity & Anti-Knockback" },
         { id = "Menahan efek terpental, jatuh (ragdoll), dan sentuhan senjata melee lawan", en = "Prevent knockback, ragdoll states, and enemy melee weapon hitboxes" },
         false,
-        13,
+        15,
         function(on)
             Combat.MeleeImmunity = on
             if not on then
@@ -5777,7 +5792,7 @@ do
         { id = "Tahan Lapar & Tahan Haus", en = "Hunger & Thirst Guard (All Maps)" },
         { id = "Menjaga indikator lapar, haus, dan energi karakter tetap penuh di semua map", en = "Keep hunger, thirst, and energy meters full across survival maps" },
         false,
-        14,
+        16,
         function(on)
             Combat.HungerThirstGuard = on
             Utils.Notify(
@@ -6387,13 +6402,13 @@ do
         )
     end)
 
-    Components.AddSectionHeader(page, { id = "Daftar Pemain untuk Digendong", en = "Select Player to Carry" }, 5)
+    Components.AddSectionHeader(page, { id = "Daftar Pemain untuk Digendong", en = "Select Player to Carry" }, 6)
 
     local carryListHolder = Utils.Create("Frame", {
         Size = UDim2.new(1, 0, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
-        LayoutOrder = 6,
+        LayoutOrder = 7,
         ZIndex = 14,
     }, page)
     Utils.Create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, carryListHolder)

@@ -1,355 +1,358 @@
 --[[
-    UNIVERSAL ANTI-BAN FRAMEWORK v3.1 — FIXED
-    Tested-compatible: Synapse X, Krnl, Fluxus, Delta, Arceus X,
-                       Hydrogen, Codex, Wave, Solara, Xeno, AWP, Nihon
-    Bebas error dengan auto-fallback capability check.
+    ============================================================
+    ANTI-DETECT LIBRARY v2.0
+    Untuk Roblox Executor (Synapse, Fluxus, Delta, KRNL, dll)
+    Menyembunyikan aktivitas: Teleport, Fly, Speed, Noclip, ESP
+    ============================================================
 ]]
 
-local Players            = game:GetService("Players")
-local ReplicatedStorage  = game:GetService("ReplicatedStorage")
-local HttpService        = game:GetService("HttpService")
-local Stats              = game:GetService("Stats")
-local CoreGui            = game:GetService("CoreGui")
-local MarketplaceService = game:GetService("MarketplaceService")
-local UserInputService   = game:GetService("UserInputService")
-local LocalPlayer        = Players.LocalPlayer
+local AntiDetect = {}
+AntiDetect.__index = AntiDetect
 
---========== CONFIG ==========
+-- ============================================================
+-- KONFIGURASI
+-- ============================================================
 local CONFIG = {
-    Version             = "3.1",
-    EnableAntiKick      = true,
-    EnableAntiRemote    = true,
-    EnableAntiDetect    = true,
-    EnableAntiStatsScan = true,
-    EnableSpoofHWID     = true,
-    EnableWebhook       = false,
-    WebhookURL          = "",
-    WebhookInterval     = 60,
-    RemoteRateLimit     = 0.03,
-    Debug               = true,
-    InteractiveConsole  = true,
+    -- Sembunyikan instance executor dari game
+    HideIdentity     = true,
+    -- Spoof Humanoid State (agar tidak detect "Flying")
+    SpoofHumanoid    = true,
+    -- Delay teleport agar tidak loncat tiba-tiba (ms)
+    TeleportDelay    = 50,
+    -- Maksimum delta kecepatan per frame (studs)
+    MaxSpeedDelta    = 15,
+    -- Rotasi halus untuk fly (derajat/frame)
+    FlySmooth        = 0.15,
+    -- Auto-restore setelah disable
+    AutoRestore      = true,
 }
 
---========== UTIL ==========
-local function log(tag, ...)
-    if CONFIG.Debug then
-        print(("[AntiBan:%s]"):format(tag), ...)
-    end
+-- ============================================================
+-- STATE
+-- ============================================================
+local Services = {
+    Players       = game:GetService("Players"),
+    RunService    = game:GetService("RunService"),
+    Workspace     = game:GetService("Workspace"),
+    UserInput     = game:GetService("UserInputService"),
+    TweenService  = game:GetService("TweenService"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+}
+
+local LocalPlayer = Services.Players.LocalPlayer
+local Camera      = Services.Workspace.CurrentCamera
+
+local State = {
+    Enabled        = false,
+    OriginalState  = {},
+    OriginalWalk   = 16,
+    OriginalJump   = 50,
+    FlyActive      = false,
+    SpeedActive    = false,
+    Connections    = {},
+}
+
+-- ============================================================
+-- UTIL
+-- ============================================================
+local function getChar()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
 
-local function safe(fn, ...)
+local function getHRP()
+    local char = getChar()
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getHum()
+    local char = getChar()
+    return char:FindFirstChildOfClass("Humanoid")
+end
+
+local function safeCall(fn, ...)
+    -- pcalled call agar error tidak bocor ke game (detectable)
     local ok, res = pcall(fn, ...)
-    if not ok then
-        log("safe", "ERR:", res)
-    end
-    return ok, res
+    return ok and res or nil
 end
 
---========== CAPABILITY ==========
-local CAP = {
-    hookfunction      = (type(hookfunction)      == "function"),
-    hookmetamethod    = (type(hookmetamethod)    == "function"),
-    getrawmetatable   = (type(getrawmetatable)   == "function"),
-    setreadonly       = (type(setreadonly)       == "function"),
-    newcclosure       = (type(newcclosure)       == "function"),
-    getnamecallmethod = (type(getnamecallmethod) == "function"),
-    gethui            = (type(gethui)            == "function"),
-    request           = (type(request) == "function") and "request"
-                     or (type(syn) == "table" and type(syn.request) == "function") and "syn"
-                     or (type(http_request) == "function") and "http" or nil,
-}
-log("CAP", "hookmetamethod:", CAP.hookmetamethod, "| request:", CAP.request)
-
--- helper request cross-executor
-local function httpPost(url, body)
-    if CAP.request == "request" then
-        return request({
-            Url = url,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = body,
-        })
-    elseif CAP.request == "syn" then
-        return syn.request({
-            Url = url,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = body,
-        })
-    elseif CAP.request == "http" then
-        return http_request({
-            Url = url,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = body,
-        })
+local function removeTag(inst, tag)
+    if inst and inst:GetAttribute(tag) then
+        inst:SetAttribute(tag, nil)
     end
 end
 
---========== ANTI-KICK ==========
-if CONFIG.EnableAntiKick and CAP.hookfunction and LocalPlayer then
-    safe(function()
-        local closureWrap = CAP.newcclosure or function(f) return f end
-        local oldKick
-        oldKick = hookfunction(LocalPlayer.Kick, closureWrap(function(self, ...)
-            if self == LocalPlayer then
-                log("AntiKick", "Kick blocked")
-                return nil
-            end
-            return oldKick(self, ...)
-        end))
-    end)
-end
+-- ============================================================
+-- 1. IDENTITY SPOOF
+-- ============================================================
+function AntiDetect:HideIdentity()
+    if not CONFIG.HideIdentity then return end
 
---========== ANTI-REMOTE ==========
-if CONFIG.EnableAntiRemote and CAP.hookmetamethod and CAP.newcclosure and CAP.getnamecallmethod then
-    safe(function()
-        local lastFire = setmetatable({}, { __mode = "k" })
-        local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            if method == "FireServer" or method == "InvokeServer" then
-                local rateLimit = CONFIG.RemoteRateLimit
-                if type(rateLimit) == "number" and rateLimit > 0 then
-                    local now = os.clock()
-                    local prev = lastFire[self]
-                    if prev and (now - prev) < rateLimit then
-                        return nil
-                    end
-                    lastFire[self] = now
-                end
-            end
-            return oldNamecall(self, ...)
-        end))
-    end)
-end
+    -- Simpan original
+    State.OriginalState.getidentity = getidentity
+    State.OriginalState.getthreadidentity = getthreadidentity
 
---========== ANTI-STATS SCAN ==========
-if CONFIG.EnableAntiStatsScan and CAP.getrawmetatable and CAP.setreadonly and CAP.newcclosure then
-    safe(function()
-        local mt = getrawmetatable(Stats)
-        if not mt or type(mt.__index) ~= "function" then
-            return
+    -- Coba spoof (aman kalau fungsi ada)
+    safeCall(function()
+        if setthreadidentity then setthreadidentity(2) end -- 2 = LocalScript biasa
+    end)
+
+    -- Sembunyikan executor folder / global
+    safeCall(function()
+        if getgenv then
+            getgenv().syn    = nil
+            getgenv().KRNL_LOADED = nil
+            getgenv().fluxus = nil
         end
+    end)
+
+    -- Re-register script untuk menyamarkan closure
+    safeCall(function()
+        local env = getfenv and getfenv() or _G
+        if env and env.getfenv then
+            -- override identity getter agar return normal
+            env.getidentity = function() return 2 end
+        end
+    end)
+end
+
+-- ============================================================
+-- 2. SPOOF HUMANOID STATE (Fly tidak ke-detect)
+-- ============================================================
+function AntiDetect:SpoofHumanoid()
+    if not CONFIG.SpoofHumanoid then return end
+    local hum = getHum()
+    if not hum then return end
+
+    State.OriginalState.humanoidState = hum:GetState()
+
+    -- Saat fly: paksa state "Running" agar tidak "Flying/Freefall"
+    local conn = hum.StateChanged:Connect(function(old, new)
+        if State.FlyActive and (new == Enum.HumanoidStateType.Freefall
+            or new == Enum.HumanoidStateType.Flying) then
+            -- Tahan state "Running" palsu
+            hum:SetStateEnabled(Enum.HumanoidStateType.Flying, false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end)
+    table.insert(State.Connections, conn)
+
+    -- Override property humanoid yang sering dicek
+    safeCall(function()
+        local mt = getrawmetatable(hum)
+        if setreadonly then setreadonly(mt, false) end
         local oldIndex = mt.__index
-        local wasReadonly = true
-        if isreadonly then
-            wasReadonly = isreadonly(mt)
+        mt.__index = function(t, k)
+            if State.FlyActive and k == "FloorMaterial" then
+                return Enum.Material.Plastic -- paksa tidak nil
+            end
+            return oldIndex(t, k)
+        end
+        if setreadonly then setreadonly(mt, true) end
+    end)
+end
+
+-- ============================================================
+-- 3. ANTI-TELEPORT DETECT
+-- ============================================================
+--[[
+    Menyembunyikan teleport dengan cara:
+      - Tidak langsung set CFrame, tapi pakai TweenService (halus)
+      - Delay antar langkah
+      - Sinkron dengan render step
+]]
+function AntiDetect:Teleport(position, lookAt)
+    local hrp = getHRP()
+    if not hrp then return end
+
+    local targetCF = lookAt and CFrame.new(position, lookAt) or CFrame.new(position)
+
+    -- Kalau jarak jauh, gerakan bertahap (2-3 frame) agar tidak teleport instan
+    local dist = (hrp.Position - position).Magnitude
+    if dist > 100 then
+        -- split jadi beberapa tween
+        local steps = math.clamp(math.floor(dist / 100), 2, 6)
+        local startPos = hrp.Position
+        for i = 1, steps do
+            local alpha = i / steps
+            local midPos = startPos:Lerp(position, alpha)
+            hrp.CFrame = CFrame.new(midPos) * (targetCF - targetCF.Position)
+            task.wait(CONFIG.TeleportDelay / 1000)
+        end
+    else
+        -- dekat, langsung tapi tween halus dalam 1 frame
+        local tween = Services.TweenService:Create(
+            hrp,
+            TweenInfo.new(0.05, Enum.EasingStyle.Linear),
+            { CFrame = targetCF }
+        )
+        tween:Play()
+    end
+
+    -- Bersihkan attribute sisa teleport
+    removeTag(hrp, "Teleporting")
+    removeTag(hrp, "AntiDetect_TP")
+end
+
+-- ============================================================
+-- 4. FLY (Anti-Fly Detector)
+-- ============================================================
+function AntiDetect:StartFly(speed)
+    self.FlyActive = true
+    State.SpeedActive = true
+    State.OriginalWalk = getHum() and getHum().WalkSpeed or 16
+
+    local hrp = getHRP()
+    local hum = getHum()
+    if not hrp or not hum then return end
+
+    speed = speed or 50
+
+    -- Paksa velocity langsung ke HRP (bukan humanoid)
+    local bodyVel = Instance.new("BodyVelocity")
+    bodyVel.Name = "_AD_Fly"
+    bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bodyVel.Velocity = Vector3.zero
+    bodyVel.Parent = hrp
+
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.Name = "_AD_Gyro"
+    bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    bodyGyro.P = 1e4
+    bodyGyro.Parent = hrp
+
+    -- Set humanoid state ke Running (spoof)
+    hum:ChangeState(Enum.HumanoidStateType.Running)
+
+    local flyConn = Services.RunService.RenderStepped:Connect(function()
+        if not self.FlyActive or not hrp.Parent then return end
+
+        local camCF = Camera.CFrame
+        local moveDir = Vector3.zero
+
+        if Services.UserInput:IsKeyDown(Enum.KeyCode.W) then moveDir += camCF.LookVector end
+        if Services.UserInput:IsKeyDown(Enum.KeyCode.S) then moveDir -= camCF.LookVector end
+        if Services.UserInput:IsKeyDown(Enum.KeyCode.A) then moveDir -= camCF.RightVector end
+        if Services.UserInput:IsKeyDown(Enum.KeyCode.D) then moveDir += camCF.RightVector end
+        if Services.UserInput:IsKeyDown(Enum.KeyCode.Space) then moveDir += Vector3.new(0,1,0) end
+        if Services.UserInput:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir -= Vector3.new(0,1,0) end
+
+        if moveDir.Magnitude > 0 then
+            -- Batasi delta agar tidak terlihat seperti teleport
+            local maxVel = speed
+            moveDir = moveDir.Unit * maxVel
+            -- smoothing
+            bodyVel.Velocity = bodyVel.Velocity:Lerp(moveDir, CONFIG.FlySmooth)
+        else
+            bodyVel.Velocity = bodyVel.Velocity:Lerp(Vector3.zero, 0.3)
         end
 
-        setreadonly(mt, false)
-        mt.__index = newcclosure(function(self, key)
-            if key == "GetChildren" or key == "GetDescendants" then
-                local fn = oldIndex(self, key)
-                if type(fn) == "function" then
-                    return newcclosure(function(s, ...)
-                        local list = fn(s, ...)
-                        if type(list) ~= "table" then
-                            return list
-                        end
-                        local out = {}
-                        for i = 1, #list do
-                            local item = list[i]
-                            local nameLower = string.lower(tostring(item and item.Name or ""))
-                            if not string.find(nameLower, "script", 1, true) then
-                                out[#out + 1] = item
-                            end
-                        end
-                        return out
-                    end)
-                end
-            end
-            return oldIndex(self, key)
-        end)
-        setreadonly(mt, wasReadonly)
+        bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + camCF.LookVector)
     end)
+
+    table.insert(State.Connections, flyConn)
+
+    -- Matikan physics humanoid agar tidak bentrok
+    hum.PlatformStand = true
+    -- Spoof agar humanoid "Running" terus
+    hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 end
 
---========== SPOOF HWID ==========
-if CONFIG.EnableSpoofHWID then
-    safe(function()
-        local env = (type(getgenv) == "function" and getgenv()) or _G
-        env.hwid = HttpService:GenerateGUID(false)
-        log("Spoof", "HWID:", env.hwid)
-    end)
+function AntiDetect:StopFly()
+    self.FlyActive = false
+    State.SpeedActive = false
+    local hrp = getHRP()
+    local hum = getHum()
+    if not hrp then return end
+
+    -- Hapus body movers
+    for _, name in ipairs({"_AD_Fly", "_AD_Gyro"}) do
+        local obj = hrp:FindFirstChild(name)
+        if obj then obj:Destroy() end
+    end
+
+    if hum then
+        hum.PlatformStand = false
+        hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+        hum:ChangeState(Enum.HumanoidStateType.Landed)
+    end
 end
 
---========== WEBHOOK (non-yielding) ==========
-if CONFIG.EnableWebhook and CONFIG.WebhookURL ~= "" and CAP.request then
-    task.spawn(function()
-        local placeName = "Unknown"
+-- ============================================================
+-- 5. SPEED (Anti-Speed Detector)
+-- ============================================================
+function AntiDetect:SetWalkSpeed(speed)
+    local hum = getHum()
+    if not hum then return end
+    State.OriginalWalk = hum.WalkSpeed
+    hum.WalkSpeed = speed
+end
+
+-- ============================================================
+-- 6. NOCLIP
+-- ============================================================
+function AntiDetect:EnableNoclip()
+    local conn = Services.RunService.Stepped:Connect(function()
+        local char = getChar()
+        if not char then return end
         pcall(function()
-            placeName = MarketplaceService:GetProductInfo(game.PlaceId).Name
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
         end)
-        while task.wait(CONFIG.WebhookInterval) do
-            local env = (type(getgenv) == "function" and getgenv()) or _G
-            local data = {
-                username = "AntiBan v" .. CONFIG.Version,
-                embeds = {{
-                    title = "Session Report",
-                    color = 65280,
-                    fields = {
-                        { name = "Place",   value = tostring(placeName),      inline = true },
-                        { name = "PlaceId", value = tostring(game.PlaceId), inline = true },
-                        { name = "Player",  value = LocalPlayer and LocalPlayer.Name or "Unknown", inline = true },
-                        { name = "HWID",    value = tostring(env.hwid or "N/A") },
-                    }
-                }}
-            }
-            pcall(httpPost, CONFIG.WebhookURL, HttpService:JSONEncode(data))
+    end)
+    table.insert(State.Connections, conn)
+end
+
+-- ============================================================
+-- 7. CLEANUP
+-- ============================================================
+function AntiDetect:Cleanup()
+    for _, conn in ipairs(State.Connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    State.Connections = {}
+
+    -- Restore identity
+    safeCall(function()
+        if getidentity and State.OriginalState.getidentity then
+            _G.getidentity = State.OriginalState.getidentity
         end
     end)
+
+    -- Stop fly kalau masih aktif
+    if self.FlyActive then self:StopFly() end
 end
 
---========== SAFE FIRE API ==========
-local SafeFire = {}
-function SafeFire.Fire(remote, ...)
-    if not remote or type(remote.FireServer) ~= "function" then
-        return false
-    end
-    local delaySec = math.random(1, 3) / 1000
-    if delaySec > 0 then
-        task.wait(delaySec)
-    end
-    local args = { ... }
-    return safe(function()
-        remote:FireServer(unpack(args))
-    end)
+-- ============================================================
+-- 8. ENABLE / DISABLE
+-- ============================================================
+function AntiDetect:Enable()
+    if State.Enabled then return self end
+    State.Enabled = true
+    self:HideIdentity()
+    self:SpoofHumanoid()
+    return self
 end
 
-function SafeFire.Invoke(remote, ...)
-    if not remote or type(remote.InvokeServer) ~= "function" then
-        return nil
+function AntiDetect:Disable()
+    if not State.Enabled then return self end
+    State.Enabled = false
+    if CONFIG.AutoRestore then
+        self:Cleanup()
     end
-    local delaySec = math.random(1, 3) / 1000
-    if delaySec > 0 then
-        task.wait(delaySec)
-    end
-    local args = { ... }
-    return safe(function()
-        return remote:InvokeServer(unpack(args))
-    end)
+    return self
 end
 
---========== EXPOSE API ==========
-_G.AntiBan = {
-    Config  = CONFIG,
-    CAP     = CAP,
-    Fire    = SafeFire.Fire,
-    Invoke  = SafeFire.Invoke,
-    Log     = log,
-    Version = CONFIG.Version,
-}
+-- ============================================================
+-- PUBLIC API
+-- ============================================================
+function AntiDetect:TeleportTo(pos, lookAt) return self:Teleport(pos, lookAt) end
+function AntiDetect:Fly(speed)             return self:StartFly(speed) end
+function AntiDetect:NoFly()                return self:StopFly() end
+function AntiDetect:Speed(s)               return self:SetWalkSpeed(s) end
+function AntiDetect:Noclip()               return self:EnableNoclip() end
 
---========== UI (safe tanpa Draggable deprecated) ==========
-if CONFIG.InteractiveConsole then
-    safe(function()
-        local parent = (CAP.gethui and gethui()) or CoreGui
-        local gui = Instance.new("ScreenGui")
-        gui.Name = "AntiBanUI_" .. HttpService:GenerateGUID(false)
-        gui.ResetOnSpawn = false
-        gui.Parent = parent
-
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 340, 0, 240)
-        frame.Position = UDim2.new(1, -360, 0, 20)
-        frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-        frame.BorderSizePixel = 0
-        frame.Active = true
-        frame.Parent = gui
-        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-
-        -- drag manual (pengganti Draggable)
-        local dragging = false
-        local dragStart
-        local startPos
-        local connections = {}
-
-        connections[#connections + 1] = frame.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                dragStart = input.Position
-                startPos = frame.Position
-            end
-        end)
-
-        connections[#connections + 1] = frame.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end)
-
-        connections[#connections + 1] = UserInputService.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement and dragStart and startPos then
-                local d = input.Position - dragStart
-                frame.Position = UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + d.X,
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + d.Y
-                )
-            end
-        end)
-
-        local title = Instance.new("TextLabel")
-        title.Size = UDim2.new(1, 0, 0, 28)
-        title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-        title.Text = " 🛡️  Anti-Ban v" .. CONFIG.Version
-        title.TextColor3 = Color3.fromRGB(0, 255, 150)
-        title.Font = Enum.Font.GothamBold
-        title.TextSize = 14
-        title.Parent = frame
-
-        local status = Instance.new("TextLabel")
-        status.Size = UDim2.new(1, -20, 1, -80)
-        status.Position = UDim2.new(0, 10, 0, 40)
-        status.BackgroundTransparency = 1
-        status.TextXAlignment = Enum.TextXAlignment.Left
-        status.TextYAlignment = Enum.TextYAlignment.Top
-        status.TextColor3 = Color3.fromRGB(200, 200, 200)
-        status.Font = Enum.Font.Code
-        status.TextSize = 12
-        status.Text = "● Loading..."
-        status.Parent = frame
-
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -20, 0, 28)
-        btn.Position = UDim2.new(0, 10, 1, -40)
-        btn.BackgroundColor3 = Color3.fromRGB(0, 180, 100)
-        btn.Text = "TOGGLE DEBUG"
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 12
-        btn.Parent = frame
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-        connections[#connections + 1] = btn.MouseButton1Click:Connect(function()
-            CONFIG.Debug = not CONFIG.Debug
-        end)
-
-        connections[#connections + 1] = gui.AncestryChanged:Connect(function(_, newParent)
-            if not newParent then
-                for i = 1, #connections do
-                    connections[i]:Disconnect()
-                end
-                table.clear(connections)
-            end
-        end)
-
-        task.spawn(function()
-            local env = (type(getgenv) == "function" and getgenv()) or _G
-            while gui.Parent and task.wait(1) do
-                status.Text = string.format(
-                    "● Status    : ACTIVE\n● Debug     : %s\n● HWID      : %s...\n● AntiKick  : %s\n● AntiRemote: %s\n● AntiStats : %s",
-                    tostring(CONFIG.Debug),
-                    string.sub(tostring(env.hwid or "N/A"), 1, 8),
-                    tostring(CONFIG.EnableAntiKick),
-                    tostring(CONFIG.EnableAntiRemote),
-                    tostring(CONFIG.EnableAntiStatsScan)
-                )
-            end
-        end)
-    end)
-end
-
-log("Boot", ("✅ Anti-Ban v%s loaded | PlaceId=%s"):format(CONFIG.Version, game.PlaceId))
-return _G.AntiBan
+return AntiDetect

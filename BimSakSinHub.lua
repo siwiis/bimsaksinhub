@@ -1,28 +1,29 @@
 --[[
 ================================================================================
-  BimSakSin Hub v3.0 | Edisi Universal (Bahasa Indonesia & Adaptif Region Device)
+  BimSakSin Hub v3.0 + Universal Anti-Ban Framework v3.1 | Edisi Universal
   Creator     : BimSakSin
   Environment : Roblox Luau (Universal / Semua Map & Kompatibel R6/R15)
   Pembaruan   :
+    - Integrasi penuh Universal Anti-Ban Framework v3.1 (Anti-Kick __namecall
+      & hookfunction, Anti-Remote Rate-Limit & Ban-Remote Guard, Anti-Stats
+      Scan, HWID Spoofer, SafeFire API, Webhook Reporter & Mini-Console).
+    - Perbaikan seluruh bug & potensi error pada kedua modul (safe LocalPlayer
+      autoexec guard, weak-key remote tracker, rawequal Stats index guard,
+      Telegram HTML escaping, MeshPart serializer, dan cleanup menyeluruh).
     - Seluruh nama tab, kategori, dan fitur diterjemahkan ke Bahasa Indonesia
-      yang rapi & profesional.
-    - Deteksi otomatis Region & Bahasa Perangkat pengguna (LocalizationService:
-      SystemLocaleId, RobloxLocaleId, dan CountryRegion) dengan dukungan
-      pengalihan bahasa langsung (Otomatis Region / Indonesia / English).
-    - Integrasi Modul Lanjutan: Panel Keamanan & Anti-Cheat, Command Palette (F2),
-      Diagnostik Log Live, Pemindai Zona, dan Simpan/Muat Konfigurasi JSON.
-    - Struktur tab dan fitur disusun ulang berdasarkan urutan kegunaan:
+      yang rapi & profesional dengan deteksi otomatis Region Perangkat.
+    - Struktur tab dan fitur disusun berdasarkan urutan kegunaan:
       1. Informasi (Paling Atas)
       2. Beranda (Telemetri & Utilitas Server)
-      3. Radar ESP (Pemain, Barang/Loot & Generator)
-      4. Pertarungan (Bidik Otomatis, Tangkis & Ketahanan)
+      3. Radar ESP (Pemain, Barang/Loot, Generator & Auto Generator)
+      4. Pertarungan (Bidik Otomatis, Auto Parry & Ketahanan)
       5. Pergerakan (Kecepatan, Lompatan, Terbang & Tembus Objek)
       6. Teleportasi (Koordinat, Titik Simpan & Teleport Pemain)
       7. Gendong (Interaksi Carry & Pilihan Gaya)
       8. Tari & Emote (Animasi Replikasi R6/R15 & ID Kustom)
       9. Visual (Kamera FOV, Pencahayaan Penuh & Hapus Kabut)
      10. Salin Aset (Ekspor Struktur Item/Map & Notifikasi Telegram)
-     11. Keamanan & AC (Monitor Anti-Cheat, Diagnostik & Audit Integritas)
+     11. Keamanan & AC (Anti-Ban Framework v3.1, Monitor AC & Diagnostik)
      12. Pengaturan (Region Device, Config JSON, Anti-Bug, Tema & Kontrol Panel)
 ================================================================================
 ]]
@@ -50,7 +51,7 @@ do
         if not container then return end
         pcall(function()
             for _, child in ipairs(container:GetChildren()) do
-                if existingNames[child.Name] then
+                if existingNames[child.Name] or string.sub(child.Name, 1, 10) == "AntiBanUI_" then
                     child:Destroy()
                 end
             end
@@ -107,6 +108,7 @@ local HttpService = game:GetService("HttpService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LogService = game:GetService("LogService")
+local CoreGui = game:GetService("CoreGui")
 
 local VirtualUser = nil
 pcall(function()
@@ -119,12 +121,18 @@ pcall(function()
 end)
 
 local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    pcall(function()
+        Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+        LocalPlayer = Players.LocalPlayer
+    end)
+end
 local LocalizationService = game:GetService("LocalizationService")
 
 local App = {
     Name = "BimSakSin Hub v3.0",
     Subtitle = "Semoga hari-hari kalian menyenangkan",
-    Version = "v3.0 Universal",
+    Version = "v3.0 Universal + AntiBan v3.1",
     GuiName = "BimSakSinHub_v3",
     IsOpen = true,
     IsMinimized = false,
@@ -135,7 +143,6 @@ local App = {
     DiscordUrl = "https://discord.gg/YwMCBq22f2",
     DonationUrl = "https://linktr.ee/bimsaksin",
 }
-
 -- ============================================================================
 -- 1A. SISTEM LOKALISASI & DETEKSI REGION PERANGKAT PENGGUNA (LocaleEngine)
 -- ============================================================================
@@ -522,6 +529,467 @@ local Components = {}
 local SafeEngine = {}
 
 -- ============================================================================
+-- 1D. UNIVERSAL ANTI-BAN FRAMEWORK v3.1 (HARDENED & INTEGRATED MODULE)
+--     Compatible: Synapse X, Krnl, Fluxus, Delta, Arceus X, Hydrogen, Codex,
+--                 Wave, Solara, Xeno, AWP, Nihon (Auto-Fallback Capability Check)
+-- ============================================================================
+local AntiBan = {
+    Active = true,
+    ConsoleGui = nil,
+    OnStatsChanged = nil,
+    Config = {
+        Version             = "3.1",
+        EnableAntiKick      = true,
+        EnableAntiRemote    = true,
+        EnableAntiDetect    = true,
+        EnableAntiStatsScan = true,
+        EnableSpoofHWID     = true,
+        EnableWebhook       = false,
+        WebhookURL          = "",
+        WebhookInterval     = 60,
+        RemoteRateLimit     = 0.03,
+        Debug               = false,
+        InteractiveConsole  = false, -- Terintegrasi rapi di Tab Keamanan & AC (bisa dibuka opsional)
+    },
+    Stats = {
+        KicksBlocked = 0,
+        RemotesThrottled = 0,
+        BanRemotesBlocked = 0,
+        StatsScansFiltered = 0,
+        SpoofedHWID = "N/A",
+    },
+}
+
+do
+    local function getGlobalEnv()
+        if type(getgenv) == "function" then
+            local ok, env = pcall(getgenv)
+            if ok and type(env) == "table" then
+                return env
+            end
+        end
+        return _G
+    end
+
+    local function abLog(tag, ...)
+        if AntiBan.Config.Debug then
+            print(("[AntiBan:%s]"):format(tostring(tag)), ...)
+        end
+    end
+
+    local function abSafe(fn, ...)
+        local ok, res = pcall(fn, ...)
+        if not ok then
+            abLog("safe", "ERR:", res)
+        end
+        return ok, res
+    end
+
+    local CAP = {
+        hookfunction      = (type(hookfunction)      == "function"),
+        hookmetamethod    = (type(hookmetamethod)    == "function"),
+        getrawmetatable   = (type(getrawmetatable)   == "function"),
+        setreadonly       = (type(setreadonly)       == "function"),
+        make_writeable    = (type(make_writeable)    == "function"),
+        newcclosure       = (type(newcclosure)       == "function"),
+        getnamecallmethod = (type(getnamecallmethod) == "function"),
+        checkcaller       = (type(checkcaller)       == "function"),
+        gethui            = (type(gethui)            == "function"),
+        gethwid           = (type(gethwid)           == "function"),
+        request           = (type(request) == "function") and "request"
+                         or (type(syn) == "table" and type(syn.request) == "function") and "syn"
+                         or (type(http_request) == "function") and "http"
+                         or (type(http) == "table" and type(http.request) == "function") and "http_tbl" or nil,
+    }
+    AntiBan.CAP = CAP
+    abLog("CAP", "hookmetamethod:", CAP.hookmetamethod, "| hookfunction:", CAP.hookfunction, "| request:", CAP.request)
+
+    local function wrapCClosure(fn)
+        if CAP.newcclosure then
+            local ok, wrapped = pcall(newcclosure, fn)
+            if ok and type(wrapped) == "function" then
+                return wrapped
+            end
+        end
+        return fn
+    end
+
+    local function emitAntiBanUpdate()
+        if type(AntiBan.OnStatsChanged) == "function" then
+            pcall(AntiBan.OnStatsChanged, AntiBan.Stats)
+        end
+    end
+
+    -- Helper HTTP Request Cross-Executor
+    local function httpPost(url, body)
+        local reqPayload = {
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = body,
+        }
+        if CAP.request == "request" then
+            return request(reqPayload)
+        elseif CAP.request == "syn" then
+            return syn.request(reqPayload)
+        elseif CAP.request == "http" then
+            return http_request(reqPayload)
+        elseif CAP.request == "http_tbl" then
+            return http.request(reqPayload)
+        end
+        return nil
+    end
+
+    -- 1. ANTI-KICK (Direct Function Hook + __namecall Guard)
+    abSafe(function()
+        if CAP.hookfunction and LocalPlayer and LocalPlayer.Kick then
+            local oldKick
+            oldKick = hookfunction(LocalPlayer.Kick, wrapCClosure(function(self, ...)
+                if AntiBan.Active and AntiBan.Config.EnableAntiKick and (self == LocalPlayer or self == nil) then
+                    AntiBan.Stats.KicksBlocked = AntiBan.Stats.KicksBlocked + 1
+                    abLog("AntiKick", "Direct Kick blocked (#" .. tostring(AntiBan.Stats.KicksBlocked) .. ")")
+                    emitAntiBanUpdate()
+                    return
+                end
+                return oldKick(self, ...)
+            end))
+        end
+    end)
+
+    -- 2. ANTI-REMOTE RATE LIMIT + ANTI-DETECT BAN REMOTES + NAMECALL KICK GUARD
+    local suspiciousRemoteKeywords = {
+        "banplayer", "ban_player", "reportcheat", "report_cheat",
+        "logexploit", "log_exploit", "cheatdetected", "cheat_detected",
+        "anticheatreport", "ac_ban", "kickself", "exploitdetected"
+    }
+
+    local function isSuspiciousBanRemote(remoteName)
+        local lower = string.lower(tostring(remoteName or ""))
+        for _, kw in ipairs(suspiciousRemoteKeywords) do
+            if string.find(lower, kw, 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+
+    abSafe(function()
+        if not (CAP.hookmetamethod and CAP.getnamecallmethod) then return end
+        local lastFire = setmetatable({}, { __mode = "k" })
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", wrapCClosure(function(self, ...)
+            local method = getnamecallmethod()
+
+            -- Tangkap LocalPlayer:Kick() melalui __namecall
+            if method == "Kick" and AntiBan.Active and AntiBan.Config.EnableAntiKick and self == LocalPlayer then
+                AntiBan.Stats.KicksBlocked = AntiBan.Stats.KicksBlocked + 1
+                abLog("AntiKick", "__namecall Kick blocked (#" .. tostring(AntiBan.Stats.KicksBlocked) .. ")")
+                emitAntiBanUpdate()
+                return
+            end
+
+            if (method == "FireServer" or method == "InvokeServer") and AntiBan.Active then
+                local isOurCall = CAP.checkcaller and checkcaller() or false
+
+                -- Blokir remote pelapor ban/exploit otomatis saat AntiDetect aktif
+                if not isOurCall and AntiBan.Config.EnableAntiDetect and typeof(self) == "Instance" then
+                    if isSuspiciousBanRemote(self.Name) then
+                        AntiBan.Stats.BanRemotesBlocked = AntiBan.Stats.BanRemotesBlocked + 1
+                        abLog("AntiDetect", "Blocked suspicious report remote:", self.Name)
+                        emitAntiBanUpdate()
+                        if method == "InvokeServer" then
+                            return true
+                        end
+                        return
+                    end
+                end
+
+                -- Rate limiter per-instance (weak table agar bebas memory leak & tabrakan nama)
+                if not isOurCall and AntiBan.Config.EnableAntiRemote and typeof(self) == "Instance" then
+                    local now = os.clock()
+                    local prev = lastFire[self]
+                    if prev and (now - prev) < AntiBan.Config.RemoteRateLimit then
+                        AntiBan.Stats.RemotesThrottled = AntiBan.Stats.RemotesThrottled + 1
+                        abLog("AntiRemote", "Throttled rapid FireServer:", self.Name)
+                        if method == "FireServer" then
+                            return
+                        end
+                    end
+                    lastFire[self] = now
+                end
+            end
+
+            return oldNamecall(self, ...)
+        end))
+    end)
+
+    -- 3. ANTI-STATS SCAN (Surgical rawequal(self, Stats) Filter)
+    abSafe(function()
+        if not (CAP.getrawmetatable and (CAP.setreadonly or CAP.make_writeable)) then return end
+        local mt = getrawmetatable(Stats)
+        if not mt or type(mt.__index) ~= "function" then return end
+
+        local function setTableReadonly(tbl, state)
+            if CAP.setreadonly then
+                pcall(setreadonly, tbl, state)
+            elseif CAP.make_writeable and not state then
+                pcall(make_writeable, tbl)
+            end
+        end
+
+        setTableReadonly(mt, false)
+        local oldIndex = mt.__index
+        mt.__index = wrapCClosure(function(self, key)
+            if AntiBan.Active and AntiBan.Config.EnableAntiStatsScan and rawequal(self, Stats) then
+                if key == "GetChildren" or key == "GetDescendants" then
+                    local res = oldIndex(self, key)
+                    if type(res) == "function" then
+                        return wrapCClosure(function(s)
+                            local list = res(s)
+                            local out = {}
+                            for _, c in ipairs(list) do
+                                if not string.find(string.lower(c.Name), "script", 1, true) then
+                                    table.insert(out, c)
+                                else
+                                    AntiBan.Stats.StatsScansFiltered = AntiBan.Stats.StatsScansFiltered + 1
+                                end
+                            end
+                            return out
+                        end)
+                    end
+                end
+            end
+            return oldIndex(self, key)
+        end)
+        setTableReadonly(mt, true)
+    end)
+
+    -- 4. SPOOF HWID
+    function AntiBan.RegenerateHWID()
+        abSafe(function()
+            local newGuid = HttpService:GenerateGUID(false)
+            AntiBan.Stats.SpoofedHWID = newGuid
+            local env = getGlobalEnv()
+            env.hwid = newGuid
+            abLog("Spoof", "HWID:", newGuid)
+            emitAntiBanUpdate()
+        end)
+    end
+
+    if AntiBan.Config.EnableSpoofHWID then
+        AntiBan.RegenerateHWID()
+        abSafe(function()
+            if CAP.hookfunction and CAP.gethwid then
+                local oldGetHwid
+                oldGetHwid = hookfunction(gethwid, wrapCClosure(function(...)
+                    if AntiBan.Active and AntiBan.Config.EnableSpoofHWID and AntiBan.Stats.SpoofedHWID ~= "N/A" then
+                        return AntiBan.Stats.SpoofedHWID
+                    end
+                    return oldGetHwid(...)
+                end))
+            end
+        end)
+    end
+
+    -- 5. DISCORD WEBHOOK REPORTER (Non-Yielding & Clean Lifecycle)
+    if AntiBan.Config.EnableWebhook and AntiBan.Config.WebhookURL ~= "" and CAP.request then
+        task.spawn(function()
+            local placeName = "Unknown"
+            pcall(function()
+                if type(MarketplaceService.GetProductInfoAsync) == "function" then
+                    placeName = MarketplaceService:GetProductInfoAsync(game.PlaceId).Name
+                else
+                    placeName = MarketplaceService:GetProductInfo(game.PlaceId).Name
+                end
+            end)
+            while AntiBan.Active and task.wait(math.max(10, AntiBan.Config.WebhookInterval or 60)) do
+                if not AntiBan.Active then break end
+                if AntiBan.Config.EnableWebhook and AntiBan.Config.WebhookURL ~= "" then
+                    local plrName = (LocalPlayer and LocalPlayer.Name) or "Unknown"
+                    local data = {
+                        username = "AntiBan v" .. AntiBan.Config.Version,
+                        embeds = {{
+                            title = "Session Report — BimSakSin Hub",
+                            color = 65280,
+                            fields = {
+                                { name = "Place",   value = tostring(placeName), inline = true },
+                                { name = "PlaceId", value = tostring(game.PlaceId), inline = true },
+                                { name = "Player",  value = tostring(plrName), inline = true },
+                                { name = "HWID",    value = tostring(AntiBan.Stats.SpoofedHWID or "N/A") },
+                            }
+                        }}
+                    }
+                    pcall(httpPost, AntiBan.Config.WebhookURL, HttpService:JSONEncode(data))
+                end
+            end
+        end)
+    end
+
+    -- 6. SAFE FIRE API (Jittered Execution untuk Remote Calls)
+    local SafeFire = {}
+    function SafeFire.Fire(remote, ...)
+        if not remote or typeof(remote) ~= "Instance" or not remote:IsA("RemoteEvent") then
+            return false
+        end
+        task.wait(math.random(1, 3) / 1000)
+        local args = { ... }
+        return abSafe(function()
+            remote:FireServer(table.unpack(args))
+        end)
+    end
+
+    function SafeFire.Invoke(remote, ...)
+        if not remote or typeof(remote) ~= "Instance" or not remote:IsA("RemoteFunction") then
+            return false, nil
+        end
+        task.wait(math.random(1, 3) / 1000)
+        local args = { ... }
+        return abSafe(function()
+            return remote:InvokeServer(table.unpack(args))
+        end)
+    end
+
+    AntiBan.Fire = SafeFire.Fire
+    AntiBan.Invoke = SafeFire.Invoke
+    AntiBan.Log = abLog
+    AntiBan.Version = AntiBan.Config.Version
+
+    -- 7. FLOATING MINI-CONSOLE OPSIONAL (Aman dari Leak & Mendukung Touch/Mouse)
+    function AntiBan.SetConsoleVisible(visible)
+        AntiBan.Config.InteractiveConsole = (visible == true)
+        if not visible then
+            if AntiBan.ConsoleGui then
+                pcall(function() AntiBan.ConsoleGui:Destroy() end)
+                AntiBan.ConsoleGui = nil
+            end
+            return
+        end
+
+        if AntiBan.ConsoleGui and AntiBan.ConsoleGui.Parent then
+            AntiBan.ConsoleGui.Enabled = true
+            return
+        end
+
+        abSafe(function()
+            local parent = (CAP.gethui and gethui()) or CoreGui
+            local gui = Instance.new("ScreenGui")
+            gui.Name = "AntiBanUI_" .. HttpService:GenerateGUID(false)
+            gui.ResetOnSpawn = false
+            gui.Parent = parent
+            AntiBan.ConsoleGui = gui
+
+            local frame = Instance.new("Frame")
+            frame.Size = UDim2.new(0, 310, 0, 215)
+            frame.Position = UDim2.new(1, -330, 0, 20)
+            frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+            frame.BorderSizePixel = 0
+            frame.Active = true
+            frame.Parent = gui
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 8)
+            corner.Parent = frame
+
+            local dragging, dragInput, dragStart, startPos
+            frame.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    dragInput = input
+                    dragStart = input.Position
+                    startPos = frame.Position
+                end
+            end)
+            frame.InputEnded:Connect(function(input)
+                if input == dragInput or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    dragging = false
+                    dragInput = nil
+                end
+            end)
+            local dragConn = UserInputService.InputChanged:Connect(function(input)
+                if dragging and dragStart and startPos and (input == dragInput or input.UserInputType == Enum.UserInputType.MouseMovement) then
+                    local d = input.Position - dragStart
+                    frame.Position = UDim2.new(
+                        startPos.X.Scale, startPos.X.Offset + d.X,
+                        startPos.Y.Scale, startPos.Y.Offset + d.Y
+                    )
+                end
+            end)
+            table.insert(Connections, dragConn)
+
+            local title = Instance.new("TextLabel")
+            title.Size = UDim2.new(1, 0, 0, 28)
+            title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+            title.Text = " 🛡️  Anti-Ban v" .. AntiBan.Config.Version
+            title.TextColor3 = Color3.fromRGB(0, 255, 150)
+            title.Font = Enum.Font.GothamBold
+            title.TextSize = 13
+            title.Parent = frame
+
+            local status = Instance.new("TextLabel")
+            status.Size = UDim2.new(1, -20, 1, -78)
+            status.Position = UDim2.new(0, 10, 0, 36)
+            status.BackgroundTransparency = 1
+            status.TextXAlignment = Enum.TextXAlignment.Left
+            status.TextYAlignment = Enum.TextYAlignment.Top
+            status.TextColor3 = Color3.fromRGB(210, 210, 220)
+            status.Font = Enum.Font.Code
+            status.TextSize = 11
+            status.Text = "● Loading..."
+            status.Parent = frame
+
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -20, 0, 26)
+            btn.Position = UDim2.new(0, 10, 1, -36)
+            btn.BackgroundColor3 = Color3.fromRGB(0, 180, 100)
+            btn.Text = "TOGGLE DEBUG LOG"
+            btn.TextColor3 = Color3.new(1, 1, 1)
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 11
+            btn.Parent = frame
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 6)
+            btnCorner.Parent = btn
+            btn.MouseButton1Click:Connect(function()
+                AntiBan.Config.Debug = not AntiBan.Config.Debug
+            end)
+
+            task.spawn(function()
+                while AntiBan.Active and gui and gui.Parent and task.wait(0.8) do
+                    local env = getGlobalEnv()
+                    local hwidShort = string.sub(tostring(env.hwid or AntiBan.Stats.SpoofedHWID or "N/A"), 1, 12)
+                    status.Text = string.format(
+                        "● Status     : ACTIVE\n● Debug      : %s\n● HWID       : %s...\n● AntiKick   : %s (%d blk)\n● AntiRemote : %s (%d thr)\n● AntiStats  : %s",
+                        tostring(AntiBan.Config.Debug),
+                        hwidShort,
+                        tostring(AntiBan.Config.EnableAntiKick),
+                        AntiBan.Stats.KicksBlocked,
+                        tostring(AntiBan.Config.EnableAntiRemote),
+                        AntiBan.Stats.RemotesThrottled,
+                        tostring(AntiBan.Config.EnableAntiStatsScan)
+                    )
+                end
+            end)
+        end)
+    end
+
+    function AntiBan.Shutdown()
+        AntiBan.Active = false
+        if AntiBan.ConsoleGui then
+            pcall(function() AntiBan.ConsoleGui:Destroy() end)
+            AntiBan.ConsoleGui = nil
+        end
+    end
+
+    if AntiBan.Config.InteractiveConsole then
+        AntiBan.SetConsoleVisible(true)
+    end
+
+    -- Expose API secara global untuk kompatibilitas script eksternal
+    _G.AntiBan = AntiBan
+    local env = getGlobalEnv()
+    env.BSS_AntiBan = AntiBan
+    abLog("Boot", ("✅ Anti-Ban v%s loaded | PlaceId=%s"):format(AntiBan.Config.Version, tostring(game.PlaceId)))
+end
+-- ============================================================================
 -- 2. ANTI-BUG & AUTO-RECOVERY ENGINE (SafeEngine)
 -- ============================================================================
 function SafeEngine.Run(contextName, fn, ...)
@@ -577,6 +1045,7 @@ local FeatureAPI = {
         Carry = {},
         Combat = {},
         Interact = {},
+        Generator = {},
         LastScan = 0,
     },
     Capabilities = {
@@ -733,6 +1202,7 @@ function FeatureAPI.ScanGameRemotes(force)
     table.clear(FeatureAPI.RemoteIndex.Carry)
     table.clear(FeatureAPI.RemoteIndex.Combat)
     table.clear(FeatureAPI.RemoteIndex.Interact)
+    table.clear(FeatureAPI.RemoteIndex.Generator)
 
     local containers = {
         ReplicatedStorage,
@@ -753,6 +1223,9 @@ function FeatureAPI.ScanGameRemotes(force)
                         table.insert(FeatureAPI.RemoteIndex.Combat, inst)
                     elseif string.find(lower, "interact") or string.find(lower, "prompt") or string.find(lower, "use") or string.find(lower, "collect") then
                         table.insert(FeatureAPI.RemoteIndex.Interact, inst)
+                    end
+                    if string.find(lower, "gen") or string.find(lower, "repair") or string.find(lower, "fix") or string.find(lower, "power") or string.find(lower, "charge") or string.find(lower, "skill") then
+                        table.insert(FeatureAPI.RemoteIndex.Generator, inst)
                     end
                 end
             end
@@ -801,6 +1274,414 @@ if typeof(getgenv) == "function" then
     getgenv().BSS_FeatureAPI = FeatureAPI
 end
 
+-- ============================================================================
+-- 2B. GENERATOR READER API & AUTO GENERATOR STATE (MAP DISTRIK & UNIVERSAL)
+-- ============================================================================
+local GeneratorAPI = {
+    Cache = {},
+    LastScan = 0,
+    Listeners = {},
+    Keywords = {
+        "generator", "genset", "reactor", "repairmachine", "powerbox",
+        "dynamo", "turbine", "fusebox", "breaker", "panel", "terminal",
+        "engine", "mesin", "listrik", "gardu", "trafo", "pump", "boiler", "hackstation"
+    },
+}
+
+local AutoGen = {
+    Enabled = false,
+    AutoTeleport = true,
+    AutoInteract = true,
+    AutoSkillCheck = true,
+    AutoSwitchNext = true,
+    OffsetMode = "Front",
+    TeleportOffset = Vector3.new(0, 2.2, 3.2),
+    InteractRange = 14,
+    ScanInterval = 0.25,
+    CurrentTarget = nil,
+    CompletedCount = 0,
+    LastActionTime = 0,
+    LastNotifyTime = 0,
+    LastSkillCheckTime = 0,
+    StatusText = "Siap",
+}
+
+do
+    function GeneratorAPI.OnUpdate(callback)
+        if type(callback) ~= "function" then return nil end
+        table.insert(GeneratorAPI.Listeners, callback)
+        return function()
+            for i = #GeneratorAPI.Listeners, 1, -1 do
+                if GeneratorAPI.Listeners[i] == callback then
+                    table.remove(GeneratorAPI.Listeners, i)
+                end
+            end
+        end
+    end
+
+    local function emitGeneratorUpdate(list)
+        for _, cb in ipairs(GeneratorAPI.Listeners) do
+            pcall(cb, list)
+        end
+    end
+
+    local function isCharPart(inst)
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character and inst:IsDescendantOf(plr.Character) then
+                return true
+            end
+        end
+        return false
+    end
+
+    function GeneratorAPI.IsGeneratorInstance(inst)
+        if not inst or not inst.Parent or isCharPart(inst) then
+            return false
+        end
+        local n = string.lower(inst.Name)
+        if n == "gen" or string.match(n, "^gen[%d_%-]") or string.match(n, "[%d_%-]gen$") then
+            return true
+        end
+        for _, kw in ipairs(GeneratorAPI.Keywords) do
+            if string.find(n, kw, 1, true) then
+                return true
+            end
+        end
+        local prompt = inst:IsA("Model") and inst:FindFirstChildWhichIsA("ProximityPrompt", true) or inst:FindFirstChildWhichIsA("ProximityPrompt")
+        if prompt then
+            local pText = string.lower((prompt.ActionText or "") .. " " .. (prompt.ObjectText or "") .. " " .. prompt.Name)
+            if string.find(pText, "generator", 1, true)
+                or string.find(pText, "genset", 1, true)
+                or string.find(pText, "distrik", 1, true)
+                or ((string.find(pText, "repair", 1, true) or string.find(pText, "perbaiki", 1, true) or string.find(pText, "fix", 1, true) or string.find(pText, "charge", 1, true) or string.find(pText, "isi", 1, true) or string.find(pText, "nyalakan", 1, true) or string.find(pText, "aktifkan", 1, true))
+                    and (string.find(pText, "gen", 1, true) or string.find(pText, "mesin", 1, true) or string.find(pText, "power", 1, true) or string.find(pText, "listrik", 1, true) or string.find(pText, "panel", 1, true) or string.find(pText, "daya", 1, true))) then
+                return true
+            end
+        end
+        return false
+    end
+
+    function GeneratorAPI.GetPrimaryPart(genObj)
+        if not genObj or not genObj.Parent then return nil end
+        if genObj:IsA("BasePart") then return genObj end
+        if genObj:IsA("Model") then
+            return genObj.PrimaryPart or genObj:FindFirstChild("Handle") or genObj:FindFirstChildWhichIsA("BasePart", true)
+        end
+        return nil
+    end
+
+    local function parseTextProgress(txt)
+        if type(txt) ~= "string" or txt == "" then
+            return nil, false, false
+        end
+        local pctVal = nil
+        local done = false
+        local working = false
+
+        local numPct = string.match(txt, "(%d+%.?%d*)%s*%%")
+        if numPct then
+            local parsed = tonumber(numPct)
+            if parsed and parsed >= 0 and parsed <= 100 then
+                pctVal = math.floor(parsed + 0.5)
+            end
+        end
+
+        if not pctVal then
+            local cur, tot = string.match(txt, "(%d+)%s*/%s*(%d+)")
+            local nCur, nTot = tonumber(cur), tonumber(tot)
+            if nCur and nTot and nTot > 0 and nCur <= nTot then
+                pctVal = math.floor((nCur / nTot) * 100 + 0.5)
+            end
+        end
+
+        local low = string.lower(txt)
+        if string.find(low, "selesai", 1, true)
+            or string.find(low, "fixed", 1, true)
+            or string.find(low, "complete", 1, true)
+            or string.find(low, "repaired", 1, true)
+            or string.find(low, "online", 1, true)
+            or string.find(low, "aktif", 1, true) then
+            done = true
+            pctVal = 100
+        elseif string.find(low, "memperbaiki", 1, true)
+            or string.find(low, "repairing", 1, true)
+            or string.find(low, "fixing", 1, true)
+            or string.find(low, "charging", 1, true)
+            or string.find(low, "proses", 1, true) then
+            working = true
+        end
+
+        return pctVal, done, working
+    end
+
+    local function scanAttributes(targetObj)
+        local pPct = nil
+        local done = false
+        local working = false
+        local worker = nil
+        if not targetObj then return nil, false, false, nil end
+        pcall(function()
+            for attrName, attrVal in pairs(targetObj:GetAttributes()) do
+                local k = string.lower(tostring(attrName))
+                if type(attrVal) == "boolean" then
+                    if (string.find(k, "complete", 1, true) or string.find(k, "fixed", 1, true) or string.find(k, "done", 1, true) or string.find(k, "repaired", 1, true) or string.find(k, "finished", 1, true)) and attrVal == true then
+                        done = true
+                    elseif (string.find(k, "repairing", 1, true) or string.find(k, "active", 1, true) or string.find(k, "working", 1, true) or string.find(k, "inuse", 1, true) or string.find(k, "occupied", 1, true)) and attrVal == true then
+                        working = true
+                    end
+                elseif type(attrVal) == "number" then
+                    if string.find(k, "progress", 1, true) or string.find(k, "percent", 1, true) or string.find(k, "charge", 1, true) or string.find(k, "repair", 1, true) or string.find(k, "power", 1, true) or string.find(k, "fuel", 1, true) or string.find(k, "persen", 1, true) then
+                        local maxAttr = targetObj:GetAttribute("Max" .. attrName) or targetObj:GetAttribute("MaxProgress") or targetObj:GetAttribute("MaxRepair") or 100
+                        local calc = (attrVal <= 1 and maxAttr == 100 and attrVal > 0)
+                            and math.floor(attrVal * 100 + 0.5)
+                            or math.floor((attrVal / math.max(1, maxAttr)) * 100 + 0.5)
+                        if not pPct or calc > pPct then
+                            pPct = calc
+                        end
+                    end
+                elseif type(attrVal) == "string" and attrVal ~= "" then
+                    local lowV = string.lower(attrVal)
+                    if string.find(k, "worker", 1, true) or string.find(k, "player", 1, true) or string.find(k, "user", 1, true) or string.find(k, "occupant", 1, true) then
+                        worker = attrVal
+                        working = true
+                    else
+                        local tp, td, tw = parseTextProgress(attrVal)
+                        if tp and (not pPct or tp > pPct) then pPct = tp end
+                        if td then done = true end
+                        if tw then working = true end
+                        if string.find(lowV, "work", 1, true) then working = true end
+                    end
+                end
+            end
+        end)
+        return pPct, done, working, worker
+    end
+
+    function GeneratorAPI.ReadProgress(genObj)
+        if not genObj or not genObj.Parent then
+            return 0, "Invalid", false, false, nil, nil
+        end
+
+        local maxPct = nil
+        local isDone = false
+        local isWorking = false
+        local workerName = nil
+        local foundPrompt = nil
+
+        local p0, d0, w0, wk0 = scanAttributes(genObj)
+        if p0 then maxPct = p0 end
+        if d0 then isDone = true end
+        if w0 then isWorking = true end
+        if wk0 then workerName = wk0 end
+
+        for _, desc in ipairs(genObj:GetDescendants()) do
+            local p1, d1, w1, wk1 = scanAttributes(desc)
+            if p1 and (not maxPct or p1 > maxPct) then maxPct = p1 end
+            if d1 then isDone = true end
+            if w1 then isWorking = true end
+            if wk1 and not workerName then workerName = wk1 end
+
+            local dLow = string.lower(desc.Name)
+            if desc:IsA("NumberValue") or desc:IsA("IntValue") then
+                if string.find(dLow, "prog", 1, true) or string.find(dLow, "fix", 1, true) or string.find(dLow, "repair", 1, true)
+                    or string.find(dLow, "charge", 1, true) or string.find(dLow, "power", 1, true) or string.find(dLow, "persen", 1, true)
+                    or string.find(dLow, "percent", 1, true) or string.find(dLow, "current", 1, true) or string.find(dLow, "value", 1, true) then
+                    local val = desc.Value
+                    local maxObj = desc.Parent and (
+                        desc.Parent:FindFirstChild("Max" .. desc.Name)
+                        or desc.Parent:FindFirstChild("MaxProgress")
+                        or desc.Parent:FindFirstChild("MaxRepair")
+                        or desc.Parent:FindFirstChild("MaxValue")
+                        or desc.Parent:FindFirstChild("Max")
+                    )
+                    local maxV = (maxObj and (maxObj:IsA("NumberValue") or maxObj:IsA("IntValue")) and maxObj.Value > 0) and maxObj.Value or 100
+                    local calc = (val > 0 and val <= 1 and maxV == 100)
+                        and math.floor(val * 100 + 0.5)
+                        or math.floor((val / maxV) * 100 + 0.5)
+                    if calc >= 0 and calc <= 100 and (not maxPct or calc > maxPct) then
+                        maxPct = calc
+                    end
+                end
+            elseif desc:IsA("BoolValue") then
+                if (string.find(dLow, "done", 1, true) or string.find(dLow, "fixed", 1, true) or string.find(dLow, "complete", 1, true)
+                    or string.find(dLow, "repaired", 1, true) or string.find(dLow, "finished", 1, true)) and desc.Value == true then
+                    isDone = true
+                elseif (string.find(dLow, "repairing", 1, true) or string.find(dLow, "working", 1, true)
+                    or string.find(dLow, "inuse", 1, true) or string.find(dLow, "occupied", 1, true)) and desc.Value == true then
+                    isWorking = true
+                end
+            elseif desc:IsA("StringValue") and desc.Value ~= "" then
+                if string.find(dLow, "worker", 1, true) or string.find(dLow, "user", 1, true) or string.find(dLow, "player", 1, true) then
+                    workerName = desc.Value
+                    isWorking = true
+                else
+                    local tp, td, tw = parseTextProgress(desc.Value)
+                    if tp and (not maxPct or tp > maxPct) then maxPct = tp end
+                    if td then isDone = true end
+                    if tw then isWorking = true end
+                end
+            elseif desc:IsA("TextLabel") and desc.Text ~= "" then
+                local tp, td, tw = parseTextProgress(desc.Text)
+                if tp and (not maxPct or tp > maxPct) then maxPct = tp end
+                if td then isDone = true end
+                if tw then isWorking = true end
+            elseif (desc:IsA("Frame") and desc:FindFirstAncestorWhichIsA("SurfaceGui")) or (desc:IsA("Frame") and desc:FindFirstAncestorWhichIsA("BillboardGui")) then
+                if string.find(dLow, "fill", 1, true) or string.find(dLow, "bar", 1, true) or string.find(dLow, "prog", 1, true) then
+                    local sx = desc.Size.X.Scale
+                    if sx > 0.01 and sx <= 1.0 then
+                        local calc = math.floor(sx * 100 + 0.5)
+                        if not maxPct or calc > maxPct then
+                            maxPct = calc
+                        end
+                    end
+                end
+            elseif desc:IsA("ProximityPrompt") then
+                if not foundPrompt or desc.Enabled then
+                    foundPrompt = desc
+                end
+                local tp, td, tw = parseTextProgress((desc.ActionText or "") .. " " .. (desc.ObjectText or ""))
+                if tp and (not maxPct or tp > maxPct) then maxPct = tp end
+                if td then isDone = true end
+                if tw then isWorking = true end
+                if not desc.Enabled and (maxPct and maxPct >= 95) then
+                    isDone = true
+                end
+            elseif (desc:IsA("PointLight") or desc:IsA("SpotLight") or desc:IsA("SurfaceLight")) and desc.Enabled then
+                if desc.Color.G > 0.72 and desc.Color.R < 0.45 and desc.Color.B < 0.45 then
+                    isDone = true
+                end
+            end
+        end
+
+        local clamped = maxPct and math.clamp(maxPct, 0, 100) or 0
+        if isDone or clamped >= 100 then
+            isDone = true
+            clamped = 100
+        end
+
+        local statusLabel = isDone and "✅ SELESAI DIPROSES (100%)"
+            or ((isWorking or clamped > 0) and string.format("🔧 PROGRES GENERATOR (%d%%)", clamped))
+            or "⏳ BELUM DIKERJAKAN (0%)"
+
+        return clamped, statusLabel, isDone, isWorking, workerName, foundPrompt
+    end
+
+    function GeneratorAPI.ScanAll(force)
+        local now = os.clock()
+        if not force and (now - GeneratorAPI.LastScan) < 0.25 and #GeneratorAPI.Cache > 0 then
+            return GeneratorAPI.Cache
+        end
+        GeneratorAPI.LastScan = now
+
+        local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
+        local originPos = myRoot and myRoot.Position or (workspace.CurrentCamera and workspace.CurrentCamera.CFrame.Position)
+
+        local results = {}
+        local seen = {}
+
+        local function registerCandidate(inst)
+            if not inst or not inst.Parent or not inst:IsDescendantOf(workspace) then return end
+            if not GeneratorAPI.IsGeneratorInstance(inst) then return end
+
+            local target = inst
+            local anc = inst.Parent
+            while anc and anc ~= workspace do
+                if (anc:IsA("Model") or anc:IsA("Folder")) and GeneratorAPI.IsGeneratorInstance(anc) then
+                    target = anc
+                end
+                anc = anc.Parent
+            end
+
+            if seen[target] then return end
+            seen[target] = true
+
+            local part = GeneratorAPI.GetPrimaryPart(target)
+            if not part then return end
+
+            local pct, statusText, isDone, isWorking, worker, prompt = GeneratorAPI.ReadProgress(target)
+            local dist = originPos and (part.Position - originPos).Magnitude or 9999
+
+            table.insert(results, {
+                Instance = target,
+                Name = target.Name,
+                Part = part,
+                Position = part.Position,
+                CFrame = part.CFrame,
+                Distance = math.floor(dist + 0.5),
+                Progress = pct,
+                Status = statusText,
+                Completed = isDone,
+                Working = isWorking,
+                Worker = worker,
+                Prompt = prompt,
+            })
+        end
+
+        if GeneratorESP and GeneratorESP.Candidates and next(GeneratorESP.Candidates) ~= nil then
+            for inst, _ in pairs(GeneratorESP.Candidates) do
+                registerCandidate(inst)
+            end
+        end
+
+        if #results == 0 then
+            for _, inst in ipairs(workspace:GetDescendants()) do
+                if inst:IsA("Model") or inst:IsA("BasePart") then
+                    registerCandidate(inst)
+                end
+            end
+        end
+
+        table.sort(results, function(a, b)
+            return a.Distance < b.Distance
+        end)
+
+        GeneratorAPI.Cache = results
+        emitGeneratorUpdate(results)
+        return results
+    end
+
+    function GeneratorAPI.GetNearestIncomplete()
+        local list = GeneratorAPI.ScanAll(true)
+        for _, item in ipairs(list) do
+            if not item.Completed and item.Progress < 100 then
+                return item
+            end
+        end
+        return nil
+    end
+
+    function GeneratorAPI.GetStats()
+        local list = GeneratorAPI.ScanAll(false)
+        local total = #list
+        local done = 0
+        local active = 0
+        local nearest = nil
+        for _, item in ipairs(list) do
+            if item.Completed or item.Progress >= 100 then
+                done = done + 1
+            else
+                if not nearest then
+                    nearest = item
+                end
+                if item.Working or item.Progress > 0 then
+                    active = active + 1
+                end
+            end
+        end
+        return {
+            Total = total,
+            Completed = done,
+            InProgress = active,
+            Idle = math.max(0, total - done - active),
+            Nearest = nearest,
+        }
+    end
+end
+
+if typeof(getgenv) == "function" then
+    getgenv().BSS_GeneratorAPI = GeneratorAPI
+end
+FeatureAPI.Generator = GeneratorAPI
 -- ============================================================================
 -- 3. UTILITY FUNCTIONS, SAFE TELEPORT & THEME ENGINE
 -- ============================================================================
@@ -1091,12 +1972,12 @@ function Utils.SafeTeleport(targetCFrame)
 end
 
 -- ============================================================================
--- 3A. CONFIG PERSISTENCE MANAGER (JSON Simpan & Muat Aman)
+-- 3A. CONFIG PERSISTENCE MANAGER (JSON Simpan & Muat Aman + AntiBan Sync)
 -- ============================================================================
 do
     function ConfigManager.BuildPayload()
         return {
-            SchemaVersion = 1,
+            SchemaVersion = 2,
             LocaleMode = LocaleEngine.Mode,
             WalkSpeed = State.WalkSpeed,
             JumpPower = State.JumpPower,
@@ -1110,6 +1991,16 @@ do
             AntiBug = Protection.AntiBugEnabled,
             ZoneScanner = SecurityHub.ZoneScannerEnabled,
             LogCapture = SecurityHub.LogCaptureEnabled,
+            AutoGenTeleport = AutoGen.AutoTeleport,
+            AutoGenInteract = AutoGen.AutoInteract,
+            AutoGenSkillCheck = AutoGen.AutoSkillCheck,
+            AutoGenSwitchNext = AutoGen.AutoSwitchNext,
+            AntiBanKick = AntiBan.Config.EnableAntiKick,
+            AntiBanRemote = AntiBan.Config.EnableAntiRemote,
+            AntiBanDetect = AntiBan.Config.EnableAntiDetect,
+            AntiBanStatsScan = AntiBan.Config.EnableAntiStatsScan,
+            AntiBanSpoofHWID = AntiBan.Config.EnableSpoofHWID,
+            AntiBanRateLimit = AntiBan.Config.RemoteRateLimit,
         }
     end
 
@@ -1173,7 +2064,7 @@ do
                 Combat.Smoothness = math.clamp(data.AimbotSmoothness, 0.1, 1.0)
             end
             if type(data.ParryRange) == "number" then
-                Combat.ParryRange = math.clamp(data.ParryRange, 6, 35)
+                Combat.ParryRange = math.clamp(data.ParryRange, 6, 40)
             end
             if type(data.AntiAFK) == "boolean" then
                 Protection.AntiAFKEnabled = data.AntiAFK
@@ -1186,6 +2077,36 @@ do
             end
             if type(data.LogCapture) == "boolean" then
                 SecurityHub.LogCaptureEnabled = data.LogCapture
+            end
+            if type(data.AutoGenTeleport) == "boolean" then
+                AutoGen.AutoTeleport = data.AutoGenTeleport
+            end
+            if type(data.AutoGenInteract) == "boolean" then
+                AutoGen.AutoInteract = data.AutoGenInteract
+            end
+            if type(data.AutoGenSkillCheck) == "boolean" then
+                AutoGen.AutoSkillCheck = data.AutoGenSkillCheck
+            end
+            if type(data.AutoGenSwitchNext) == "boolean" then
+                AutoGen.AutoSwitchNext = data.AutoGenSwitchNext
+            end
+            if type(data.AntiBanKick) == "boolean" then
+                AntiBan.Config.EnableAntiKick = data.AntiBanKick
+            end
+            if type(data.AntiBanRemote) == "boolean" then
+                AntiBan.Config.EnableAntiRemote = data.AntiBanRemote
+            end
+            if type(data.AntiBanDetect) == "boolean" then
+                AntiBan.Config.EnableAntiDetect = data.AntiBanDetect
+            end
+            if type(data.AntiBanStatsScan) == "boolean" then
+                AntiBan.Config.EnableAntiStatsScan = data.AntiBanStatsScan
+            end
+            if type(data.AntiBanSpoofHWID) == "boolean" then
+                AntiBan.Config.EnableSpoofHWID = data.AntiBanSpoofHWID
+            end
+            if type(data.AntiBanRateLimit) == "number" then
+                AntiBan.Config.RemoteRateLimit = math.clamp(data.AntiBanRateLimit, 0.005, 0.5)
             end
         end)
 
@@ -1236,6 +2157,10 @@ do
         return tostring(str or ""):gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("\n", "\\n"):gsub("\r", "")
     end
 
+    local function escapeHtmlTelegram(str)
+        return tostring(str or ""):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+    end
+
     local function ensureDirectoryRecursive(relDir)
         if typeof(makefolder) ~= "function" then
             return false
@@ -1269,7 +2194,12 @@ do
     function AssetCopy.GetGameTitleSafe()
         local title = "Game_" .. tostring(game.PlaceId)
         pcall(function()
-            local info = MarketplaceService:GetProductInfoAsync(game.PlaceId)
+            local info = nil
+            if type(MarketplaceService.GetProductInfoAsync) == "function" then
+                info = MarketplaceService:GetProductInfoAsync(game.PlaceId)
+            else
+                info = MarketplaceService:GetProductInfo(game.PlaceId)
+            end
             if info and info.Name and info.Name ~= "" then
                 title = info.Name
             end
@@ -1414,9 +2344,11 @@ do
                 node.Transparency = math.floor(inst.Transparency * 1000 + 0.5) / 1000
                 node.Anchored = inst.Anchored
                 node.CanCollide = inst.CanCollide
-            elseif inst:IsA("MeshPart") then
-                node.MeshId = tostring(inst.MeshId)
-                node.TextureID = tostring(inst.TextureID)
+
+                if inst:IsA("MeshPart") then
+                    node.MeshId = tostring(inst.MeshId)
+                    node.TextureID = tostring(inst.TextureID)
+                end
             elseif inst:IsA("SpecialMesh") then
                 node.MeshType = inst.MeshType.Name
                 node.MeshId = tostring(inst.MeshId)
@@ -1479,13 +2411,17 @@ do
                 probe:Destroy()
             end)
             if not instOk then
-                safeClass = (n.ParentIndex == nil) and "Model" or "Folder"
+                if n.Size then
+                    safeClass = "Part"
+                else
+                    safeClass = (n.ParentIndex == nil) and "Model" or "Folder"
+                end
             end
 
             table.insert(lines, string.format("local %s = Instance.new(\"%s\")", varName, escapeLuaString(safeClass)))
             table.insert(lines, string.format("%s.Name = \"%s\"", varName, escapeLuaString(n.Name)))
 
-            if n.ClassName == "BasePart" or n.ClassName == "Part" or n.ClassName == "WedgePart" or n.ClassName == "CornerWedgePart" or n.ClassName == "TrussPart" then
+            if n.Size then
                 local sz = n.Size or { 4, 1, 4 }
                 local rgb = n.ColorRGB or { 255, 118, 26 }
                 local cfExpr = n.CFrameRaw or "CFrame.new(0, 5, 0)"
@@ -1520,26 +2456,33 @@ do
             return false, "Bot Token atau Chat ID Telegram belum diisi"
         end
 
-        local filesText = (#fileList > 0) and table.concat(fileList, "\n• ") or "Tidak ada file tersimpan"
+        local escapedFiles = {}
+        for _, f in ipairs(fileList) do
+            table.insert(escapedFiles, escapeHtmlTelegram(f))
+        end
+        local filesText = (#escapedFiles > 0) and table.concat(escapedFiles, "\n• ") or "Tidak ada file tersimpan"
+        local dispName = (LocalPlayer and LocalPlayer.DisplayName) or "Player"
+        local usrName = (LocalPlayer and LocalPlayer.Name) or "unknown"
+
         local textMsg = table.concat({
-            "🎃 *BimSakSin Hub v3.0 — Copy Asset / Map Alert*",
+            "🎃 <b>BimSakSin Hub v3.0 — Copy Asset / Map Alert</b>",
             "━━━━━━━━━━━━━━━━━━━━",
-            "• *Status:* Copy & File Export Selesai",
-            "• *Game:* " .. tostring(summaryMeta.GameTitle) .. " (`" .. tostring(summaryMeta.PlaceId) .. "`)",
-            "• *Target:* `" .. tostring(summaryMeta.AssetName) .. "` (" .. tostring(summaryMeta.ClassName) .. ")",
-            "• *Scope:* `" .. tostring(summaryMeta.Scope) .. "`",
-            "• *Total Node:* `" .. tostring(summaryMeta.TotalNodes) .. "`",
-            "• *Pemain:* `" .. tostring(LocalPlayer.DisplayName) .. "` (@" .. tostring(LocalPlayer.Name) .. ")",
-            "• *Waktu:* `" .. tostring(summaryMeta.TimestampISO) .. "`",
-            "• *File Dibuat:*",
-            "• `" .. filesText .. "`",
+            "• <b>Status:</b> Copy &amp; File Export Selesai",
+            "• <b>Game:</b> " .. escapeHtmlTelegram(summaryMeta.GameTitle) .. " (<code>" .. tostring(summaryMeta.PlaceId) .. "</code>)",
+            "• <b>Target:</b> <code>" .. escapeHtmlTelegram(summaryMeta.AssetName) .. "</code> (" .. escapeHtmlTelegram(summaryMeta.ClassName) .. ")",
+            "• <b>Scope:</b> <code>" .. escapeHtmlTelegram(summaryMeta.Scope) .. "</code>",
+            "• <b>Total Node:</b> <code>" .. tostring(summaryMeta.TotalNodes) .. "</code>",
+            "• <b>Pemain:</b> <code>" .. escapeHtmlTelegram(dispName) .. "</code> (@" .. escapeHtmlTelegram(usrName) .. ")",
+            "• <b>Waktu:</b> <code>" .. escapeHtmlTelegram(summaryMeta.TimestampISO) .. "</code>",
+            "• <b>File Dibuat:</b>",
+            "• <code>" .. filesText .. "</code>",
         }, "\n")
 
         local url = string.format("https://api.telegram.org/bot%s/sendMessage", token)
         local payload = HttpService:JSONEncode({
             chat_id = chatId,
             text = textMsg,
-            parse_mode = "Markdown",
+            parse_mode = "HTML",
             disable_web_page_preview = true,
         })
 
@@ -1671,7 +2614,6 @@ do
         return true
     end
 end
-
 -- ============================================================================
 -- 4. 3D LUXURY ROYAL SKULL LOGO BUILDER (Pure Procedural 3D UI)
 -- ============================================================================
@@ -2465,9 +3407,9 @@ do
         Position = UDim2.new(0, 24, 0, 0),
         BackgroundTransparency = 1,
         Font = Theme.FontFamily,
-        Text = "Anti-Bug: AKTIF",
+        Text = "AntiBan + AntiBug: ON",
         TextColor3 = Theme.TextSecondary,
-        TextSize = 10,
+        TextSize = 9,
         TextXAlignment = Enum.TextXAlignment.Left,
         ZIndex = 14,
     }, footerBox)
@@ -3064,7 +4006,7 @@ function Components.AddChipSelector(parent, titleSpec, options, defaultVal, orde
 
     Utils.Create("UIGridLayout", {
         CellSize = UDim2.new(0.315, 0, 0, 26),
-        CellPadding = UDim2.new(0.025, 0, 0, 6),
+        CellPadding = UDim.new(0.025, 0, 0, 6),
         SortOrder = Enum.SortOrder.LayoutOrder,
     }, grid)
 
@@ -3140,7 +4082,6 @@ function Components.AddChipSelector(parent, titleSpec, options, defaultVal, orde
         GetSelected = function() return selected end,
     }
 end
-
 -- ============================================================================
 -- 10. UNIVERSAL PLAYER ESP ENGINE (Team/Enemy/Random + Distance + Health)
 -- ============================================================================
@@ -3436,7 +4377,6 @@ do
             end
         end
 
-        -- Deteksi via atribut / ValueObject khas generator (Progress / Repair / Power)
         local hasGenValue = false
         pcall(function()
             for attrName, _ in pairs(inst:GetAttributes()) do
@@ -3490,7 +4430,7 @@ do
         if not targetObj then return nil, false, false, nil end
         pcall(function()
             for attrName, attrVal in pairs(targetObj:GetAttributes()) do
-                local k = string.lower(attrName)
+                local k = string.lower(tostring(attrName))
                 if type(attrVal) == "boolean" then
                     if (string.find(k, "complete") or string.find(k, "fixed") or string.find(k, "done") or string.find(k, "repaired") or string.find(k, "finished")) and attrVal == true then
                         done = true
@@ -3528,7 +4468,14 @@ do
         local isBeingWorked = false
         local workerName = nil
 
-        -- 1. Baca Atribut pada genObj & seluruh descendant-nya (Map Distrik sering menyimpan atribut di Core/Prompt)
+        if GeneratorAPI and type(GeneratorAPI.ReadProgress) == "function" then
+            local apiPct, _, apiDone, apiWorking, apiWorker = GeneratorAPI.ReadProgress(genObj)
+            if apiPct and apiPct > 0 then progressPct = apiPct end
+            if apiDone then isCompleted = true end
+            if apiWorking then isBeingWorked = true end
+            if apiWorker then workerName = apiWorker end
+        end
+
         local p0, d0, w0, wk0 = readAttrProgress(genObj)
         if p0 then progressPct = p0 end
         if d0 then isCompleted = true end
@@ -3543,7 +4490,6 @@ do
             if wk1 and not workerName then workerName = wk1 end
         end
 
-        -- 2. Baca ValueObjects (BoolValue, NumberValue, IntValue, StringValue)
         if entry and entry.StatusValues then
             for _, desc in ipairs(entry.StatusValues) do
                 if desc and desc.Parent then
@@ -3580,7 +4526,6 @@ do
             end
         end
 
-        -- 3. Baca SurfaceGui / BillboardGui bawaan generator (angka persen seperti "45%" atau "100%")
         if entry and entry.GuiTexts then
             for _, lbl in ipairs(entry.GuiTexts) do
                 if lbl and lbl.Parent and lbl.Text ~= "" then
@@ -3595,7 +4540,6 @@ do
             end
         end
 
-        -- 4. Cek Suara / Lampu aktif pada generator sebagai indikator sedang dikerjakan
         if not isCompleted and entry and entry.Sounds then
             for _, snd in ipairs(entry.Sounds) do
                 if snd and snd.Parent and snd.IsPlaying then
@@ -3608,7 +4552,6 @@ do
             end
         end
 
-        -- 5. Deteksi pemain lain di sekitar generator (radius 13 studs + cek animasi kerja/repair)
         local part = (entry and entry.Part) or getAdorneePart(genObj)
         local nearbyWorkers = {}
         if part and not isCompleted then
@@ -3660,7 +4603,9 @@ do
     end
 
     local ignoreKeywords = { "door", "pintu", "seat", "chair", "kur", "elevator", "lift", "gate", "switch", "button" }
-    local candidatesInitialized = false
+    local workspaceListenersBound = false
+    local initialScanComplete = false
+    local initialScanRunning = false
 
     local function isItemCandidate(inst)
         if inst:IsA("Tool") then
@@ -3739,53 +4684,59 @@ do
     end
 
     local function ensureCandidatesInitialized()
-        if candidatesInitialized then return end
-        candidatesInitialized = true
+        if not workspaceListenersBound then
+            workspaceListenersBound = true
 
-        task.spawn(function()
-            local descendants = workspace:GetDescendants()
-            for i, inst in ipairs(descendants) do
-                if not ItemESP.Enabled and not GeneratorESP.Enabled then
-                    candidatesInitialized = false
-                    return
+            Utils.Track(workspace.DescendantAdded:Connect(function(desc)
+                evaluateCandidate(desc)
+                local parent = desc.Parent
+                if parent and parent ~= workspace then
+                    evaluateCandidate(parent)
+                    local grandParent = parent.Parent
+                    if grandParent and grandParent ~= workspace and (desc:IsA("ProximityPrompt") or desc:IsA("ClickDetector")) then
+                        evaluateCandidate(grandParent)
+                    end
                 end
-                evaluateCandidate(inst)
-                if i % 1500 == 0 then
-                    RunService.Heartbeat:Wait()
+            end))
+
+            Utils.Track(workspace.DescendantRemoving:Connect(function(desc)
+                ItemESP.Candidates[desc] = nil
+                GeneratorESP.Candidates[desc] = nil
+
+                local itemEntry = ItemESP.Entries[desc]
+                if itemEntry then
+                    if itemEntry.Billboard then itemEntry.Billboard:Destroy() end
+                    ItemESP.Entries[desc] = nil
                 end
-            end
-        end)
 
-        Utils.Track(workspace.DescendantAdded:Connect(function(desc)
-            evaluateCandidate(desc)
-            local parent = desc.Parent
-            if parent and parent ~= workspace then
-                evaluateCandidate(parent)
-                local grandParent = parent.Parent
-                if grandParent and grandParent ~= workspace and (desc:IsA("ProximityPrompt") or desc:IsA("ClickDetector")) then
-                    evaluateCandidate(grandParent)
+                local genEntry = GeneratorESP.Entries[desc]
+                if genEntry then
+                    if genEntry.Highlight then genEntry.Highlight:Destroy() end
+                    if genEntry.Billboard then genEntry.Billboard:Destroy() end
+                    if genEntry.DescConn then genEntry.DescConn:Disconnect() end
+                    GeneratorESP.Entries[desc] = nil
                 end
-            end
-        end))
+            end))
+        end
 
-        Utils.Track(workspace.DescendantRemoving:Connect(function(desc)
-            ItemESP.Candidates[desc] = nil
-            GeneratorESP.Candidates[desc] = nil
-
-            local itemEntry = ItemESP.Entries[desc]
-            if itemEntry then
-                if itemEntry.Billboard then itemEntry.Billboard:Destroy() end
-                ItemESP.Entries[desc] = nil
-            end
-
-            local genEntry = GeneratorESP.Entries[desc]
-            if genEntry then
-                if genEntry.Highlight then genEntry.Highlight:Destroy() end
-                if genEntry.Billboard then genEntry.Billboard:Destroy() end
-                if genEntry.DescConn then genEntry.DescConn:Disconnect() end
-                GeneratorESP.Entries[desc] = nil
-            end
-        end))
+        if not initialScanComplete and not initialScanRunning then
+            initialScanRunning = true
+            task.spawn(function()
+                local descendants = workspace:GetDescendants()
+                for i, inst in ipairs(descendants) do
+                    if not ItemESP.Enabled and not GeneratorESP.Enabled then
+                        initialScanRunning = false
+                        return
+                    end
+                    evaluateCandidate(inst)
+                    if i % 1500 == 0 then
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+                initialScanRunning = false
+                initialScanComplete = true
+            end)
+        end
     end
 
     function ItemESP.ClearAll()
@@ -4232,7 +5183,6 @@ do
         local myChar, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
         if not myChar or not myHum or myHum.Health <= 0 then return end
 
-        -- Hadapkan karakter ke penyerang agar tangkisan arah depan (directional parry) akurat
         if myRoot and attackerChar then
             local aRoot = attackerChar:FindFirstChild("HumanoidRootPart")
             if aRoot then
@@ -4243,7 +5193,6 @@ do
             end
         end
 
-        -- 1. Equip & Activate Tool Parry / Melee / Shield (juga cek remote di dalam Tool)
         local activeTool = myChar:FindFirstChildOfClass("Tool")
         local toolKeywords = { "parry", "block", "shield", "sword", "blade", "bat", "katana", "knife", "weapon", "fists", "combat", "melee", "crowbar", "pipe" }
         if not activeTool then
@@ -4278,7 +5227,6 @@ do
             end
         end
 
-        -- 2. Fire Server Parry/Block RemoteEvents jika map menggunakan API Remote (seperti Map Distrik)
         Combat.ScanParryRemotes()
         for _, rem in ipairs(Combat.ParryRemoteCache) do
             if rem and rem.Parent and rem:IsA("RemoteEvent") then
@@ -4287,41 +5235,35 @@ do
             end
         end
 
-        -- 3. Simulasi Tombol Input (F / RMB / E / Q) via VirtualInputManager
-        if VirtualInputManager then
-            local keysToTap = {}
-            if Combat.ParryKey == "F" then
-                keysToTap = { Enum.KeyCode.F }
-            elseif Combat.ParryKey == "E" then
-                keysToTap = { Enum.KeyCode.E }
-            elseif Combat.ParryKey == "Q" then
-                keysToTap = { Enum.KeyCode.Q }
-            elseif Combat.ParryKey == "RMB" then
+        local keysToPress = {}
+        if Combat.ParryKey == "Auto" then
+            keysToPress = { Enum.KeyCode.F, Enum.KeyCode.Q }
+        elseif Combat.ParryKey == "F" then
+            keysToPress = { Enum.KeyCode.F }
+        elseif Combat.ParryKey == "Q" then
+            keysToPress = { Enum.KeyCode.Q }
+        elseif Combat.ParryKey == "E" then
+            keysToPress = { Enum.KeyCode.E }
+        elseif Combat.ParryKey == "R" then
+            keysToPress = { Enum.KeyCode.R }
+        elseif Combat.ParryKey == "RMB" then
+            if VirtualInputManager then
                 pcall(function()
                     VirtualInputManager:SendMouseButtonEvent(0, 0, 1, true, game, 1)
-                    task.delay(0.08, function()
-                        pcall(function()
-                            VirtualInputManager:SendMouseButtonEvent(0, 0, 1, false, game, 1)
-                        end)
-                    end)
-                end)
-            else
-                -- Mode Auto: kirim F dan klik kanan mouse (standar game combat & Distrik Roblox)
-                keysToTap = { Enum.KeyCode.F }
-                pcall(function()
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 1, true, game, 1)
-                    task.delay(0.08, function()
+                    task.delay(0.06, function()
                         pcall(function()
                             VirtualInputManager:SendMouseButtonEvent(0, 0, 1, false, game, 1)
                         end)
                     end)
                 end)
             end
+        end
 
-            for _, kc in ipairs(keysToTap) do
+        if VirtualInputManager and #keysToPress > 0 then
+            for _, kc in ipairs(keysToPress) do
                 pcall(function()
                     VirtualInputManager:SendKeyEvent(true, kc, false, game)
-                    task.delay(0.08, function()
+                    task.delay(0.06, function()
                         pcall(function()
                             VirtualInputManager:SendKeyEvent(false, kc, false, game)
                         end)
@@ -4330,16 +5272,15 @@ do
             end
         end
 
-        -- 4. Efek Visual Perisai Tangkisan pada Karakter
-        if Combat.AutoParryVisual and myChar then
+        if Combat.AutoParryVisual then
             if not Combat.ParryShieldHL or not Combat.ParryShieldHL.Parent then
                 Combat.ParryShieldHL = Utils.Create("Highlight", {
-                    Name = "BSS_ParryFlashHL",
-                    DepthMode = Enum.HighlightDepthMode.Occluded,
+                    Name = "BSS_ParryShieldFX",
+                    DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
                     FillColor = Color3.fromRGB(46, 213, 115),
                     OutlineColor = Color3.fromRGB(255, 255, 255),
-                    FillTransparency = 0.35,
-                    OutlineTransparency = 0,
+                    FillTransparency = 0.45,
+                    OutlineTransparency = 0.05,
                 }, UI.ScreenGui)
             end
             Combat.ParryShieldHL.Adornee = myChar
@@ -4351,176 +5292,193 @@ do
             end)
         end
 
-        Utils.Notify(
-            string.format("Auto Parry #%d ✓", Combat.ParryCount),
-            "Menangkis serangan dari " .. tostring(attackerName),
-            Theme.Success
-        )
-    end
-
-    local function isAttackerStriking(char, hum, root, myRoot)
-        -- A. Cek Atribut / State Value sedang menyerang (IsAttacking, Swinging, Combat, Dashing)
-        local attrAttack = false
-        pcall(function()
-            for k, v in pairs(char:GetAttributes()) do
-                local lk = string.lower(k)
-                if v == true and (string.find(lk, "attack") or string.find(lk, "swing") or string.find(lk, "slash") or string.find(lk, "punch") or string.find(lk, "hit") or string.find(lk, "lunge")) then
-                    attrAttack = true
-                    break
-                end
-            end
-        end)
-        if attrAttack then return true end
-
-        -- B. Cek Track Animasi Serangan (nama animasi atau kecepatan ayunan tinggi)
-        local attackKeywords = {
-            "slash", "punch", "attack", "strike", "jab", "kick", "swing", "hit",
-            "heavy", "bash", "slam", "uppercut", "combo", "lunge", "chop", "melee", "stab", "m1", "m2", "skill"
-        }
-        local animator = hum:FindFirstChildOfClass("Animator")
-        if animator then
-            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                if track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Core and track.Priority ~= Enum.AnimationPriority.Idle and track.Priority ~= Enum.AnimationPriority.Movement then
-                    local animName = string.lower((track.Name or "") .. " " .. (track.Animation and track.Animation.Name or ""))
-                    for _, kw in ipairs(attackKeywords) do
-                        if string.find(animName, kw, 1, true) then
-                            return true
-                        end
-                    end
-                    -- Jika track berprioritas Action/Action2-4 dan waktu masih fase awal ayunan (< 0.45s)
-                    if (track.Priority == Enum.AnimationPriority.Action or track.Priority == Enum.AnimationPriority.Action2 or track.Priority == Enum.AnimationPriority.Action3 or track.Priority == Enum.AnimationPriority.Action4)
-                        and track.TimePosition < 0.45 and not track.Looped then
-                        return true
-                    end
-                end
-            end
-        end
-
-        -- C. Cek Tool yang dipegang musuh (Sound ayunan / Trail aktif / Hitbox aktif)
-        local enemyTool = char:FindFirstChildOfClass("Tool")
-        if enemyTool then
-            for _, desc in ipairs(enemyTool:GetDescendants()) do
-                if desc:IsA("Trail") and desc.Enabled then
-                    return true
-                elseif desc:IsA("Sound") and desc.IsPlaying then
-                    local sn = string.lower(desc.Name)
-                    if string.find(sn, "swing") or string.find(sn, "slash") or string.find(sn, "whoosh") or string.find(sn, "punch") or string.find(sn, "hit") then
-                        return true
-                    end
-                end
-            end
-        end
-
-        -- D. Cek Lunge / Dash mendadak ke arah pemain dalam jarak sangat dekat (< 8.5 studs)
-        local toMe = myRoot.Position - root.Position
-        local dist = toMe.Magnitude
-        if dist > 0.1 and dist <= 8.5 then
-            local vel = root.AssemblyLinearVelocity
-            local approachSpeed = vel:Dot(toMe.Unit)
-            if approachSpeed > 26 then
-                return true
-            end
-        end
-
-        return false
+        FeatureAPI.Emit("AutoParryTriggered", attackerName, Combat.ParryCount)
     end
 
     function Combat.StepAutoParry()
         if not Combat.AutoParryEnabled then
-            Combat.CleanupParryVisuals()
+            if Combat.ParryRingPart then
+                Combat.ParryRingPart.Transparency = 1
+            end
             return
         end
+
         Combat.UpdateParryRangeVisual()
 
-        local _, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
-        if not myHum or not myRoot or myHum.Health <= 0 then return end
+        local myChar, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
+        if not myChar or not myHum or myHum.Health <= 0 or not myRoot then return end
+        if (os.clock() - Combat.LastParryTime) < Combat.ParryCooldown then return end
 
-        -- 1. Deteksi serangan dari Pemain lain
+        local threatDetected = false
+        local threatSourceName = "Enemy"
+        local threatChar = nil
+
+        local attackKeywords = {
+            "slash", "swing", "attack", "punch", "kick", "hit", "strike",
+            "stab", "heavy", "lunge", "combo", "smash", "cut", "cleave", "melee", "serang", "pukul"
+        }
+
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 local isAlly = (#Teams:GetTeams() > 0 and LocalPlayer.Team ~= nil and plr.Team == LocalPlayer.Team)
                 if not (Combat.TeamCheck and isAlly) then
-                    local char, hum, root = Utils.GetCharacter(plr)
-                    if char and hum and hum.Health > 0 and root then
-                        local dist = (root.Position - myRoot.Position).Magnitude
-                        if dist <= Combat.ParryRange and isAttackerStriking(char, hum, root, myRoot) then
-                            if Combat.ParryReactionDelay > 0 then
-                                task.delay(Combat.ParryReactionDelay, function()
-                                    if Combat.AutoParryEnabled then
-                                        Combat.TriggerParryAction(plr.DisplayName, char)
+                    local eChar, eHum, eRoot = Utils.GetCharacter(plr)
+                    if eChar and eHum and eHum.Health > 0 and eRoot then
+                        local dist = (eRoot.Position - myRoot.Position).Magnitude
+                        if dist <= Combat.ParryRange then
+                            local anim = eHum:FindFirstChildOfClass("Animator")
+                            if anim then
+                                for _, track in ipairs(anim:GetPlayingAnimationTracks()) do
+                                    local aName = string.lower((track.Name or "") .. " " .. (track.Animation and track.Animation.Name or ""))
+                                    for _, kw in ipairs(attackKeywords) do
+                                        if string.find(aName, kw, 1, true) then
+                                            threatDetected = true
+                                            threatSourceName = plr.DisplayName
+                                            threatChar = eChar
+                                            break
+                                        end
                                     end
-                                end)
-                            else
-                                Combat.TriggerParryAction(plr.DisplayName, char)
+                                    if threatDetected then break end
+                                end
                             end
-                            return
+
+                            if not threatDetected then
+                                local tool = eChar:FindFirstChildOfClass("Tool")
+                                if tool then
+                                    local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+                                    if handle and handle.AssemblyLinearVelocity.Magnitude > 14 then
+                                        threatDetected = true
+                                        threatSourceName = plr.DisplayName
+                                        threatChar = eChar
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            if threatDetected then break end
+        end
+
+        if not threatDetected then
+            local scanBoxSize = Vector3.new(Combat.ParryRange * 2, Combat.ParryRange * 2, Combat.ParryRange * 2)
+            local params = OverlapParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = { myChar }
+            local nearbyParts = workspace:GetPartBoundsInBox(myRoot.CFrame, scanBoxSize, params)
+            for _, part in ipairs(nearbyParts) do
+                if part and part:IsA("BasePart") and not part.Anchored then
+                    local speed = part.AssemblyLinearVelocity.Magnitude
+                    if speed > 32 then
+                        local pName = string.lower(part.Name)
+                        local isProj = string.find(pName, "ball")
+                            or string.find(pName, "proj")
+                            or string.find(pName, "arrow")
+                            or string.find(pName, "bullet")
+                            or string.find(pName, "slash")
+                            or string.find(pName, "wave")
+                            or string.find(pName, "orb")
+                            or string.find(pName, "fire")
+                            or string.find(pName, "blade")
+                            or part:FindFirstChildOfClass("BodyVelocity")
+                            or part:FindFirstChildOfClass("LinearVelocity")
+                        if isProj then
+                            local toMe = (myRoot.Position - part.Position)
+                            if toMe.Magnitude > 0.1 and part.AssemblyLinearVelocity.Unit:Dot(toMe.Unit) > 0.45 then
+                                threatDetected = true
+                                threatSourceName = part.Name
+                                break
+                            end
                         end
                     end
                 end
             end
         end
 
-        -- 2. Deteksi proyektil / tebasan terbang yang mengarah ke karakter
-        for _, obj in ipairs(workspace:GetChildren()) do
-            if obj:IsA("BasePart") and not obj.Anchored and obj.Name ~= "BSS_AutoParry_Dome" and obj.Name ~= "BSS_RGB_AimLaser" then
-                local dist = (obj.Position - myRoot.Position).Magnitude
-                if dist <= Combat.ParryRange and obj.AssemblyLinearVelocity.Magnitude > 30 then
-                    local on = string.lower(obj.Name)
-                    if string.find(on, "slash") or string.find(on, "wave") or string.find(on, "proj") or string.find(on, "ball") or string.find(on, "arrow") or string.find(on, "blade") then
-                        local dirToMe = (myRoot.Position - obj.Position).Unit
-                        if obj.AssemblyLinearVelocity.Unit:Dot(dirToMe) > 0.72 then
-                            Combat.TriggerParryAction("Proyektil (" .. obj.Name .. ")", nil)
-                            return
-                        end
+        if threatDetected then
+            if Combat.ParryReactionDelay > 0 then
+                task.delay(Combat.ParryReactionDelay, function()
+                    if Combat.AutoParryEnabled then
+                        Combat.TriggerParryAction(threatSourceName, threatChar)
+                    end
+                end)
+            else
+                Combat.TriggerParryAction(threatSourceName, threatChar)
+            end
+        end
+    end
+
+    function Combat.StepAimbot()
+        if Combat.FOVCircle then
+            Combat.FOVCircle.Visible = Combat.AimbotEnabled and Combat.ShowFOVCircle
+            Combat.FOVCircle.Size = UDim2.new(0, Combat.FOVRadius * 2, 0, Combat.FOVRadius * 2)
+        end
+
+        if not Combat.AimbotEnabled then
+            Combat.CurrentTarget = nil
+            Combat.HideLaser()
+            return
+        end
+
+        local cam = workspace.CurrentCamera
+        if not cam then
+            Combat.HideLaser()
+            return
+        end
+
+        local tool, isRanged = Combat.GetEquippedRangedWeapon()
+        local activeAim = false
+        if Combat.AimbotMode == "Always" then
+            activeAim = true
+        else
+            activeAim = isRanged
+        end
+
+        if not activeAim then
+            Combat.CurrentTarget = nil
+            Combat.HideLaser()
+            return
+        end
+
+        local targetPlr, aimPart = Combat.FindBestTarget()
+        Combat.CurrentTarget = targetPlr
+
+        if targetPlr and aimPart then
+            local targetPos = aimPart.Position
+            local desiredCF = CFrame.lookAt(cam.CFrame.Position, targetPos)
+            local alpha = math.clamp(1 - (Combat.Smoothness * 0.75), 0.15, 1)
+            cam.CFrame = cam.CFrame:Lerp(desiredCF, alpha)
+
+            if Combat.RGBLaserEnabled then
+                local startPos = nil
+                if tool then
+                    local muzzle = tool:FindFirstChild("Muzzle", true)
+                        or tool:FindFirstChild("FirePoint", true)
+                        or tool:FindFirstChild("Barrel", true)
+                        or tool:FindFirstChild("Handle")
+                        or tool:FindFirstChildWhichIsA("BasePart", true)
+                    if muzzle and muzzle:IsA("BasePart") then
+                        startPos = muzzle.Position
                     end
                 end
+                if not startPos then
+                    local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
+                    startPos = myRoot and (myRoot.Position + Vector3.new(0, 1.4, 0)) or cam.CFrame.Position
+                end
+                Combat.UpdateLaser(startPos, targetPos)
+            else
+                Combat.HideLaser()
             end
+        else
+            Combat.HideLaser()
         end
     end
 end
 
 -- ============================================================================
--- 13. INTERACTIVE REPLICATED CARRY ENGINE (Terlihat di Device Pemain Lain)
+-- 13. INTERACTIVE REPLICATED CARRY ENGINE (Universal Map & R6/R15 Replicated)
 -- ============================================================================
 do
-    local carryOffsets = {
-        Depan = CFrame.new(0, 0.25, -1.75) * CFrame.Angles(0, math.rad(90), math.rad(15)),
-        Belakang = CFrame.new(0, 0.75, 1.35) * CFrame.Angles(math.rad(-10), 0, 0),
-        Pundak = CFrame.new(1.15, 1.45, -0.15) * CFrame.Angles(math.rad(85), 0, math.rad(90)),
-        Seret = CFrame.new(0, -2.15, 2.8) * CFrame.Angles(math.rad(82), math.rad(180), 0),
-        Kepala = CFrame.new(0, 3.1, 0),
-        Melayang = CFrame.new(2.2, 1.1, -0.5) * CFrame.Angles(0, math.rad(-25), 0),
-    }
-
-    local carryAnimIds = {
-        R15 = "rbxassetid://3333474484",
-        R6 = "rbxassetid://182435998",
-    }
-
-    function Carry.PlayReplicatedPose()
-        local _, hum = Utils.GetCharacter(LocalPlayer)
-        if not hum then return end
-        local animator = Utils.GetAnimator(hum)
-        if not animator then return end
-
-        if Carry.AnimTrack then
-            pcall(function() Carry.AnimTrack:Stop(0.1) end)
-            Carry.AnimTrack = nil
-        end
-
-        local anim = Instance.new("Animation")
-        anim.AnimationId = (hum.RigType == Enum.HumanoidRigType.R6) and carryAnimIds.R6 or carryAnimIds.R15
-        local ok, track = pcall(function()
-            return animator:LoadAnimation(anim)
-        end)
-        if ok and track then
-            track.Priority = Enum.AnimationPriority.Action
-            track.Looped = true
-            track:Play(0.15)
-            Carry.AnimTrack = track
-        end
-    end
-
     function Carry.CleanupVisuals()
         if Carry.VisualBeam then
             pcall(function() Carry.VisualBeam:Destroy() end)
@@ -4541,9 +5499,37 @@ do
     end
 
     function Carry.UpdateVisuals(myRoot, tChar, tRoot)
-        if not Carry.Enabled or not Carry.ShowVisualBeam or not myRoot or not tChar or not tRoot then
+        if not Carry.Enabled or not Carry.ShowVisualBeam or not myRoot or not tRoot then
             Carry.CleanupVisuals()
             return
+        end
+
+        if not Carry.VisualAtt0 or Carry.VisualAtt0.Parent ~= myRoot then
+            Carry.CleanupVisuals()
+            local a0 = Instance.new("Attachment")
+            a0.Name = "BSS_CarryAtt0"
+            a0.Parent = myRoot
+            Carry.VisualAtt0 = a0
+
+            local a1 = Instance.new("Attachment")
+            a1.Name = "BSS_CarryAtt1"
+            a1.Parent = tRoot
+            Carry.VisualAtt1 = a1
+
+            local beam = Instance.new("Beam")
+            beam.Name = "BSS_CarryBeam"
+            beam.Attachment0 = a0
+            beam.Attachment1 = a1
+            beam.Width0 = 0.16
+            beam.Width1 = 0.16
+            beam.FaceCamera = true
+            beam.LightEmission = 1
+            beam.Color = ColorSequence.new(Theme.Accent, Color3.fromRGB(255, 224, 120))
+            beam.Transparency = NumberSequence.new(0.25)
+            beam.Parent = myRoot
+            Carry.VisualBeam = beam
+        elseif Carry.VisualAtt1 and Carry.VisualAtt1.Parent ~= tRoot then
+            Carry.VisualAtt1.Parent = tRoot
         end
 
         if not Carry.TargetHL or not Carry.TargetHL.Parent then
@@ -4557,46 +5543,58 @@ do
             }, UI.ScreenGui)
         end
         Carry.TargetHL.Adornee = tChar
-        Carry.TargetHL.FillColor = Theme.Accent
         Carry.TargetHL.Enabled = true
+    end
 
-        if not Carry.VisualAtt0 or Carry.VisualAtt0.Parent ~= myRoot then
-            if Carry.VisualAtt0 then pcall(function() Carry.VisualAtt0:Destroy() end) end
-            Carry.VisualAtt0 = Utils.Create("Attachment", { Name = "BSS_CarryAtt0" }, myRoot)
+    function Carry.StopAnimation()
+        if Carry.AnimTrack then
+            pcall(function() Carry.AnimTrack:Stop(0.2) end)
+            pcall(function() Carry.AnimTrack:Destroy() end)
+            Carry.AnimTrack = nil
         end
-        if not Carry.VisualAtt1 or Carry.VisualAtt1.Parent ~= tRoot then
-            if Carry.VisualAtt1 then pcall(function() Carry.VisualAtt1:Destroy() end) end
-            Carry.VisualAtt1 = Utils.Create("Attachment", { Name = "BSS_CarryAtt1" }, tRoot)
+    end
+
+    function Carry.PlayReplicatedPose(hum)
+        Carry.StopAnimation()
+        if not hum then return end
+        local animator = Utils.GetAnimator(hum)
+        if not animator then return end
+
+        local anim = Instance.new("Animation")
+        if hum.RigType == Enum.HumanoidRigType.R15 then
+            anim.AnimationId = "rbxassetid://3333499508"
+        else
+            anim.AnimationId = "rbxassetid://180435571"
         end
-        if not Carry.VisualBeam or not Carry.VisualBeam.Parent then
-            Carry.VisualBeam = Utils.Create("Beam", {
-                Name = "BSS_CarryTetherBeam",
-                Attachment0 = Carry.VisualAtt0,
-                Attachment1 = Carry.VisualAtt1,
-                Width0 = 0.14,
-                Width1 = 0.14,
-                FaceCamera = true,
-                LightEmission = 1,
-                Transparency = NumberSequence.new(0.25),
-            }, myRoot)
+
+        local ok, track = pcall(function()
+            return animator:LoadAnimation(anim)
+        end)
+        if ok and track then
+            track.Priority = Enum.AnimationPriority.Action
+            track.Looped = true
+            track:Play(0.2)
+            track:AdjustSpeed(0.05)
+            Carry.AnimTrack = track
         end
-        Carry.VisualBeam.Attachment0 = Carry.VisualAtt0
-        Carry.VisualBeam.Attachment1 = Carry.VisualAtt1
-        Carry.VisualBeam.Color = ColorSequence.new(Theme.Accent, Color3.fromRGB(46, 213, 115))
     end
 
     function Carry.ScanCarryRemotes()
         if Carry.CarryRemoteScanned then return end
         Carry.CarryRemoteScanned = true
         table.clear(Carry.CarryRemoteCache)
-        local carryWords = { "carry", "gendong", "angkat", "grab", "pick", "piggy", "hold", "drop", "release" }
-        for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
-            if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
-                local rn = string.lower(desc.Name)
-                for _, cw in ipairs(carryWords) do
-                    if string.find(rn, cw, 1, true) then
-                        table.insert(Carry.CarryRemoteCache, desc)
-                        break
+        local keywords = { "carry", "gendong", "angkat", "grab", "pick", "hold", "hug", "peluk", "piggy" }
+        for _, container in ipairs({ ReplicatedStorage, LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"), LocalPlayer and LocalPlayer.Character }) do
+            if container then
+                for _, desc in ipairs(container:GetDescendants()) do
+                    if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+                        local rn = string.lower(desc.Name)
+                        for _, kw in ipairs(keywords) do
+                            if string.find(rn, kw, 1, true) then
+                                table.insert(Carry.CarryRemoteCache, desc)
+                                break
+                            end
+                        end
                     end
                 end
             end
@@ -4604,60 +5602,62 @@ do
     end
 
     function Carry.TryNativeMapCarry(targetPlr)
-        local tChar, _, tRoot = Utils.GetCharacter(targetPlr)
-        local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
-        if not tChar or not tRoot or not myRoot then return false end
+        if not targetPlr or not targetPlr.Character then return end
+        local tChar = targetPlr.Character
 
-        local carryWords = { "carry", "gendong", "angkat", "grab", "pick", "piggy", "hold" }
         for _, desc in ipairs(tChar:GetDescendants()) do
-            if desc:IsA("ProximityPrompt") and desc.Enabled then
+            if desc:IsA("ProximityPrompt") then
                 local txt = string.lower((desc.ActionText or "") .. " " .. (desc.ObjectText or "") .. " " .. desc.Name)
-                for _, kw in ipairs(carryWords) do
-                    if string.find(txt, kw, 1, true) then
-                        Utils.SafeTeleport(tRoot.CFrame * CFrame.new(0, 0, 2))
-                        task.spawn(function()
-                            task.wait(0.12)
-                            if desc and desc.Parent then
-                                FeatureAPI.TriggerProximity(desc)
-                            end
+                if string.find(txt, "carry") or string.find(txt, "gendong") or string.find(txt, "angkat") or string.find(txt, "grab") or string.find(txt, "pick") or string.find(txt, "hug") then
+                    if typeof(fireproximityprompt) == "function" then
+                        pcall(fireproximityprompt, desc)
+                    else
+                        pcall(function()
+                            desc:InputHoldBegin()
+                            task.delay(math.max(0.05, desc.HoldDuration or 0.1), function()
+                                pcall(function() desc:InputHoldEnd() end)
+                            end)
                         end)
-                        return true
                     end
+                    Carry.NativePromptTriggered = true
                 end
             end
         end
 
-        -- Coba API RemoteEvent Carry milik server jika tersedia
         Carry.ScanCarryRemotes()
         for _, rem in ipairs(Carry.CarryRemoteCache) do
             if rem and rem.Parent and rem:IsA("RemoteEvent") then
-                local rn = string.lower(rem.Name)
-                if not string.find(rn, "drop") and not string.find(rn, "release") then
-                    pcall(function() rem:FireServer(targetPlr) end)
-                    pcall(function() rem:FireServer(tChar) end)
-                end
+                pcall(function() rem:FireServer(targetPlr) end)
+                pcall(function() rem:FireServer(targetPlr.Name) end)
+                pcall(function() rem:FireServer("Carry", targetPlr) end)
             end
         end
-
-        return false
     end
 
-    function Carry.Start()
-        if not Carry.TargetPlayer then
-            Utils.Notify("Pilih Pemain", "Pilih teman/player terlebih dahulu sebelum menekan Carry!", Theme.Warning)
-            Carry.Enabled = false
+    function Carry.Start(targetPlr)
+        if not targetPlr or targetPlr == LocalPlayer then
+            Utils.Notify("Gendong Pemain", "Pilih pemain target yang valid terlebih dahulu.", Theme.Warning)
+            return false
+        end
+        local _, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
+        local tChar, _, tRoot = Utils.GetCharacter(targetPlr)
+        if not myHum or not myRoot or not tChar or not tRoot then
+            Utils.Notify("Gendong Pemain", "Karakter kamu atau target belum muncul di map.", Theme.Warning)
             return false
         end
 
-        Carry.NativePromptTriggered = false
-        Carry.NativePromptTriggered = Carry.TryNativeMapCarry(Carry.TargetPlayer)
         Carry.Enabled = true
-        Carry.PlayReplicatedPose()
+        Carry.TargetPlayer = targetPlr
+        Carry.NativePromptTriggered = false
 
-        local modeInfo = Carry.NativePromptTriggered and "Mode Server/Map" or "Mode Visual & Fisika"
+        Carry.TryNativeMapCarry(targetPlr)
+        Carry.PlayReplicatedPose(myHum)
+        FeatureAPI.Sync("CarryPlayer", true)
+        FeatureAPI.Emit("CarryStarted", targetPlr, Carry.Style)
+
         Utils.Notify(
-            "Carry Aktif",
-            "Meng-carry " .. Carry.TargetPlayer.DisplayName .. " (Gaya: " .. Carry.Style .. " | " .. modeInfo .. ")",
+            "Mode Gendong Aktif",
+            string.format("Menggendong %s (Gaya: %s)", targetPlr.DisplayName, Carry.Style),
             Theme.Success
         )
         return true
@@ -4665,125 +5665,115 @@ do
 
     function Carry.Stop()
         Carry.Enabled = false
-        Carry.NativePromptTriggered = false
+        Carry.StopAnimation()
         Carry.CleanupVisuals()
+        FeatureAPI.Sync("CarryPlayer", false)
+        FeatureAPI.Emit("CarryStopped")
 
-        if Carry.AnimTrack then
-            pcall(function() Carry.AnimTrack:Stop(0.15) end)
-            Carry.AnimTrack = nil
+        local _, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
+        if myHum then
+            myHum.PlatformStand = false
+            myHum.AutoRotate = true
         end
-
-        for _, rem in ipairs(Carry.CarryRemoteCache) do
-            if rem and rem.Parent and rem:IsA("RemoteEvent") then
-                local rn = string.lower(rem.Name)
-                if string.find(rn, "drop") or string.find(rn, "release") or string.find(rn, "carry") then
-                    pcall(function() rem:FireServer(false) end)
-                    pcall(function() rem:FireServer() end)
-                end
-            end
-        end
-
-        if Carry.TargetPlayer then
-            local tChar, tHum = Utils.GetCharacter(Carry.TargetPlayer)
-            if tChar then
-                for _, part in ipairs(tChar:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true
-                    end
-                end
-            end
-            if tHum then
-                tHum.PlatformStand = false
-                if tHum:GetState() == Enum.HumanoidStateType.Physics then
-                    tHum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end
-            end
+        if myRoot then
+            myRoot.AssemblyLinearVelocity = Vector3.zero
+            myRoot.AssemblyAngularVelocity = Vector3.zero
         end
     end
 
     function Carry.Step()
-        if not Carry.Enabled or not Carry.TargetPlayer then return end
-        local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
-        local tChar, tHum, tRoot = Utils.GetCharacter(Carry.TargetPlayer)
+        if not Carry.Enabled then return end
+        local targetPlr = Carry.TargetPlayer
+        if not targetPlr or not targetPlr.Parent then
+            Carry.Stop()
+            return
+        end
 
-        if not myRoot or not tChar or not tRoot or not tHum or tHum.Health <= 0 then
+        local myChar, myHum, myRoot = Utils.GetCharacter(LocalPlayer)
+        local tChar, tHum, tRoot = Utils.GetCharacter(targetPlr)
+        if not myChar or not myHum or myHum.Health <= 0 or not myRoot or not tChar or not tHum or tHum.Health <= 0 or not tRoot then
+            Carry.CleanupVisuals()
             return
         end
 
         Carry.UpdateVisuals(myRoot, tChar, tRoot)
 
-        if Carry.NativePromptTriggered then
-            return
+        local attachOffset = CFrame.new(0, 0.55, -1.35)
+        if Carry.Style == "Punggung" then
+            attachOffset = CFrame.new(0, 0.85, 1.35)
+        elseif Carry.Style == "Bahu" then
+            attachOffset = CFrame.new(1.15, 1.45, 0.15) * CFrame.Angles(0, 0, math.rad(82))
+        elseif Carry.Style == "Kepala" then
+            attachOffset = CFrame.new(0, 3.15, 0)
         end
 
-        local offset = carryOffsets[Carry.Style] or carryOffsets.Depan
-        tHum.PlatformStand = true
-        for _, part in ipairs(tChar:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
-            end
-        end
-        tRoot.AssemblyLinearVelocity = Vector3.zero
-        tRoot.AssemblyAngularVelocity = Vector3.zero
-        tRoot.CFrame = myRoot.CFrame * offset
+        local desiredRootCF = tRoot.CFrame * attachOffset:Inverse()
+        myRoot.AssemblyLinearVelocity = Vector3.zero
+        myRoot.AssemblyAngularVelocity = Vector3.zero
+        myRoot.CFrame = myRoot.CFrame:Lerp(desiredRootCF, 0.65)
     end
 end
 
 -- ============================================================================
--- 14. INTERACTIVE REPLICATED R6 & R15 DANCE / EMOTE STUDIO (Terlihat Pemain Lain)
+-- 14. INTERACTIVE REPLICATED R6 & R15 DANCE / EMOTE STUDIO
 -- ============================================================================
 do
     Emotes.Catalog = {
-        { Id = "Dance1", Label = "Groove Dance 1", R15 = "rbxassetid://507771019", R6 = "rbxassetid://182435998" },
-        { Id = "Dance2", Label = "Party Dance 2", R15 = "rbxassetid://507776043", R6 = "rbxassetid://182436842" },
-        { Id = "Dance3", Label = "Hype Dance 3", R15 = "rbxassetid://507777268", R6 = "rbxassetid://182436935" },
-        { Id = "Stadium", Label = "Stadium Wave", R15 = "rbxassetid://3338010159", R6 = "rbxassetid://129423030" },
-        { Id = "Tilt", Label = "Head Tilt Vibe", R15 = "rbxassetid://3334538554", R6 = "rbxassetid://128777973" },
-        { Id = "Salute", Label = "Respect Salute", R15 = "rbxassetid://3333474484", R6 = "rbxassetid://128777973" },
-        { Id = "Shrug", Label = "Chill Shrug", R15 = "rbxassetid://3334392772", R6 = "rbxassetid://129423131" },
-        { Id = "Applause", Label = "Victory Claps", R15 = "rbxassetid://5915693819", R6 = "rbxassetid://129423030" },
-        { Id = "Cheer", Label = "Happy Cheer", R15 = "rbxassetid://507770677", R6 = "rbxassetid://129423030" },
-        { Id = "Laugh", Label = "Big Laugh", R15 = "rbxassetid://507770818", R6 = "rbxassetid://129423131" },
-        { Id = "Point", Label = "Look There", R15 = "rbxassetid://507770453", R6 = "rbxassetid://128853357" },
-        { Id = "Wave", Label = "Friendly Wave", R15 = "rbxassetid://507770239", R6 = "rbxassetid://128777973" },
+        { Name = "Dance 1 (Klasik)", R6 = "182435998", R15 = "507771019" },
+        { Name = "Dance 2 (Groove)", R6 = "182436842", R15 = "507776043" },
+        { Name = "Dance 3 (Pop)",    R6 = "182436935", R15 = "507777268" },
+        { Name = "Wave (Sapa)",      R6 = "128777973", R15 = "507770239" },
+        { Name = "Cheer (Sorak)",    R6 = "129423030", R15 = "507770677" },
+        { Name = "Point (Tunjuk)",   R6 = "128853357", R15 = "507770453" },
+        { Name = "Laugh (Tertawa)",  R6 = "129423131", R15 = "507770818" },
+        { Name = "Hero Float",       R6 = "180436148", R15 = "3333499508" },
+        { Name = "Robot / Tilt",     R6 = "180435792", R15 = "3338025566" },
     }
 
     function Emotes.Stop()
         Emotes.Playing = false
         Emotes.CurrentDance = nil
+        FeatureAPI.Sync("EmotePlayer", false)
+        FeatureAPI.Emit("EmoteStopped")
         if Emotes.ActiveTrack then
-            pcall(function() Emotes.ActiveTrack:Stop(0.15) end)
+            pcall(function() Emotes.ActiveTrack:Stop(0.2) end)
+            pcall(function() Emotes.ActiveTrack:Destroy() end)
             Emotes.ActiveTrack = nil
         end
     end
 
-    function Emotes.PlayAsset(labelName, assetId)
-        local char, hum = Utils.GetCharacter(LocalPlayer)
-        if not char or not hum then
-            Utils.Notify("Emote", "Karakter belum siap.", Theme.Warning)
-            return
-        end
-
-        local animator = Utils.GetAnimator(hum)
-        if not animator then
-            Utils.Notify("Emote", "Animator karakter tidak ditemukan.", Theme.Warning)
-            return
+    function Emotes.Play(entryOrId, customName)
+        local _, hum = Utils.GetCharacter(LocalPlayer)
+        if not hum then
+            Utils.Notify("Tari & Emote", "Karakter kamu belum siap.", Theme.Warning)
+            return false
         end
 
         Emotes.Stop()
+        local animator = Utils.GetAnimator(hum)
+        if not animator then return false end
 
-        local cleanId = tostring(assetId)
-        if not string.find(cleanId, "rbxassetid://", 1, true) then
-            local digits = string.match(cleanId, "%d+")
-            if not digits then
-                Utils.Notify("ID Tidak Valid", "Masukkan angka Animation ID Roblox yang valid.", Theme.Danger)
-                return
+        local animId = ""
+        local labelName = customName or "Custom Emote"
+
+        if type(entryOrId) == "table" then
+            labelName = entryOrId.Name
+            if hum.RigType == Enum.HumanoidRigType.R15 then
+                animId = entryOrId.R15
+            else
+                animId = entryOrId.R6
             end
-            cleanId = "rbxassetid://" .. digits
+        else
+            animId = tostring(entryOrId):gsub("%D", "")
+        end
+
+        if animId == "" then
+            Utils.Notify("Tari & Emote", "ID Animasi tidak valid.", Theme.Danger)
+            return false
         end
 
         local anim = Instance.new("Animation")
-        anim.AnimationId = cleanId
+        anim.AnimationId = "rbxassetid://" .. animId
 
         local ok, track = pcall(function()
             return animator:LoadAnimation(anim)
@@ -4792,118 +5782,72 @@ do
         if ok and track then
             track.Priority = Enum.AnimationPriority.Action
             track.Looped = true
-            track:Play(0.15)
+            track:Play(0.2)
             track:AdjustSpeed(Emotes.Speed)
-
             Emotes.ActiveTrack = track
             Emotes.Playing = true
             Emotes.CurrentDance = labelName
-            Emotes.CurrentId = cleanId
-            Utils.Notify("Dance Terkirim ke Server", "Memainkan: " .. labelName .. " (Terlihat pemain lain)", Theme.Success)
+            Emotes.CurrentId = animId
+            FeatureAPI.Sync("EmotePlayer", true)
+            FeatureAPI.Emit("EmoteStarted", labelName, animId)
+            Utils.Notify("Emote Aktif", string.format("Memutar: %s (ID: %s)", labelName, animId), Theme.Success)
+            return true
         else
-            Utils.Notify("Gagal Memuat Dance", "ID animasi tidak didukung di map ini.", Theme.Warning)
+            Utils.Notify("Tari & Emote", "Map ini memblokir asset animasi eksternal.", Theme.Warning)
+            return false
         end
-    end
-
-    function Emotes.PlayPreset(entry)
-        local _, hum = Utils.GetCharacter(LocalPlayer)
-        local isR6 = hum and (hum.RigType == Enum.HumanoidRigType.R6)
-        local chosenId = isR6 and entry.R6 or entry.R15
-        Emotes.PlayAsset(entry.Label, chosenId)
     end
 end
 
 -- ============================================================================
--- 15. PROTECTION & SURVIVAL ENGINE (Anti-AFK, Melee Immunity, Hunger & Thirst)
+-- 15. PROTECTION & SURVIVAL ENGINE (Anti-AFK, Melee Immunity, Hunger/Thirst Guard)
 -- ============================================================================
 do
-    Utils.Track(LocalPlayer.Idled:Connect(function()
-        if Protection.AntiAFKEnabled then
-            Protection.IdleEventsHandled = Protection.IdleEventsHandled + 1
-            pcall(function()
-                if VirtualUser then
+    if LocalPlayer then
+        Utils.Track(LocalPlayer.Idled:Connect(function()
+            if Protection.AntiAFKEnabled and VirtualUser then
+                Protection.IdleEventsHandled = Protection.IdleEventsHandled + 1
+                pcall(function()
                     VirtualUser:CaptureController()
                     VirtualUser:ClickButton2(Vector2.new())
-                end
-            end)
-        end
-    end))
-
-    function Protection.RestoreEnemyHitboxes()
-        for part, origTouch in pairs(Combat.TouchedPartsCache) do
-            if part and part.Parent and part:IsA("BasePart") then
-                part.CanTouch = origTouch
+                end)
             end
-        end
-        table.clear(Combat.TouchedPartsCache)
-        table.clear(Combat.EnemyToolParts)
+        end))
     end
 
-    local function getCachedToolParts(tool)
-        local cached = Combat.EnemyToolParts[tool]
-        if not cached then
-            cached = {}
-            for _, desc in ipairs(tool:GetDescendants()) do
-                if desc:IsA("BasePart") then
-                    table.insert(cached, desc)
-                end
-            end
-            Combat.EnemyToolParts[tool] = cached
-            Utils.Track(tool.DescendantAdded:Connect(function(desc)
-                if desc:IsA("BasePart") and Combat.EnemyToolParts[tool] then
-                    table.insert(Combat.EnemyToolParts[tool], desc)
-                end
-            end))
-            Utils.Track(tool.AncestryChanged:Connect(function(_, parent)
-                if not parent then
-                    Combat.EnemyToolParts[tool] = nil
-                end
-            end))
-        end
-        return cached
-    end
-
+    local pruneTick = 0
     function Protection.StepMeleeImmunity()
-        if not Combat.MeleeImmunity then return end
-        local char, hum, root = Utils.GetCharacter(LocalPlayer)
-        if not char or not hum or not root then return end
-
-        local badStates = {
-            [Enum.HumanoidStateType.Ragdoll] = true,
-            [Enum.HumanoidStateType.FallingDown] = true,
-            [Enum.HumanoidStateType.Physics] = true,
-        }
-        if badStates[hum:GetState()] then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-        if not State.FlyEnabled and not Carry.Enabled and hum.PlatformStand then
-            hum.PlatformStand = false
-        end
-
-        if not State.FlyEnabled then
-            local vel = root.AssemblyLinearVelocity
-            local horizSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
-            if horizSpeed > (State.WalkSpeed + 28) or vel.Y > 65 then
-                root.AssemblyLinearVelocity = Vector3.new(0, math.min(vel.Y, 65), 0)
+        if not Combat.MeleeImmunity then
+            if next(Combat.TouchedPartsCache) ~= nil then
+                for part, origTouch in pairs(Combat.TouchedPartsCache) do
+                    if part and part.Parent and part:IsA("BasePart") then
+                        part.CanTouch = origTouch
+                    end
+                end
+                table.clear(Combat.TouchedPartsCache)
             end
-            root.AssemblyAngularVelocity = Vector3.zero
+            return
         end
 
-        if hum.Health > 0 and hum.Health < hum.MaxHealth then
-            hum.Health = hum.MaxHealth
+        pruneTick = pruneTick + 1
+        if pruneTick >= 30 then
+            pruneTick = 0
+            for part, _ in pairs(Combat.TouchedPartsCache) do
+                if not part or not part.Parent then
+                    Combat.TouchedPartsCache[part] = nil
+                end
+            end
         end
 
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer and plr.Character then
-                local enemyTool = plr.Character:FindFirstChildOfClass("Tool")
-                if enemyTool then
-                    local parts = getCachedToolParts(enemyTool)
-                    for _, desc in ipairs(parts) do
-                        if desc and desc.Parent then
-                            if Combat.TouchedPartsCache[desc] == nil then
-                                Combat.TouchedPartsCache[desc] = desc.CanTouch
-                            end
-                            if desc.CanTouch then
+                for _, item in ipairs(plr.Character:GetChildren()) do
+                    if item:IsA("Tool") then
+                        for _, desc in ipairs(item:GetDescendants()) do
+                            if desc:IsA("BasePart") then
+                                if Combat.TouchedPartsCache[desc] == nil then
+                                    Combat.TouchedPartsCache[desc] = desc.CanTouch
+                                end
                                 desc.CanTouch = false
                             end
                         end
@@ -4913,162 +5857,157 @@ do
         end
     end
 
-    local survivalKeywords = {
-        "hunger", "lapar", "thirst", "haus", "food", "makan",
-        "water", "minum", "hydration", "starve", "energy", "calories"
-    }
-
-    local function matchesSurvivalKeyword(str)
-        local lower = string.lower(str)
-        for _, kw in ipairs(survivalKeywords) do
-            if string.find(lower, kw, 1, true) then
-                return true
-            end
-        end
-        return false
-    end
-
-    function Protection.RegisterSurvivalValue(inst)
-        if (inst:IsA("NumberValue") or inst:IsA("IntValue")) and matchesSurvivalKeyword(inst.Name) then
-            Protection.HungerThirstValues[inst] = true
-        end
-    end
-
-    function Protection.BindSurvivalContainer(container)
-        if not container then return end
-        for _, child in ipairs(container:GetChildren()) do
-            if not child:IsA("PlayerGui") and not child:IsA("PlayerScripts") and not child:IsA("Backpack") then
-                Protection.RegisterSurvivalValue(child)
-                for _, desc in ipairs(child:GetDescendants()) do
-                    Protection.RegisterSurvivalValue(desc)
-                end
-            end
-        end
-        Utils.Track(container.DescendantAdded:Connect(function(desc)
-            if not desc:FindFirstAncestorOfClass("PlayerGui") and not desc:FindFirstAncestorOfClass("PlayerScripts") then
-                Protection.RegisterSurvivalValue(desc)
-            end
-        end))
-    end
-
-    Protection.BindSurvivalContainer(LocalPlayer)
-    if LocalPlayer.Character then
-        Protection.BindSurvivalContainer(LocalPlayer.Character)
-    end
-    Utils.Track(LocalPlayer.CharacterAdded:Connect(function(char)
-        Protection.BindSurvivalContainer(char)
-    end))
-
     function Protection.StepHungerThirstGuard()
         if not Combat.HungerThirstGuard then return end
 
-        local function restoreAttributes(container)
-            if not container then return end
-            pcall(function()
-                for attrName, attrVal in pairs(container:GetAttributes()) do
-                    if type(attrVal) == "number" and matchesSurvivalKeyword(attrName) then
-                        local maxAttr = container:GetAttribute("Max" .. attrName) or 100
-                        if attrVal < maxAttr then
-                            container:SetAttribute(attrName, maxAttr)
+        local statKeywords = { "hunger", "thirst", "stamina", "energy", "lapar", "haus", "food", "water", "saturation", "hydrate" }
+        local containers = { LocalPlayer, LocalPlayer and LocalPlayer.Character }
+
+        for _, root in ipairs(containers) do
+            if root then
+                for _, desc in ipairs(root:GetDescendants()) do
+                    if desc:IsA("NumberValue") or desc:IsA("IntValue") then
+                        local lower = string.lower(desc.Name)
+                        for _, kw in ipairs(statKeywords) do
+                            if string.find(lower, kw, 1, true) then
+                                local prev = Protection.HungerThirstValues[desc]
+                                if prev == nil or desc.Value > prev then
+                                    Protection.HungerThirstValues[desc] = desc.Value
+                                elseif desc.Value < prev then
+                                    desc.Value = prev
+                                end
+                                break
+                            end
                         end
                     end
                 end
-            end)
-        end
-
-        restoreAttributes(LocalPlayer)
-        restoreAttributes(LocalPlayer.Character)
-
-        for valObj, _ in pairs(Protection.HungerThirstValues) do
-            if valObj and valObj.Parent then
-                local maxObj = valObj.Parent:FindFirstChild("Max" .. valObj.Name) or valObj.Parent:FindFirstChild("MaxValue")
-                local targetMax = 100
-                if maxObj and (maxObj:IsA("NumberValue") or maxObj:IsA("IntValue")) and maxObj.Value > 0 then
-                    targetMax = maxObj.Value
-                elseif valObj.Value > 100 then
-                    targetMax = valObj.Value
-                end
-                if valObj.Value < targetMax then
-                    valObj.Value = targetMax
-                end
-            else
-                Protection.HungerThirstValues[valObj] = nil
             end
         end
     end
 end
 
 -- ============================================================================
--- 15B. SECURITY HUB ENGINE (ANTI-CHEAT SERVER BRIDGE, ZONA & LOG DIAGNOSTIK)
+-- 15B. SECURITY HUB ENGINE (Anti-Cheat Monitor, Log Diagnostik & Pemindai Zona)
 -- ============================================================================
 do
-    function SecurityHub.ConnectServerChannel()
-        local folder = ReplicatedStorage:FindFirstChild("SecurityRemotes")
-        if not folder then
-            SecurityHub.ServerConnected = false
-            return false
+    local function pushBoundedLog(list, text)
+        local stamp = os.date("%H:%M:%S")
+        local formatted = string.format("[%s] %s", stamp, tostring(text))
+        table.insert(list, 1, formatted)
+        if #list > SecurityHub.MaxLogs then
+            table.remove(list)
         end
-        local feed = folder:FindFirstChild("AntiCheatFeed")
-        local action = folder:FindFirstChild("AdminSecurityAction")
-        if feed and feed:IsA("RemoteEvent") and action and action:IsA("RemoteEvent") then
-            SecurityHub.TelemetryRemote = feed
-            SecurityHub.AdminActionRemote = action
-            SecurityHub.ServerConnected = true
+        return formatted
+    end
 
-            Utils.Track(feed.OnClientEvent:Connect(function(eventType, payload)
-                if eventType == "LOG" and type(payload) == "table" then
-                    table.insert(SecurityHub.ViolationLogs, 1, payload)
-                    if #SecurityHub.ViolationLogs > SecurityHub.MaxLogs then
-                        table.remove(SecurityHub.ViolationLogs)
+    function SecurityHub.AddViolation(reason, detail)
+        local msg = string.format("%s — %s", tostring(reason), tostring(detail))
+        pushBoundedLog(SecurityHub.ViolationLogs, msg)
+        if type(SecurityHub.OnViolationAdded) == "function" then
+            pcall(SecurityHub.OnViolationAdded, SecurityHub.ViolationLogs)
+        end
+    end
+
+    function SecurityHub.AddConsoleLog(msgType, message)
+        if not SecurityHub.LogCaptureEnabled then return end
+        local prefix = "INFO"
+        if msgType == Enum.MessageType.MessageWarning then
+            prefix = "WARN"
+        elseif msgType == Enum.MessageType.MessageError then
+            prefix = "ERR"
+        end
+        pushBoundedLog(SecurityHub.ConsoleLogs, string.format("[%s] %s", prefix, tostring(message)))
+        if type(SecurityHub.OnConsoleLogAdded) == "function" then
+            pcall(SecurityHub.OnConsoleLogAdded, SecurityHub.ConsoleLogs)
+        end
+    end
+
+    pcall(function()
+        Utils.Track(LogService.MessageOut:Connect(function(message, messageType)
+            if messageType == Enum.MessageType.MessageWarning or messageType == Enum.MessageType.MessageError then
+                SecurityHub.AddConsoleLog(messageType, message)
+            end
+        end))
+    end)
+
+    function SecurityHub.ConnectRemotes()
+        local folder = ReplicatedStorage:FindFirstChild("BimSakSinAdminRemotes")
+        if folder then
+            local tRem = folder:FindFirstChild("SecurityTelemetry")
+            local aRem = folder:FindFirstChild("AdminAction")
+            if tRem and tRem:IsA("RemoteEvent") then
+                SecurityHub.TelemetryRemote = tRem
+                SecurityHub.ServerConnected = true
+                Utils.Track(tRem.OnClientEvent:Connect(function(payload)
+                    if type(payload) == "table" then
+                        SecurityHub.AddViolation(payload.Reason or "ServerAlert", payload.Detail or "Pelanggaran terdeteksi")
+                    else
+                        SecurityHub.AddViolation("ServerAlert", tostring(payload))
                     end
-                    if type(SecurityHub.OnViolationAdded) == "function" then
-                        pcall(SecurityHub.OnViolationAdded, payload)
-                    end
-                end
-            end))
+                end))
+            end
+            if aRem and aRem:IsA("RemoteEvent") then
+                SecurityHub.AdminActionRemote = aRem
+            end
+        end
+    end
+    SecurityHub.ConnectRemotes()
+
+    function SecurityHub.SendAdminAction(actionName, targetArg)
+        if SecurityHub.AdminActionRemote and SecurityHub.AdminActionRemote.Parent then
+            pcall(function()
+                SecurityHub.AdminActionRemote:FireServer(actionName, targetArg)
+            end)
+            Utils.Notify("Admin Server", "Perintah dikirim: " .. tostring(actionName), Theme.Success)
             return true
         end
-        SecurityHub.ServerConnected = false
+        Utils.Notify(
+            "Mode Klien Mandiri",
+            LocaleEngine.Text(
+                "Map ini belum memasang Remote Server BimSakSin; aksi dijalankan di sisi klien.",
+                "Server remote not present in this map; running client-side fallback."
+            ),
+            Theme.Warning
+        )
         return false
     end
 
-    function SecurityHub.SendAdminAction(actionName, targetUserId)
-        if SecurityHub.ServerConnected and SecurityHub.AdminActionRemote then
-            pcall(function()
-                SecurityHub.AdminActionRemote:FireServer(actionName, targetUserId)
-            end)
-            Utils.Notify("Moderator Action", actionName .. " dikirim ke server.", Theme.Accent)
-        else
-            Utils.Notify("Mode Lokal", "Map ini belum memasang server AntiCheatEngine.", Theme.Warning)
-        end
-    end
+    local lastZoneScan = 0
+    local zoneKeywords = {
+        { key = "safe", label = "Zona Aman (SafeZone)" },
+        { key = "lobby", label = "Area Lobi (Lobby)" },
+        { key = "spawn", label = "Titik Spawn" },
+        { key = "vip", label = "Area Khusus VIP" },
+        { key = "admin", label = "Area Terbatas Admin" },
+        { key = "pvp", label = "Zona Pertarungan (PvP)" },
+        { key = "shop", label = "Area Toko / Pasar" },
+    }
 
-    function SecurityHub.ScanCurrentZone()
+    function SecurityHub.StepZoneScanner()
         if not SecurityHub.ZoneScannerEnabled then return end
+        local now = os.clock()
+        if (now - lastZoneScan) < 0.75 then return end
+        lastZoneScan = now
+
         local _, _, root = Utils.GetCharacter(LocalPlayer)
         if not root then return end
 
+        local detected = "Area Umum (Normal)"
         local params = OverlapParams.new()
         params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = LocalPlayer.Character and { LocalPlayer.Character } or {}
+        params.FilterDescendantsInstances = { LocalPlayer.Character }
 
-        local detected = "Area Umum (Normal)"
-        local ok, parts = pcall(function()
-            return workspace:GetPartBoundsInBox(root.CFrame, Vector3.new(4, 6, 4), params)
-        end)
-        if ok and parts then
-            for _, p in ipairs(parts) do
-                local n = string.lower(p.Name)
-                if string.find(n, "safe") or string.find(n, "spawn") or string.find(n, "lobby") then
-                    detected = "Zona Aman (" .. p.Name .. ")"
-                    break
-                elseif string.find(n, "pvp") or string.find(n, "combat") or string.find(n, "arena") or string.find(n, "danger") then
-                    detected = "Zona Pertarungan (" .. p.Name .. ")"
-                    break
-                elseif string.find(n, "checkpoint") or string.find(n, "stage") then
-                    detected = "Checkpoint (" .. p.Name .. ")"
+        local parts = workspace:GetPartBoundsInBox(root.CFrame, Vector3.new(6, 8, 6), params)
+        for _, p in ipairs(parts) do
+            local fullName = string.lower(p:GetFullName())
+            for _, z in ipairs(zoneKeywords) do
+                if string.find(fullName, z.key, 1, true) then
+                    detected = z.label
                     break
                 end
+            end
+            if detected ~= "Area Umum (Normal)" then
+                break
             end
         end
 
@@ -5080,292 +6019,237 @@ do
         end
     end
 
-    Utils.Track(LogService.MessageOut:Connect(function(message, messageType)
-        if not SecurityHub.LogCaptureEnabled then return end
-        if messageType == Enum.MessageType.MessageError or messageType == Enum.MessageType.MessageWarning then
-            local entry = {
-                Time = os.date("%H:%M:%S"),
-                Level = (messageType == Enum.MessageType.MessageError) and "ERROR" or "WARN",
-                Text = tostring(message),
-            }
-            table.insert(SecurityHub.ConsoleLogs, 1, entry)
-            if #SecurityHub.ConsoleLogs > SecurityHub.MaxLogs then
-                table.remove(SecurityHub.ConsoleLogs)
+    function SecurityHub.RunIntegrityAudit()
+        local _, hum, root = Utils.GetCharacter(LocalPlayer)
+        local issues = 0
+        if not hum or not root then
+            issues = issues + 1
+        else
+            if hum.WalkSpeed > 80 and State.WalkSpeed <= 16 then
+                issues = issues + 1
             end
-            if type(SecurityHub.OnConsoleLogAdded) == "function" then
-                pcall(SecurityHub.OnConsoleLogAdded, entry)
+            if root.Anchored and not State.IsTeleportLocking then
+                issues = issues + 1
             end
         end
-    end))
-
-    SecurityHub.ConnectServerChannel()
+        local abStatus = AntiBan.Active and string.format("AntiBan v%s AKTIF (KickBlk:%d)", AntiBan.Version, AntiBan.Stats.KicksBlocked) or "AntiBan OFF"
+        local summary = (issues == 0)
+            and ("Audit Integritas: BERSIH (0 Anomali) | " .. abStatus)
+            or string.format("Audit Integritas: %d Anomali | %s", issues, abStatus)
+        SecurityHub.AddViolation("AuditKlien", summary)
+        Utils.Notify("Audit Integritas", summary, issues == 0 and Theme.Success or Theme.Warning)
+    end
 end
-
 -- ============================================================================
--- TAB 1 (PALING ATAS): INFORMASI, REGION PERANGKAT & DUKUNGAN KOMUNITAS
+-- TAB 1: INFORMASI (Paling Atas — Profil Creator, Ringkasan Fitur & Komunitas)
 -- ============================================================================
 do
-    local page = Components.CreateTab("Informasi", { id = "Informasi", en = "Information" }, "ⓘ", 1)
-    Components.AddSectionHeader(page, { id = "Informasi Pembuat & Region Perangkat", en = "Creator Information & Device Region" }, 1)
+    local page = Components.CreateTab("Informasi", { id = "Informasi", en = "Information" }, "ℹ️", 1)
 
-    local infoCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
+    local heroCard = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 128),
         BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.22,
+        BackgroundTransparency = 0.2,
         BorderSizePixel = 0,
-        LayoutOrder = 2,
+        LayoutOrder = 1,
         ZIndex = 14,
     }, page)
-    Utils.AddCorner(infoCard, 9)
-    local stroke = Utils.AddStroke(infoCard, Theme.Accent, 1.2, 0.25)
-    Utils.RegisterAccent(stroke, "Color")
+    Utils.AddCorner(heroCard, 11)
+    local heroStroke = Utils.AddStroke(heroCard, Theme.Accent, 1.3, 0.2)
+    Utils.RegisterAccent(heroStroke, "Color")
 
-    Utils.Create("UIPadding", {
-        PaddingTop = UDim.new(0, 10),
-        PaddingBottom = UDim.new(0, 10),
-        PaddingLeft = UDim.new(0, 12),
-        PaddingRight = UDim.new(0, 12),
-    }, infoCard)
+    Utils.CreatePumpkin3D(heroCard, 66, UDim2.new(0, 44, 0.5, 0), Vector2.new(0.5, 0.5), 16, true, false)
 
-    Utils.Create("UIListLayout", {
-        Padding = UDim.new(0, 5),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, infoCard)
-
-    local h1 = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 20),
+    local hTitle = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -104, 0, 22),
+        Position = UDim2.new(0, 90, 0, 12),
         BackgroundTransparency = 1,
         Font = Theme.FontBold,
-        Text = "🎃 " .. App.Name .. " — Edisi Universal",
+        Text = "BimSakSin Hub v3.0 + Anti-Ban v3.1",
         TextColor3 = Theme.TextPrimary,
-        TextSize = 14,
+        TextSize = 15,
         TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = 1,
         ZIndex = 15,
-    }, infoCard)
-    Utils.RegisterText(h1, true, Theme.TextPrimary)
+    }, heroCard)
+    Utils.RegisterText(hTitle, true, Theme.TextPrimary)
 
-    local h2 = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
+    local hSub = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -104, 0, 56),
+        Position = UDim2.new(0, 90, 0, 36),
         BackgroundTransparency = 1,
         Font = Theme.FontFamily,
-        Text = "Terima kasih telah menggunakan BimSakSin Hub v3.0! Semoga hari-hari kalian menyenangkan.\nTekan F2 kapan saja untuk membuka Command Palette cepat. Jika ditemukan kendala, laporkan melalui Discord resmi di bawah ini.",
+        Text = LocaleEngine.Text(
+            "Creator: BimSakSin  |  Kompatibel Semua Map (R6 & R15)\nDilengkapi Universal Anti-Ban Framework v3.1 (Anti-Kick, Anti-Remote, Anti-Stats Scan & HWID Spoofer), Radar ESP, Auto Generator, Auto Parry, dan Salin Aset.",
+            "Creator: BimSakSin  |  All-Map Compatible (R6 & R15)\nEquipped with Universal Anti-Ban Framework v3.1 (Anti-Kick, Anti-Remote, Anti-Stats Scan & HWID Spoofer), Radar ESP, Auto Generator, Auto Parry, and Asset Copier."
+        ),
         TextColor3 = Theme.TextSecondary,
         TextSize = 11,
         TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = 2,
+        TextYAlignment = Enum.TextYAlignment.Top,
         ZIndex = 15,
-    }, infoCard)
-    Utils.RegisterText(h2, false, Theme.TextSecondary)
+    }, heroCard)
+    Utils.RegisterText(hSub, false, Theme.TextSecondary)
 
-    local regionBadge = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 22),
-        BackgroundColor3 = Theme.BgSecondary,
-        BackgroundTransparency = 0.2,
+    local hRegion = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -104, 0, 18),
+        Position = UDim2.new(0, 90, 1, -24),
+        BackgroundTransparency = 1,
         Font = Theme.FontBold,
-        Text = "  🌍 Region Perangkat: " .. LocaleEngine.RegionDisplay,
+        Text = "🌍 Region: " .. LocaleEngine.RegionDisplay,
         TextColor3 = Theme.Accent,
         TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = 3,
         ZIndex = 15,
-    }, infoCard)
-    Utils.AddCorner(regionBadge, 6)
-    Utils.RegisterAccent(regionBadge, "TextColor3")
+    }, heroCard)
+    Utils.RegisterAccent(hRegion, "TextColor3")
 
     LocaleEngine.Bind(function()
-        if h1 and h1.Parent then
-            h1.Text = LocaleEngine.Text(
-                "🎃 " .. App.Name .. " — Edisi Universal",
-                "🎃 " .. App.Name .. " — Universal Edition"
+        if hSub and hSub.Parent then
+            hSub.Text = LocaleEngine.Text(
+                "Creator: BimSakSin  |  Kompatibel Semua Map (R6 & R15)\nDilengkapi Universal Anti-Ban Framework v3.1 (Anti-Kick, Anti-Remote, Anti-Stats Scan & HWID Spoofer), Radar ESP, Auto Generator, Auto Parry, dan Salin Aset.",
+                "Creator: BimSakSin  |  All-Map Compatible (R6 & R15)\nEquipped with Universal Anti-Ban Framework v3.1 (Anti-Kick, Anti-Remote, Anti-Stats Scan & HWID Spoofer), Radar ESP, Auto Generator, Auto Parry, and Asset Copier."
             )
         end
-        if h2 and h2.Parent then
-            h2.Text = LocaleEngine.Text(
-                "Terima kasih telah menggunakan BimSakSin Hub v3.0! Semoga hari-hari kalian menyenangkan.\nTekan F2 kapan saja untuk membuka Command Palette cepat. Jika ditemukan kendala, laporkan melalui Discord resmi di bawah ini.",
-                "Thank you for using BimSakSin Hub v3.0! Wishing you a wonderful day.\nPress F2 anytime to open the quick Command Palette. If you encounter any bugs, please notify us via Discord below."
-            )
-        end
-        if regionBadge and regionBadge.Parent then
-            regionBadge.Text = LocaleEngine.Text(
-                "  🌍 Region Perangkat: " .. LocaleEngine.RegionDisplay,
-                "  🌍 Device Region: " .. LocaleEngine.RegionDisplay
-            )
+        if hRegion and hRegion.Parent then
+            hRegion.Text = "🌍 Region: " .. LocaleEngine.RegionDisplay
         end
     end)
 
-    Components.AddSectionHeader(page, { id = "Tautan Resmi Komunitas & Donasi", en = "Official Community & Donation Links" }, 3)
+    Components.AddSectionHeader(page, { id = "Komunitas & Dukungan", en = "Community & Support" }, 2)
 
     Components.AddButton(
         page,
-        { id = "Tautan Donasi & Dukungan Developer", en = "Developer Donation & Support Link" },
-        App.DonationUrl,
-        { id = "Salin Tautan", en = "Copy Link" },
-        4,
+        { id = "Server Discord Resmi", en = "Official Discord Server" },
+        { id = "Salin tautan undangan Discord BimSakSin", en = "Copy BimSakSin Discord invite link" },
+        { id = "Salin Link", en = "Copy Link" },
+        3,
         function()
-            if Utils.CopyText(App.DonationUrl) then
-                Utils.Notify(
-                    LocaleEngine.Text("Tautan Donasi Tersalin!", "Donation Link Copied!"),
-                    App.DonationUrl,
-                    Theme.Success
-                )
-            else
-                Utils.Notify(
-                    LocaleEngine.Text("Tautan Donasi", "Donation Link"),
-                    App.DonationUrl,
-                    Theme.Accent
-                )
-            end
+            local ok = Utils.CopyText(App.DiscordUrl)
+            Utils.Notify("Discord", ok and ("Tersalin: " .. App.DiscordUrl) or App.DiscordUrl, Theme.Success)
         end
     )
 
     Components.AddButton(
         page,
-        { id = "Tautan Server Discord Resmi", en = "Official Discord Server Link" },
-        App.DiscordUrl,
-        { id = "Salin Tautan", en = "Copy Link" },
+        { id = "Dukungan & Donasi Creator", en = "Support & Creator Donation" },
+        { id = "Salin tautan Linktree dukungan BimSakSin", en = "Copy BimSakSin Linktree support URL" },
+        { id = "Salin Link", en = "Copy Link" },
+        4,
+        function()
+            local ok = Utils.CopyText(App.DonationUrl)
+            Utils.Notify("Dukungan", ok and ("Tersalin: " .. App.DonationUrl) or App.DonationUrl, Theme.Success)
+        end
+    )
+
+    Components.AddButton(
+        page,
+        { id = "Buka Command Palette (F2)", en = "Open Command Palette (F2)" },
+        { id = "Cari & jalankan fitur apa pun secara instan", en = "Search and trigger any feature instantly" },
+        { id = "Buka [F2]", en = "Open [F2]" },
         5,
         function()
-            if Utils.CopyText(App.DiscordUrl) then
-                Utils.Notify(
-                    LocaleEngine.Text("Tautan Discord Tersalin!", "Discord Link Copied!"),
-                    App.DiscordUrl,
-                    Theme.Success
-                )
-            else
-                Utils.Notify(
-                    LocaleEngine.Text("Tautan Discord", "Discord Link"),
-                    App.DiscordUrl,
-                    Theme.Accent
-                )
+            if UI.CommandPalette and UI.CommandPalette.Open then
+                UI.CommandPalette.Open()
             end
         end
     )
 end
 
 -- ============================================================================
--- TAB 2: BERANDA (TELEMETRI PERANGKAT REAL-TIME & UTILITAS SERVER)
+-- TAB 2: BERANDA (Telemetri Perangkat, Server & Utilitas Cepat)
 -- ============================================================================
 do
-    local page = Components.CreateTab("Beranda", { id = "Beranda", en = "Home" }, "◈", 2)
-    Components.AddSectionHeader(page, { id = "Telemetri Perangkat Real-Time", en = "Live Client Telemetry" }, 1)
+    local page = Components.CreateTab("Beranda", { id = "Beranda", en = "Dashboard" }, "🏠", 2)
 
-    local grid = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 124),
+    Components.AddSectionHeader(page, { id = "Telemetri Performa & Server", en = "Performance & Server Telemetry" }, 1)
+
+    local telemetryGrid = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 114),
         BackgroundTransparency = 1,
         LayoutOrder = 2,
         ZIndex = 14,
     }, page)
 
     Utils.Create("UIGridLayout", {
-        CellSize = UDim2.new(0.485, 0, 0, 58),
+        CellSize = UDim2.new(0.485, 0, 0, 52),
         CellPadding = UDim2.new(0.03, 0, 0, 8),
         SortOrder = Enum.SortOrder.LayoutOrder,
-    }, grid)
+    }, telemetryGrid)
 
-    local function createStatCard(labelSpec, initialValue, order)
+    local function makeStatBox(key, labelSpec, initVal, order)
         local box = Utils.Create("Frame", {
             BackgroundColor3 = Theme.BgCard,
             BackgroundTransparency = 0.25,
             BorderSizePixel = 0,
             LayoutOrder = order,
             ZIndex = 14,
-        }, grid)
+        }, telemetryGrid)
         Utils.AddCorner(box, 9)
         Utils.AddStroke(box, Theme.BorderSubtle, 1, 0.3)
 
-        local l1 = Utils.Create("TextLabel", {
+        local lTop = Utils.Create("TextLabel", {
             Size = UDim2.new(1, -16, 0, 16),
-            Position = UDim2.new(0, 10, 0, 8),
+            Position = UDim2.new(0, 10, 0, 6),
             BackgroundTransparency = 1,
             Font = Theme.FontFamily,
             Text = resolveTextSpec(labelSpec),
             TextColor3 = Theme.TextSecondary,
-            TextSize = 11,
+            TextSize = 10,
             TextXAlignment = Enum.TextXAlignment.Left,
             ZIndex = 15,
         }, box)
-        Utils.RegisterText(l1, false, Theme.TextSecondary)
+        Utils.RegisterText(lTop, false, Theme.TextSecondary)
 
         LocaleEngine.Bind(function()
-            if l1 and l1.Parent then
-                l1.Text = resolveTextSpec(labelSpec)
+            if lTop and lTop.Parent then
+                lTop.Text = resolveTextSpec(labelSpec)
             end
         end)
 
-        local valLbl = Utils.Create("TextLabel", {
+        local lVal = Utils.Create("TextLabel", {
             Size = UDim2.new(1, -16, 0, 22),
-            Position = UDim2.new(0, 10, 0, 26),
+            Position = UDim2.new(0, 10, 0, 23),
             BackgroundTransparency = 1,
             Font = Theme.FontBold,
-            Text = initialValue,
-            TextColor3 = Theme.TextPrimary,
-            TextSize = 15,
+            Text = initVal,
+            TextColor3 = Theme.Accent,
+            TextSize = 14,
             TextXAlignment = Enum.TextXAlignment.Left,
             ZIndex = 15,
         }, box)
-        Utils.RegisterText(valLbl, true, Theme.TextPrimary)
-
-        return valLbl
+        Utils.RegisterAccent(lVal, "TextColor3")
+        UI.TelemetryLabels[key] = lVal
     end
 
-    UI.TelemetryLabels.FPS = createStatCard({ id = "Kecepatan Frame (FPS)", en = "Frame Rate (FPS)" }, "60 FPS", 1)
-    UI.TelemetryLabels.Ping = createStatCard({ id = "Latensi Jaringan (Ping)", en = "Network Latency" }, "-- ms", 2)
-    UI.TelemetryLabels.Memory = createStatCard({ id = "Penggunaan Memori", en = "Client Memory" }, "-- MB", 3)
-    UI.TelemetryLabels.Players = createStatCard({ id = "Pemain di Server", en = "Active Players" }, tostring(#Players:GetPlayers()) .. " / " .. tostring(Players.MaxPlayers), 4)
+    makeStatBox("FPS", { id = "Frame Rate (FPS)", en = "Frame Rate (FPS)" }, "60 FPS", 1)
+    makeStatBox("Ping", { id = "Latensi Jaringan", en = "Network Ping" }, "0 ms", 2)
+    makeStatBox("Memory", { id = "Memori Klien", en = "Client Memory" }, "0 MB", 3)
+    makeStatBox("Players", { id = "Pemain & Fitur Aktif", en = "Players & Active Mods" }, "1/1 | 0", 4)
 
-    Components.AddSectionHeader(page, { id = "Utilitas Server & Karakter", en = "Server & Session Utilities" }, 3)
+    Components.AddSectionHeader(page, { id = "Utilitas Server & Koneksi", en = "Server & Connection Utilities" }, 3)
 
     Components.AddButton(
         page,
-        { id = "Salin ID Map & Server", en = "Copy Place & Job ID" },
-        "PlaceId: " .. tostring(game.PlaceId),
+        { id = "Salin Place ID & Job ID", en = "Copy Place ID & Job ID" },
+        { id = "Salin identitas server saat ini ke clipboard", en = "Copy current server identifiers to clipboard" },
         { id = "Salin ID", en = "Copy ID" },
         4,
         function()
-            local infoStr = string.format("PlaceId: %s | JobId: %s", tostring(game.PlaceId), tostring(game.JobId))
-            if Utils.CopyText(infoStr) then
-                Utils.Notify(LocaleEngine.Text("ID Tersalin", "ID Copied"), infoStr, Theme.Success)
-            else
-                Utils.Notify(LocaleEngine.Text("Info Server", "Server Info"), infoStr, Theme.Accent)
-            end
-        end
-    )
-
-    Components.AddButton(
-        page,
-        { id = "Segarkan Karakter (Respawn)", en = "Respawn Character" },
-        { id = "Memuat ulang karakter lokal jika tersangkut atau bug", en = "Refresh local character state" },
-        { id = "Respawn", en = "Respawn" },
-        5,
-        function()
-            local _, hum = Utils.GetCharacter()
-            if hum then
-                hum.Health = 0
-                Utils.Notify(
-                    LocaleEngine.Text("Karakter", "Character"),
-                    LocaleEngine.Text("Memuat ulang karakter...", "Respawning character..."),
-                    Theme.Warning
-                )
-            end
+            local info = string.format("PlaceId: %s | JobId: %s", tostring(game.PlaceId), tostring(game.JobId))
+            Utils.CopyText(info)
+            Utils.Notify("Server ID", info, Theme.Success)
         end
     )
 
     Components.AddButton(
         page,
         { id = "Gabung Ulang Server (Rejoin)", en = "Rejoin Current Server" },
-        { id = "Menghubungkan ulang ke instance server yang sama", en = "Reconnect to the same PlaceId instance" },
-        { id = "Gabung Ulang", en = "Rejoin" },
-        6,
+        { id = "Masuk kembali ke server yang sama dengan cepat", en = "Reconnect back to the same server instance" },
+        { id = "Rejoin", en = "Rejoin" },
+        5,
         function()
-            Utils.Notify(
-                "TeleportService",
-                LocaleEngine.Text("Menghubungkan ulang ke server...", "Rejoining current server..."),
-                Theme.Accent
-            )
+            Utils.Notify("Rejoin", "Menghubungkan ulang ke server...", Theme.Warning)
             pcall(function()
                 TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
             end)
@@ -5374,1780 +6258,952 @@ do
 end
 
 -- ============================================================================
--- TAB 3: RADAR ESP (ESP PEMAIN, BARANG / LOOT & GENERATOR REAL-TIME)
+-- TAB 3: RADAR ESP (Pemain, Barang/Loot, Generator & Auto Generator)
 -- ============================================================================
 do
-    local page = Components.CreateTab("RadarESP", { id = "Radar ESP", en = "ESP Radar" }, "👁", 3)
-    Components.AddSectionHeader(page, { id = "ESP Pemain & Sorotan Avatar", en = "Player ESP & Avatar Highlight" }, 1)
+    local page = Components.CreateTab("RadarESP", { id = "Radar ESP", en = "Radar ESP" }, "📡", 3)
 
-    Components.AddToggle(
+    Components.AddSectionHeader(page, { id = "Radar ESP Pemain", en = "Player Radar ESP" }, 1)
+
+    local espToggle = Components.AddToggle(
         page,
-        { id = "Aktifkan ESP Pemain Universal", en = "Enable Universal Player ESP" },
-        { id = "Menampilkan posisi dan informasi pemain menembus dinding di semua map", en = "Display long-range through-wall player ESP across all maps" },
-        false,
+        { id = "Aktifkan ESP Pemain", en = "Enable Player ESP" },
+        { id = "Menampilkan sorotan karakter, nama, jarak & darah pemain", en = "Displays character highlight, name, distance & health" },
+        ESP.Enabled,
         2,
-        function(on)
-            ESP.Enabled = on
-            if not on then
-                ESP.ClearAll()
-            end
-            Utils.Notify(
-                "ESP Pemain",
-                on and LocaleEngine.Text("ESP pemain aktif di seluruh map.", "Player ESP enabled across the map.")
-                    or LocaleEngine.Text("ESP pemain dimatikan.", "Player ESP disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
+        function(val)
+            ESP.Enabled = val
+            FeatureAPI.Sync("PlayerESP", val)
+            if not val then ESP.ClearAll() end
         end
     )
 
-    Components.AddToggle(
+    FeatureAPI.Register("PlayerESP", {
+        Category = "RadarESP",
+        OnEnable = function() ESP.Enabled = true; espToggle.SetState(true, false) end,
+        OnDisable = function() ESP.Enabled = false; ESP.ClearAll(); espToggle.SetState(false, false) end,
+    })
+
+    Components.AddChipSelector(
         page,
-        { id = "Sorot Avatar Tembus Dinding", en = "Through-Wall Transparent Avatar" },
-        { id = "Menyorot tubuh avatar pemain agar terlihat jelas dari jarak jauh", en = "Highlight player avatars so they remain visible from any distance" },
-        true,
+        { id = "Mode Filter Tim ESP", en = "ESP Team Filter Mode" },
+        {
+            { Label = { id = "Otomatis", en = "Auto" }, Value = "Auto" },
+            { Label = { id = "Musuh", en = "Enemy" }, Value = "Enemy" },
+            { Label = { id = "Teman", en = "Ally" }, Value = "Ally" },
+            { Label = { id = "Acak RGB", en = "Random" }, Value = "Random" },
+        },
+        ESP.Mode,
         3,
-        function(on)
-            ESP.ShowAvatar = on
-        end
+        function(v) ESP.Mode = v end
     )
 
-    Components.AddToggle(
+    Components.AddSlider(
         page,
-        { id = "Tampilkan Jarak Pemain (Meter)", en = "Show Distance (Meters)" },
-        { id = "Menampilkan jarak real-time dari posisi Anda ke setiap pemain", en = "Display real-time distance to every player" },
-        true,
-        4,
-        function(on)
-            ESP.ShowDistance = on
-        end
+        { id = "Jarak Maksimal ESP (Meter)", en = "Max ESP Distance (Meters)" },
+        200, 10000, ESP.MaxDistance, 0, 4,
+        function(v) ESP.MaxDistance = v end
     )
 
-    Components.AddToggle(
+    Components.AddSectionHeader(page, { id = "Radar Barang & Generator", en = "Item & Generator Radar" }, 5)
+
+    local itemEspToggle = Components.AddToggle(
         page,
-        { id = "Tampilkan Darah / HP Pemain", en = "Show Health (Map Adaptive)" },
-        { id = "Otomatis menampilkan indikator darah jika map menggunakan sistem HP", en = "Automatically display HP when the map uses a health system" },
-        true,
-        5,
-        function(on)
-            ESP.ShowHealth = on
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Filter Target ESP Pemain", en = "ESP Target Mode (Ally / Enemy / Random)" }, {
-        { Label = { id = "Otomatis Map", en = "Auto Map" }, Value = "Auto" },
-        { Label = { id = "Musuh Saja", en = "Enemies Only" }, Value = "Enemy" },
-        { Label = { id = "Rekan Tim", en = "Allies Only" }, Value = "Ally" },
-        { Label = { id = "Semua Acak", en = "Random All" }, Value = "Random" },
-    }, "Auto", 6, function(val)
-        ESP.Mode = val
-        Utils.Notify("Radar ESP", LocaleEngine.Text("Filter target diatur ke: ", "Target filter set to: ") .. val, Theme.Accent)
-    end)
-
-    Components.AddSlider(page, { id = "Batas Jarak ESP Pemain (Studs)", en = "Max Player ESP Distance (Studs)" }, 200, 10000, 2500, 0, 7, function(val)
-        ESP.MaxDistance = val
-    end)
-
-    Components.AddSectionHeader(page, { id = "Kustomisasi Warna & Huruf ESP Pemain", en = "Player ESP Color & Font Customization" }, 8)
-
-    Components.AddChipSelector(page, { id = "Gaya Huruf (Font) ESP Pemain", en = "Player ESP Font Style" }, {
-        { Label = "Gotham Bold", Value = Enum.Font.GothamBold, Font = Enum.Font.GothamBold },
-        { Label = "Fredoka One", Value = Enum.Font.FredokaOne, Font = Enum.Font.FredokaOne },
-        { Label = "Creepster", Value = Enum.Font.Creepster, Font = Enum.Font.Creepster },
-        { Label = "Roboto Mono", Value = Enum.Font.RobotoMono, Font = Enum.Font.RobotoMono },
-        { Label = "Bangers", Value = Enum.Font.Bangers, Font = Enum.Font.Bangers },
-        { Label = "Merriweather", Value = Enum.Font.Merriweather, Font = Enum.Font.Merriweather },
-    }, Enum.Font.GothamBold, 9, function(val)
-        ESP.Font = val
-    end)
-
-    Components.AddChipSelector(page, { id = "Warna Sorotan Utama Avatar", en = "Primary ESP / Highlight Color" }, {
-        { Label = { id = "Emas Labu", en = "Pumpkin Gold" }, Value = Color3.fromRGB(255, 118, 26), Color = Color3.fromRGB(255, 118, 26) },
-        { Label = { id = "Merah Darah", en = "Blood Red" }, Value = Color3.fromRGB(235, 69, 95), Color = Color3.fromRGB(235, 69, 95) },
-        { Label = { id = "Hijau Neon", en = "Neon Green" }, Value = Color3.fromRGB(46, 213, 115), Color = Color3.fromRGB(46, 213, 115) },
-        { Label = { id = "Biru Sian", en = "Spectral Cyan" }, Value = Color3.fromRGB(24, 220, 255), Color = Color3.fromRGB(24, 220, 255) },
-        { Label = { id = "Ungu Mistis", en = "Mystic Purple" }, Value = Color3.fromRGB(165, 94, 234), Color = Color3.fromRGB(165, 94, 234) },
-        { Label = { id = "Putih Terang", en = "Bright White" }, Value = Color3.fromRGB(255, 255, 255), Color = Color3.fromRGB(255, 255, 255) },
-    }, Color3.fromRGB(255, 118, 26), 10, function(val)
-        ESP.HighlightColor = val
-    end)
-
-    Components.AddChipSelector(page, { id = "Warna Teks Jarak", en = "Distance Text Color" }, {
-        { Label = { id = "Kuning Emas", en = "Golden Yellow" }, Value = Color3.fromRGB(255, 210, 120), Color = Color3.fromRGB(255, 210, 120) },
-        { Label = { id = "Biru Es", en = "Ice Cyan" }, Value = Color3.fromRGB(112, 235, 255), Color = Color3.fromRGB(112, 235, 255) },
-        { Label = { id = "Putih Bersih", en = "Pure White" }, Value = Color3.fromRGB(250, 250, 255), Color = Color3.fromRGB(250, 250, 255) },
-        { Label = { id = "Oranye Labu", en = "Pumpkin Orange" }, Value = Color3.fromRGB(255, 145, 65), Color = Color3.fromRGB(255, 145, 65) },
-        { Label = { id = "Merah Muda", en = "Neon Pink" }, Value = Color3.fromRGB(255, 118, 195), Color = Color3.fromRGB(255, 118, 195) },
-        { Label = { id = "Hijau Mint", en = "Mint Green" }, Value = Color3.fromRGB(130, 255, 185), Color = Color3.fromRGB(130, 255, 185) },
-    }, Color3.fromRGB(255, 210, 120), 11, function(val)
-        ESP.DistanceColor = val
-    end)
-
-    Components.AddChipSelector(page, { id = "Warna Teks Darah (HP)", en = "Health (HP) Text Color" }, {
-        { Label = { id = "Hijau Sehat", en = "HP Green" }, Value = Color3.fromRGB(85, 239, 148), Color = Color3.fromRGB(85, 239, 148) },
-        { Label = { id = "Merah Kritis", en = "Crimson Red" }, Value = Color3.fromRGB(255, 88, 108), Color = Color3.fromRGB(255, 88, 108) },
-        { Label = { id = "Kuning Amber", en = "Amber Yellow" }, Value = Color3.fromRGB(255, 214, 70), Color = Color3.fromRGB(255, 214, 70) },
-        { Label = { id = "Putih Salju", en = "Snow White" }, Value = Color3.fromRGB(245, 248, 255), Color = Color3.fromRGB(245, 248, 255) },
-        { Label = { id = "Biru Elektrik", en = "Electric Blue" }, Value = Color3.fromRGB(95, 185, 255), Color = Color3.fromRGB(95, 185, 255) },
-        { Label = { id = "Ungu Violet", en = "Violet Purple" }, Value = Color3.fromRGB(195, 135, 255), Color = Color3.fromRGB(195, 135, 255) },
-    }, Color3.fromRGB(85, 239, 148), 12, function(val)
-        ESP.HealthColor = val
-    end)
-
-    Components.AddChipSelector(page, { id = "Warna Latar Label Pemain", en = "Player Label Backdrop Color" }, {
-        { Label = { id = "Hitam Tipis", en = "Subtle Black" }, Value = Color3.fromRGB(16, 12, 24), Color = Color3.fromRGB(16, 12, 24) },
-        { Label = { id = "Ungu Malam", en = "Night Purple" }, Value = Color3.fromRGB(36, 20, 56), Color = Color3.fromRGB(36, 20, 56) },
-        { Label = { id = "Coklat Labu", en = "Pumpkin Brown" }, Value = Color3.fromRGB(48, 24, 12), Color = Color3.fromRGB(48, 24, 12) },
-        { Label = { id = "Merah Gelap", en = "Dark Crimson" }, Value = Color3.fromRGB(48, 14, 22), Color = Color3.fromRGB(48, 14, 22) },
-        { Label = { id = "Putih Kabut", en = "Mist White" }, Value = Color3.fromRGB(235, 230, 242), Color = Color3.fromRGB(235, 230, 242) },
-        { Label = { id = "Bening Halus", en = "Ultra Clear" }, Value = Color3.fromRGB(10, 10, 14), Color = Color3.fromRGB(10, 10, 14) },
-    }, Color3.fromRGB(16, 12, 24), 13, function(val)
-        ESP.FontBgColor = val
-        ESP.FontBgTransparency = (val == Color3.fromRGB(10, 10, 14)) and 0.78 or 0.56
-    end)
-
-    Components.AddChipSelector(page, { id = "Warna Teks Nama Pemain", en = "Player Name Font Color" }, {
-        { Label = { id = "Kontras Otomatis", en = "Auto Contrast" }, Value = "Auto", Color = Color3.fromRGB(255, 195, 110) },
-        { Label = { id = "Putih Tulang", en = "Ivory White" }, Value = Color3.fromRGB(255, 248, 240), Color = Color3.fromRGB(255, 248, 240) },
-        { Label = { id = "Emas Labu", en = "Pumpkin Gold" }, Value = Color3.fromRGB(255, 155, 55), Color = Color3.fromRGB(255, 155, 55) },
-        { Label = { id = "Merah Terang", en = "Bright Red" }, Value = Color3.fromRGB(255, 95, 115), Color = Color3.fromRGB(255, 95, 115) },
-        { Label = { id = "Hijau Spektral", en = "Spectral Green" }, Value = Color3.fromRGB(95, 245, 155), Color = Color3.fromRGB(95, 245, 155) },
-        { Label = { id = "Hitam Pekat", en = "Deep Black" }, Value = Color3.fromRGB(20, 16, 28), Color = Color3.fromRGB(20, 16, 28) },
-    }, "Auto", 14, function(val)
-        if val == "Auto" then
-            ESP.FontAutoContrast = true
-        else
-            ESP.FontAutoContrast = false
-            ESP.FontColor = val
-        end
-    end)
-
-    Components.AddSectionHeader(page, { id = "ESP Barang & Loot (Jarak Tak Terbatas)", en = "Item & Loot ESP (Unlimited Range)" }, 15)
-
-    Components.AddToggle(
-        page,
-        { id = "Aktifkan ESP Barang & Loot", en = "Enable Item & Loot ESP (All Maps)" },
-        { id = "Mendeteksi item, senjata, dan barang jatuh tanpa batas jarak maupun latar belakang", en = "Detect items, loot, and tools at any distance without background boxes" },
-        false,
-        16,
-        function(on)
-            ItemESP.Enabled = on
-            if not on then
-                ItemESP.ClearAll()
-            else
-                ItemESP.ScanAndRender()
-            end
-            Utils.Notify(
-                "ESP Barang",
-                on and LocaleEngine.Text("ESP Barang aktif (tanpa batas jarak).", "Item ESP enabled (unlimited distance).")
-                    or LocaleEngine.Text("ESP Barang dimatikan.", "Item ESP disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Gaya Huruf (Font) ESP Barang", en = "Item ESP Font Style" }, {
-        { Label = "Gotham Bold", Value = Enum.Font.GothamBold, Font = Enum.Font.GothamBold },
-        { Label = "Fredoka One", Value = Enum.Font.FredokaOne, Font = Enum.Font.FredokaOne },
-        { Label = "Creepster", Value = Enum.Font.Creepster, Font = Enum.Font.Creepster },
-        { Label = "Roboto Mono", Value = Enum.Font.RobotoMono, Font = Enum.Font.RobotoMono },
-        { Label = "Bangers", Value = Enum.Font.Bangers, Font = Enum.Font.Bangers },
-        { Label = "Oswald", Value = Enum.Font.Oswald, Font = Enum.Font.Oswald },
-    }, Enum.Font.GothamBold, 17, function(val)
-        ItemESP.Font = val
-    end)
-
-    Components.AddChipSelector(page, { id = "Warna Teks ESP Barang", en = "Item ESP Text Color" }, {
-        { Label = { id = "Sian Terang", en = "Bright Cyan" }, Value = Color3.fromRGB(102, 242, 255), Color = Color3.fromRGB(102, 242, 255) },
-        { Label = { id = "Kuning Emas", en = "Golden Yellow" }, Value = Color3.fromRGB(255, 218, 88), Color = Color3.fromRGB(255, 218, 88) },
-        { Label = { id = "Hijau Neon", en = "Neon Green" }, Value = Color3.fromRGB(85, 255, 145), Color = Color3.fromRGB(85, 255, 145) },
-        { Label = { id = "Oranye Labu", en = "Pumpkin Orange" }, Value = Color3.fromRGB(255, 145, 55), Color = Color3.fromRGB(255, 145, 55) },
-        { Label = { id = "Merah Muda", en = "Neon Pink" }, Value = Color3.fromRGB(255, 125, 210), Color = Color3.fromRGB(255, 125, 210) },
-        { Label = { id = "Putih Bersih", en = "Pure White" }, Value = Color3.fromRGB(255, 255, 255), Color = Color3.fromRGB(255, 255, 255) },
-    }, Color3.fromRGB(102, 242, 255), 18, function(val)
-        ItemESP.Color = val
-    end)
-
-    Components.AddSectionHeader(page, { id = "ESP Generator & Status Mesin", en = "Generator ESP (Real-Time Status)" }, 19)
-
-    Components.AddToggle(
-        page,
-        { id = "Aktifkan ESP Generator & Mesin", en = "Enable Generator ESP (All Maps)" },
-        { id = "Menampilkan lokasi, jarak, serta status pengerjaan generator secara real-time", en = "Display generator ESP, distance, and live repair progress status" },
-        false,
-        20,
-        function(on)
-            GeneratorESP.Enabled = on
-            if not on then
-                GeneratorESP.ClearAll()
-            else
-                GeneratorESP.ScanAndRender()
-            end
-            Utils.Notify(
-                "ESP Generator",
-                on and LocaleEngine.Text("ESP Generator aktif.", "Generator ESP enabled.")
-                    or LocaleEngine.Text("ESP Generator dimatikan.", "Generator ESP disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Gaya Huruf (Font) ESP Generator", en = "Generator ESP Font Style" }, {
-        { Label = "Gotham Bold", Value = Enum.Font.GothamBold, Font = Enum.Font.GothamBold },
-        { Label = "Fredoka One", Value = Enum.Font.FredokaOne, Font = Enum.Font.FredokaOne },
-        { Label = "Creepster", Value = Enum.Font.Creepster, Font = Enum.Font.Creepster },
-        { Label = "Roboto Mono", Value = Enum.Font.RobotoMono, Font = Enum.Font.RobotoMono },
-        { Label = "Bangers", Value = Enum.Font.Bangers, Font = Enum.Font.Bangers },
-        { Label = "Oswald", Value = Enum.Font.Oswald, Font = Enum.Font.Oswald },
-    }, Enum.Font.GothamBold, 21, function(val)
-        GeneratorESP.Font = val
-    end)
-
-    Components.AddToggle(
-        page,
-        { id = "Tampilkan Progress Bar Generator", en = "Show Generator Progress Bar" },
-        { id = "Menampilkan bilah visual persentase pengerjaan generator oleh pemain lain", en = "Display visual progress bar showing live repair percentage" },
-        true,
-        22,
-        function(on)
-            GeneratorESP.ShowProgressBar = on
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Warna Sorotan ESP Generator", en = "Generator ESP Color" }, {
-        { Label = { id = "Emas Listrik", en = "Electric Gold" }, Value = Color3.fromRGB(255, 196, 54), Color = Color3.fromRGB(255, 196, 54) },
-        { Label = { id = "Hijau Mesin", en = "Engine Green" }, Value = Color3.fromRGB(72, 245, 140), Color = Color3.fromRGB(72, 245, 140) },
-        { Label = { id = "Biru Plasma", en = "Plasma Blue" }, Value = Color3.fromRGB(75, 185, 255), Color = Color3.fromRGB(75, 185, 255) },
-        { Label = { id = "Merah Siaga", en = "Alert Red" }, Value = Color3.fromRGB(255, 85, 105), Color = Color3.fromRGB(255, 85, 105) },
-        { Label = { id = "Ungu Spektral", en = "Spectral Purple" }, Value = Color3.fromRGB(185, 115, 255), Color = Color3.fromRGB(185, 115, 255) },
-        { Label = { id = "Putih Terang", en = "Bright White" }, Value = Color3.fromRGB(255, 255, 255), Color = Color3.fromRGB(255, 255, 255) },
-    }, Color3.fromRGB(255, 196, 54), 23, function(val)
-        GeneratorESP.Color = val
-        GeneratorESP.IdleColor = val
-    end)
-end
-
--- ============================================================================
--- TAB 4: PERTARUNGAN (BIDIK OTOMATIS, TANGKIS SERANGAN & KETAHANAN)
--- ============================================================================
-do
-    local page = Components.CreateTab("Pertarungan", { id = "Pertarungan", en = "Combat" }, "🎯", 4)
-    Components.AddSectionHeader(page, { id = "Bidik Otomatis (Auto Aimbot)", en = "High-Precision Auto Aimbot" }, 1)
-
-    Components.AddToggle(
-        page,
-        { id = "Aktifkan Bidik Otomatis (Aimbot)", en = "Enable Precision Auto Aimbot" },
-        { id = "Mengunci bidikan secara presisi ke sasaran saat menyerang atau membidik", en = "Automatically lock aim onto targets during melee or ranged combat" },
-        false,
-        2,
-        function(on)
-            Combat.AimbotEnabled = on
-            if not on then
-                Combat.CurrentTarget = nil
-                Combat.HideLaser()
-            end
-            Utils.Notify(
-                "Bidik Otomatis",
-                on and LocaleEngine.Text("Bidik otomatis presisi aktif.", "Precision aimbot enabled.")
-                    or LocaleEngine.Text("Bidik otomatis dimatikan.", "Aimbot disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
-        end
-    )
-
-    Components.AddToggle(
-        page,
-        { id = "Laser RGB Khusus Senjata Api", en = "RGB Laser for Ranged Weapons" },
-        { id = "Menampilkan garis laser RGB hanya saat memegang senjata jarak jauh", en = "Show RGB laser beam only when holding firearms or ranged weapons" },
-        true,
-        3,
-        function(on)
-            Combat.RGBLaserEnabled = on
-            if not on then
-                Combat.HideLaser()
-            end
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Mode Aktivasi Bidikan", en = "Aimbot Trigger Mode" }, {
-        { Label = { id = "Otomatis (Senjata/Klik)", en = "Auto (Tool/Click)" }, Value = "Auto" },
-        { Label = { id = "Selalu Mengunci", en = "Always Lock" }, Value = "Always" },
-        { Label = { id = "Tahan Klik Kanan", en = "Hold Right Click" }, Value = "HoldRMB" },
-    }, "Auto", 4, function(val)
-        Combat.AimbotMode = val
-    end)
-
-    Components.AddChipSelector(page, { id = "Bagian Tubuh Target", en = "Target Body Part" }, {
-        { Label = { id = "Kepala", en = "Head" }, Value = "Head" },
-        { Label = { id = "Badan Utama", en = "Torso" }, Value = "HumanoidRootPart" },
-        { Label = { id = "Terdekat FOV", en = "Closest in FOV" }, Value = "Closest" },
-    }, "Head", 5, function(val)
-        Combat.AimPart = val
-    end)
-
-    Components.AddToggle(
-        page,
-        { id = "Abaikan Rekan Satu Tim", en = "Ignore Teammates (Team Check)" },
-        { id = "Mencegah bidikan mengunci pemain yang berada dalam tim yang sama", en = "Avoid locking onto teammates in team-based games" },
-        true,
+        { id = "ESP Barang & Loot", en = "Item & Loot ESP" },
+        { id = "Mendeteksi item jatuh, tool & objek interaktif di map", en = "Detects dropped items, tools & interactive objects" },
+        ItemESP.Enabled,
         6,
-        function(on)
-            Combat.TeamCheck = on
+        function(val)
+            ItemESP.Enabled = val
+            FeatureAPI.Sync("ItemESP", val)
+            if not val then ItemESP.ClearAll() end
         end
     )
 
-    Components.AddToggle(
+    FeatureAPI.Register("ItemESP", {
+        Category = "RadarESP",
+        OnEnable = function() ItemESP.Enabled = true; itemEspToggle.SetState(true, false) end,
+        OnDisable = function() ItemESP.Enabled = false; ItemESP.ClearAll(); itemEspToggle.SetState(false, false) end,
+    })
+
+    local genEspToggle = Components.AddToggle(
         page,
-        { id = "Tampilkan Lingkaran Area FOV", en = "Show Aim FOV Circle" },
-        { id = "Menampilkan batas lingkaran jangkauan bidikan di tengah layar", en = "Visualize aim detection radius at screen center" },
-        false,
+        { id = "ESP Generator & Progres", en = "Generator & Progress ESP" },
+        { id = "Menampilkan lokasi mesin/generator & persentase perbaikan", en = "Shows generator locations & live repair percentages" },
+        GeneratorESP.Enabled,
         7,
-        function(on)
-            Combat.ShowFOVCircle = on
-            if Combat.FOVCircle then
-                Combat.FOVCircle.Visible = on
+        function(val)
+            GeneratorESP.Enabled = val
+            FeatureAPI.Sync("GeneratorESP", val)
+            if not val then GeneratorESP.ClearAll() end
+        end
+    )
+
+    FeatureAPI.Register("GeneratorESP", {
+        Category = "RadarESP",
+        OnEnable = function() GeneratorESP.Enabled = true; genEspToggle.SetState(true, false) end,
+        OnDisable = function() GeneratorESP.Enabled = false; GeneratorESP.ClearAll(); genEspToggle.SetState(false, false) end,
+    })
+
+    Components.AddSectionHeader(page, { id = "Otomatisasi Generator (Map Distrik & Universal)", en = "Generator Automation" }, 8)
+
+    local autoGenToggle = Components.AddToggle(
+        page,
+        { id = "Auto Generator (Teleport & Perbaiki)", en = "Auto Generator (Teleport & Repair)" },
+        { id = "Otomatis menuju generator terdekat, berinteraksi & pindah saat 100%", en = "Automatically teleports to nearest generator, interacts & switches at 100%" },
+        AutoGen.Enabled,
+        9,
+        function(val)
+            AutoGen.Enabled = val
+            FeatureAPI.Sync("AutoGenerator", val)
+            if val then
+                AutoGen.CurrentTarget = nil
+                Utils.Notify("Auto Generator", "Memindai generator belum selesai di map...", Theme.Success)
+            else
+                AutoGen.StatusText = "Nonaktif"
             end
         end
     )
 
-    Components.AddSlider(page, { id = "Radius Area Bidikan (FOV)", en = "Aim FOV Radius" }, 60, 600, 220, 0, 8, function(val)
-        Combat.FOVRadius = val
-        if Combat.FOVCircle then
-            Combat.FOVCircle.Size = UDim2.new(0, val * 2, 0, val * 2)
-        end
-    end)
-
-    Components.AddSlider(page, { id = "Kecepatan Kunci Bidikan (1.0 = Instan)", en = "Aim Lock Smoothness (1 = Instant)" }, 0.1, 1.0, 0.35, 2, 9, function(val)
-        Combat.Smoothness = val
-    end)
-
-    Components.AddSectionHeader(page, { id = "Tangkis Otomatis & Pertahanan Karakter", en = "Auto Parry & Character Defense" }, 10)
+    FeatureAPI.Register("AutoGenerator", {
+        Category = "RadarESP",
+        OnEnable = function() AutoGen.Enabled = true; autoGenToggle.SetState(true, false) end,
+        OnDisable = function() AutoGen.Enabled = false; AutoGen.CurrentTarget = nil; autoGenToggle.SetState(false, false) end,
+    })
 
     Components.AddToggle(
         page,
-        { id = "Tangkis Serangan Otomatis (Auto Parry)", en = "Auto Parry Incoming Attacks" },
-        { id = "Otomatis menangkis serangan jarak dekat ketika pemain sekitar mulai memukul", en = "Automatically parry when nearby players launch melee attacks" },
-        false,
-        11,
-        function(on)
-            Combat.AutoParryEnabled = on
-            Utils.Notify(
-                "Auto Parry",
-                on and LocaleEngine.Text("Tangkis otomatis aktif & memantau serangan sekitar!", "Auto Parry active and monitoring nearby attacks!")
-                    or LocaleEngine.Text("Tangkis otomatis dimatikan.", "Auto Parry disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
-        end
+        { id = "Auto Skill Check Generator", en = "Auto Generator Skill Check" },
+        { id = "Menyelesaikan mini-game skill check generator secara otomatis", en = "Automatically completes generator skill check prompts" },
+        AutoGen.AutoSkillCheck,
+        10,
+        function(val) AutoGen.AutoSkillCheck = val end
     )
 
-    Components.AddToggle(
-        page,
-        { id = "Visual Radius & Perisai Auto Parry", en = "Auto Parry Visual Dome & Shield" },
-        { id = "Menampilkan kubah radar jangkauan parry dan kilau perisai saat menangkis", en = "Display 3D parry detection dome and shield flash upon deflecting" },
-        true,
-        12,
-        function(on)
-            Combat.AutoParryVisual = on
-            if not on then
-                Combat.CleanupParryVisuals()
-            end
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Tombol / API Tangkisan (Parry Key)", en = "Parry Input / API Trigger" }, {
-        { Label = { id = "Otomatis (Semua API)", en = "Auto (All APIs)" }, Value = "Auto" },
-        { Label = { id = "Tombol F", en = "Key F" }, Value = "F" },
-        { Label = { id = "Klik Kanan (RMB)", en = "Right Click" }, Value = "RMB" },
-        { Label = { id = "Tombol E", en = "Key E" }, Value = "E" },
-        { Label = { id = "Tombol Q", en = "Key Q" }, Value = "Q" },
-    }, "Auto", 13, function(val)
-        Combat.ParryKey = val
-    end)
-
-    Components.AddSlider(page, { id = "Jarak Deteksi Tangkisan (Studs)", en = "Auto Parry Detection Range (Studs)" }, 6, 40, 18, 0, 14, function(val)
-        Combat.ParryRange = val
-    end)
-
-    Components.AddToggle(
-        page,
-        { id = "Kebal Pukulan & Anti-Mental", en = "Melee Immunity & Anti-Knockback" },
-        { id = "Menahan efek terpental, jatuh (ragdoll), dan sentuhan senjata melee lawan", en = "Prevent knockback, ragdoll states, and enemy melee weapon hitboxes" },
-        false,
-        15,
-        function(on)
-            Combat.MeleeImmunity = on
-            if not on then
-                Protection.RestoreEnemyHitboxes()
-            end
-            Utils.Notify(
-                "Kebal Pukulan",
-                on and LocaleEngine.Text("Mode kebal pukulan & anti-mental aktif!", "Melee immunity & anti-knockback enabled!")
-                    or LocaleEngine.Text("Mode kebal dimatikan.", "Melee immunity disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
-        end
-    )
-
-    Components.AddToggle(
-        page,
-        { id = "Tahan Lapar & Tahan Haus", en = "Hunger & Thirst Guard (All Maps)" },
-        { id = "Menjaga indikator lapar, haus, dan energi karakter tetap penuh di semua map", en = "Keep hunger, thirst, and energy meters full across survival maps" },
-        false,
-        16,
-        function(on)
-            Combat.HungerThirstGuard = on
-            Utils.Notify(
-                "Ketahanan Survival",
-                on and LocaleEngine.Text("Tahan lapar & tahan haus aktif!", "Hunger & Thirst guard enabled!")
-                    or LocaleEngine.Text("Tahan lapar & haus dimatikan.", "Hunger & Thirst guard disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
-        end
-    )
-end
-
--- ============================================================================
--- TAB 5: PERGERAKAN (KECEPATAN, LOMPATAN, TERBANG HALUS & TEMBUS OBJEK)
--- ============================================================================
-do
-    local page = Components.CreateTab("Pergerakan", { id = "Pergerakan", en = "Movement" }, "⚡", 5)
-    Components.AddSectionHeader(page, { id = "Penyetelan Gerak Dasar", en = "Character Locomotion Tuning" }, 1)
-
-    local wsSlider = Components.AddSlider(page, { id = "Kecepatan Berjalan (WalkSpeed)", en = "WalkSpeed" }, 16, 250, 16, 0, 2, function(val)
-        State.WalkSpeed = val
-        local _, hum = Utils.GetCharacter()
-        if hum then hum.WalkSpeed = val end
-    end)
-
-    local jpSlider = Components.AddSlider(page, { id = "Kekuatan Lompatan (JumpPower)", en = "JumpPower" }, 50, 300, 50, 0, 3, function(val)
-        State.JumpPower = val
-        local _, hum = Utils.GetCharacter()
-        if hum then
-            hum.UseJumpPower = true
-            hum.JumpPower = val
-        end
-    end)
-
-    local maxGrav = math.max(300, math.ceil(State.OriginalGravity))
-    local gravSlider = Components.AddSlider(page, { id = "Gravitasi Dunia (Gravity)", en = "Workspace Gravity" }, 0, maxGrav, State.OriginalGravity, 1, 4, function(val)
-        State.Gravity = val
-        workspace.Gravity = val
-    end)
-
-    local origGravStr = string.format("%.1f", State.OriginalGravity)
     Components.AddButton(
         page,
-        { id = "Pulihkan Fisika Bawaan", en = "Reset Physics Defaults" },
-        { id = "Kembalikan kecepatan jalan (16), lompatan (50), dan gravitasi (" .. origGravStr .. ")", en = "Restore WalkSpeed (16), JumpPower (50), Gravity (" .. origGravStr .. ")" },
-        { id = "Pulihkan", en = "Reset All" },
-        5,
+        { id = "Pindai Semua Generator (GeneratorAPI)", en = "Scan All Generators (GeneratorAPI)" },
+        { id = "Cek jumlah total, selesai, dan jarak generator terdekat", en = "Check total count, completed, and nearest generator distance" },
+        { id = "Pindai", en = "Scan" },
+        11,
         function()
-            wsSlider.SetValue(16, true)
-            jpSlider.SetValue(50, true)
-            gravSlider.SetValue(State.OriginalGravity, true)
+            local stats = GeneratorAPI.GetStats()
+            local nearestStr = stats.Nearest
+                and string.format("%s (%d%% | %dm)", stats.Nearest.Name, stats.Nearest.Progress, stats.Nearest.Distance)
+                or LocaleEngine.Text("Semua selesai / Tidak ada", "All complete / None")
             Utils.Notify(
-                LocaleEngine.Text("Fisika Dipulihkan", "Physics Reset"),
-                LocaleEngine.Text("Nilai pergerakan dikembalikan ke bawaan.", "Movement values restored to defaults."),
-                Theme.Success
+                string.format("GeneratorAPI (%d/%d Selesai)", stats.Completed, stats.Total),
+                LocaleEngine.Text("Terdekat: ", "Nearest: ") .. nearestStr,
+                Theme.Accent
             )
         end
     )
+end
 
-    Components.AddSectionHeader(page, { id = "Mode Terbang & Tembus Objek", en = "Flight & Navigation Modes" }, 6)
+-- ============================================================================
+-- TAB 4: PERTARUNGAN (Aimbot, RGB Laser, Auto Parry & Ketahanan)
+-- ============================================================================
+do
+    local page = Components.CreateTab("Pertarungan", { id = "Pertarungan", en = "Combat" }, "⚔️", 4)
 
-    Components.AddToggle(
+    Components.AddSectionHeader(page, { id = "Bidik Otomatis & Laser", en = "Auto Aimbot & Laser" }, 1)
+
+    local aimToggle = Components.AddToggle(
         page,
-        { id = "Mode Terbang Halus (Fly)", en = "Smooth Free-Flight (Fly)" },
-        { id = "Terbang bebas ke segala arah dengan kendali halus untuk PC maupun Mobile", en = "Smooth admin-style free flight without rubberbanding (PC & Mobile)" },
-        false,
-        7,
-        function(on)
-            State.FlyEnabled = on
-            if on then
-                local _, hum = Utils.GetCharacter()
-                if hum and hum.Sit then
-                    hum.Sit = false
-                end
+        { id = "Aktifkan Aimbot Kamera", en = "Enable Camera Aimbot" },
+        { id = "Mengunci kamera ke target musuh dalam lingkaran FOV", en = "Locks camera onto enemy target within FOV radius" },
+        Combat.AimbotEnabled,
+        2,
+        function(val)
+            Combat.AimbotEnabled = val
+            FeatureAPI.Sync("Aimbot", val)
+            if not val then Combat.HideLaser() end
+        end
+    )
+
+    FeatureAPI.Register("Aimbot", {
+        Category = "Pertarungan",
+        OnEnable = function() Combat.AimbotEnabled = true; aimToggle.SetState(true, false) end,
+        OnDisable = function() Combat.AimbotEnabled = false; Combat.HideLaser(); aimToggle.SetState(false, false) end,
+    })
+
+    Components.AddChipSelector(
+        page,
+        { id = "Mode Aktivasi & Bagian Target", en = "Activation Mode & Target Part" },
+        {
+            { Label = { id = "Senjata (Auto)", en = "Weapon Auto" }, Value = "Auto" },
+            { Label = { id = "Selalu Aktif", en = "Always On" }, Value = "Always" },
+            { Label = { id = "Kepala (Head)", en = "Head" }, Value = "Head" },
+            { Label = { id = "Terdekat", en = "Closest" }, Value = "Closest" },
+        },
+        Combat.AimbotMode,
+        3,
+        function(v)
+            if v == "Head" or v == "Closest" then
+                Combat.AimPart = v
             else
-                Physics.CleanupFly()
+                Combat.AimbotMode = v
             end
-            Utils.Notify(
-                "Mode Terbang",
-                on and LocaleEngine.Text("Mode terbang halus aktif.", "Smooth flight enabled.")
-                    or LocaleEngine.Text("Mode terbang dimatikan.", "Flight disabled."),
-                on and Theme.Success or Theme.TextSecondary
-            )
         end
     )
-
-    Components.AddSlider(page, { id = "Kecepatan Terbang", en = "Flight Speed" }, 20, 250, 65, 0, 8, function(val)
-        State.FlySpeed = val
-    end)
 
     Components.AddToggle(
         page,
-        { id = "Mode Tembus Objek (NoClip)", en = "NoClip Geometry Inspector" },
-        { id = "Menonaktifkan tabrakan dinding; gerakkan analog secara perlahan saat menembus objek", en = "Disable wall collisions; push analog stick gently when passing through walls" },
-        false,
-        9,
-        function(on)
-            State.NoclipEnabled = on
-            if not on then Physics.RestoreNoclip() end
-            Utils.Notify(
-                "Mode Tembus Objek",
-                on and LocaleEngine.Text("NoClip aktif (gerakkan analog perlahan saat menembus).", "NoClip active (move analog gently through geometry).")
-                    or LocaleEngine.Text("Tabrakan objek dipulihkan.", "Collisions restored."),
-                on and Theme.Warning or Theme.TextSecondary
-            )
+        { id = "Lingkaran FOV & Laser RGB", en = "FOV Circle & RGB Laser" },
+        { id = "Tampilkan indikator radius FOV serta garis laser RGB ke target", en = "Display FOV circle overlay and RGB laser beam to target" },
+        Combat.ShowFOVCircle,
+        4,
+        function(val)
+            Combat.ShowFOVCircle = val
+            Combat.RGBLaserEnabled = val
         end
     )
+
+    Components.AddSlider(
+        page,
+        { id = "Radius FOV Aimbot (Px)", en = "Aimbot FOV Radius (Px)" },
+        60, 600, Combat.FOVRadius, 0, 5,
+        function(v) Combat.FOVRadius = v end
+    )
+
+    Components.AddSlider(
+        page,
+        { id = "Kehalusan Bidikan (Smoothness)", en = "Aim Smoothness" },
+        0.1, 1.0, Combat.Smoothness, 2, 6,
+        function(v) Combat.Smoothness = v end
+    )
+
+    Components.AddSectionHeader(page, { id = "Auto Parry & Ketahanan", en = "Auto Parry & Survivability" }, 7)
+
+    local parryToggle = Components.AddToggle(
+        page,
+        { id = "Auto Parry / Tangkis Otomatis", en = "Auto Parry / Deflect" },
+        { id = "Mendeteksi animasi serangan jarak dekat & proyektil masuk", en = "Detects incoming melee swing animations & projectiles" },
+        Combat.AutoParryEnabled,
+        8,
+        function(val)
+            Combat.AutoParryEnabled = val
+            FeatureAPI.Sync("AutoParry", val)
+            if not val then Combat.CleanupParryVisuals() end
+        end
+    )
+
+    FeatureAPI.Register("AutoParry", {
+        Category = "Pertarungan",
+        OnEnable = function() Combat.AutoParryEnabled = true; parryToggle.SetState(true, false) end,
+        OnDisable = function() Combat.AutoParryEnabled = false; Combat.CleanupParryVisuals(); parryToggle.SetState(false, false) end,
+    })
+
+    Components.AddSlider(
+        page,
+        { id = "Jarak Deteksi Auto Parry (Studs)", en = "Auto Parry Detection Range" },
+        6, 40, Combat.ParryRange, 0, 9,
+        function(v) Combat.ParryRange = v end
+    )
+
+    Components.AddToggle(
+        page,
+        { id = "Kebal Sentuhan Senjata Melee", en = "Melee Tool Touch Immunity" },
+        { id = "Menonaktifkan CanTouch pada senjata melee milik pemain lain", en = "Disables CanTouch on other players' melee tools" },
+        Combat.MeleeImmunity,
+        10,
+        function(val) Combat.MeleeImmunity = val end
+    )
+
+    Components.AddToggle(
+        page,
+        { id = "Kunci Lapar, Haus & Stamina", en = "Lock Hunger, Thirst & Stamina" },
+        { id = "Mencegah penurunan nilai Hunger, Thirst, dan Stamina karakter", en = "Prevents Hunger, Thirst, and Stamina values from decreasing" },
+        Combat.HungerThirstGuard,
+        11,
+        function(val) Combat.HungerThirstGuard = val end
+    )
+end
+
+-- ============================================================================
+-- TAB 5: PERGERAKAN (Kecepatan, Lompatan, Terbang & Noclip)
+-- ============================================================================
+do
+    local page = Components.CreateTab("Pergerakan", { id = "Pergerakan", en = "Movement" }, "🏃", 5)
+
+    Components.AddSectionHeader(page, { id = "Modifikasi Kecepatan & Lompatan", en = "Speed & Jump Modification" }, 1)
+
+    Components.AddSlider(
+        page,
+        { id = "Kecepatan Jalan (WalkSpeed)", en = "WalkSpeed" },
+        16, 250, State.WalkSpeed, 0, 2,
+        function(v)
+            State.WalkSpeed = v
+            local _, hum = Utils.GetCharacter()
+            if hum then hum.WalkSpeed = v end
+        end
+    )
+
+    Components.AddSlider(
+        page,
+        { id = "Kekuatan Lompat (JumpPower)", en = "JumpPower" },
+        50, 300, State.JumpPower, 0, 3,
+        function(v)
+            State.JumpPower = v
+            local _, hum = Utils.GetCharacter()
+            if hum then
+                hum.UseJumpPower = true
+                hum.JumpPower = v
+            end
+        end
+    )
+
+    Components.AddSlider(
+        page,
+        { id = "Gravitasi Dunia (Gravity)", en = "World Gravity" },
+        10, 300, State.Gravity, 0, 4,
+        function(v)
+            State.Gravity = v
+            workspace.Gravity = v
+        end
+    )
+
+    Components.AddSectionHeader(page, { id = "Terbang & Tembus Objek", en = "Flight & Noclip" }, 5)
+
+    local flyToggle = Components.AddToggle(
+        page,
+        { id = "Terbang Bebas (Smooth Admin Fly)", en = "Smooth Admin Flight" },
+        { id = "Gunakan WASD / Analog & Spasi / Ctrl untuk terbang halus", en = "Use WASD / Thumbstick & Space / Ctrl to fly smoothly" },
+        State.FlyEnabled,
+        6,
+        function(val)
+            State.FlyEnabled = val
+            FeatureAPI.Sync("Fly", val)
+            if not val then Physics.CleanupFly() end
+        end
+    )
+
+    FeatureAPI.Register("Fly", {
+        Category = "Pergerakan",
+        OnEnable = function() State.FlyEnabled = true; flyToggle.SetState(true, false) end,
+        OnDisable = function() State.FlyEnabled = false; Physics.CleanupFly(); flyToggle.SetState(false, false) end,
+    })
+
+    Components.AddSlider(
+        page,
+        { id = "Kecepatan Terbang (FlySpeed)", en = "Flight Speed" },
+        20, 250, State.FlySpeed, 0, 7,
+        function(v) State.FlySpeed = v end
+    )
+
+    local noclipToggle = Components.AddToggle(
+        page,
+        { id = "Tembus Dinding (Noclip)", en = "Noclip (Walk Through Walls)" },
+        { id = "Menonaktifkan kolisi fisik tubuh agar dapat menembus rintangan", en = "Disables character collision to pass through obstacles" },
+        State.NoclipEnabled,
+        8,
+        function(val)
+            State.NoclipEnabled = val
+            FeatureAPI.Sync("Noclip", val)
+            if not val then Physics.RestoreNoclip() end
+        end
+    )
+
+    FeatureAPI.Register("Noclip", {
+        Category = "Pergerakan",
+        OnEnable = function() State.NoclipEnabled = true; noclipToggle.SetState(true, false) end,
+        OnDisable = function() State.NoclipEnabled = false; Physics.RestoreNoclip(); noclipToggle.SetState(false, false) end,
+    })
 
     Components.AddToggle(
         page,
         { id = "Lompat Tanpa Batas (Infinite Jump)", en = "Infinite Jump" },
-        { id = "Memungkinkan karakter melompat berkali-kali saat berada di udara", en = "Jump repeatedly while airborne" },
-        false,
-        10,
-        function(on)
-            State.InfiniteJumpEnabled = on
-        end
+        { id = "Memungkinkan melompat berulang kali di udara", en = "Allows jumping repeatedly mid-air" },
+        State.InfiniteJumpEnabled,
+        9,
+        function(val) State.InfiniteJumpEnabled = val end
     )
 end
 
 -- ============================================================================
--- TAB 6: TELEPORTASI (KOORDINAT, TITIK SIMPAN / WAYPOINT & TELEPORT PEMAIN)
+-- TAB 6: TELEPORTASI (Koordinat, Titik Simpan & Teleport Pemain)
 -- ============================================================================
 do
-    local page = Components.CreateTab("Teleportasi", { id = "Teleportasi", en = "Teleport" }, "⌖", 6)
-    Components.AddSectionHeader(page, { id = "Koordinat & Titik Simpan (Waypoint)", en = "Coordinates & Waypoint Manager" }, 1)
+    local page = Components.CreateTab("Teleportasi", { id = "Teleportasi", en = "Teleport" }, "🧭", 6)
 
-    local posCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 50),
+    Components.AddSectionHeader(page, { id = "Koordinat & Titik Simpan", en = "Coordinates & Saved Waypoints" }, 1)
+
+    local coordCard = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 44),
         BackgroundColor3 = Theme.BgCard,
         BackgroundTransparency = 0.25,
         BorderSizePixel = 0,
         LayoutOrder = 2,
         ZIndex = 14,
     }, page)
-    Utils.AddCorner(posCard, 9)
-    Utils.AddStroke(posCard, Theme.BorderSubtle, 1, 0.3)
+    Utils.AddCorner(coordCard, 9)
+    Utils.AddStroke(coordCard, Theme.BorderSubtle, 1, 0.3)
 
-    UI.TelemetryLabels.Coords = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, -118, 1, 0),
+    local coordLbl = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -24, 1, 0),
         Position = UDim2.new(0, 12, 0, 0),
         BackgroundTransparency = 1,
-        Font = Enum.Font.Code,
-        Text = "XYZ: 0.0, 0.0, 0.0",
-        TextColor3 = Theme.TextPrimary,
+        Font = Theme.FontBold,
+        Text = "Posisi: X: 0 | Y: 0 | Z: 0",
+        TextColor3 = Theme.Accent,
         TextSize = 12,
         TextXAlignment = Enum.TextXAlignment.Left,
         ZIndex = 15,
-    }, posCard)
-
-    local copyPosBtn = Utils.Create("TextButton", {
-        Size = UDim2.new(0, 96, 0, 28),
-        Position = UDim2.new(1, -108, 0.5, -14),
-        BackgroundColor3 = Theme.BgControl,
-        Font = Theme.FontBold,
-        Text = LocaleEngine.Text("Salin CFrame", "Copy CFrame"),
-        TextColor3 = Theme.TextPrimary,
-        TextSize = 11,
-        AutoButtonColor = false,
-        ZIndex = 15,
-    }, posCard)
-    Utils.AddCorner(copyPosBtn, 6)
-
-    LocaleEngine.Bind(function()
-        if copyPosBtn and copyPosBtn.Parent then
-            copyPosBtn.Text = LocaleEngine.Text("Salin CFrame", "Copy CFrame")
-        end
-    end)
-
-    copyPosBtn.MouseButton1Click:Connect(function()
-        local _, _, root = Utils.GetCharacter()
-        if root then
-            local p = root.Position
-            local cfStr = string.format("CFrame.new(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
-            if Utils.CopyText(cfStr) then
-                Utils.Notify(LocaleEngine.Text("CFrame Tersalin", "CFrame Copied"), cfStr, Theme.Success)
-            else
-                Utils.Notify(LocaleEngine.Text("CFrame Saat Ini", "Current CFrame"), cfStr, Theme.Accent)
-            end
-        end
-    end)
-
-    local wpInputCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 48),
-        BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.25,
-        BorderSizePixel = 0,
-        LayoutOrder = 3,
-        ZIndex = 14,
-    }, page)
-    Utils.AddCorner(wpInputCard, 9)
-    Utils.AddStroke(wpInputCard, Theme.BorderSubtle, 1, 0.3)
-
-    local wpBox = Utils.Create("TextBox", {
-        Size = UDim2.new(1, -124, 0, 30),
-        Position = UDim2.new(0, 10, 0.5, -15),
-        BackgroundColor3 = Theme.BgControl,
-        Font = Theme.FontFamily,
-        PlaceholderText = LocaleEngine.Text("Nama titik lokasi (mis. Spawn, Atap)...", "Waypoint name (e.g. Spawn, Roof)..."),
-        PlaceholderColor3 = Theme.TextMuted,
-        Text = "",
-        TextColor3 = Theme.TextPrimary,
-        TextSize = 12,
-        ClearTextOnFocus = false,
-        ZIndex = 15,
-    }, wpInputCard)
-    Utils.AddCorner(wpBox, 6)
-    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, wpBox)
-
-    local saveWpBtn = Utils.Create("TextButton", {
-        Size = UDim2.new(0, 96, 0, 30),
-        Position = UDim2.new(1, -106, 0.5, -15),
-        BackgroundColor3 = Theme.Accent,
-        Font = Theme.FontBold,
-        Text = LocaleEngine.Text("+ Simpan", "+ Save Point"),
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 12,
-        AutoButtonColor = false,
-        ZIndex = 15,
-    }, wpInputCard)
-    Utils.AddCorner(saveWpBtn, 6)
-    Utils.RegisterAccent(saveWpBtn, "BackgroundColor3")
-
-    LocaleEngine.Bind(function()
-        if wpBox and wpBox.Parent then
-            wpBox.PlaceholderText = LocaleEngine.Text("Nama titik lokasi (mis. Spawn, Atap)...", "Waypoint name (e.g. Spawn, Roof)...")
-        end
-        if saveWpBtn and saveWpBtn.Parent then
-            saveWpBtn.Text = LocaleEngine.Text("+ Simpan", "+ Save Point")
-        end
-    end)
-
-    local wpListHolder = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
-        LayoutOrder = 4,
-        ZIndex = 14,
-    }, page)
-    Utils.Create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, wpListHolder)
-
-    local function renderWaypoints()
-        for _, child in ipairs(wpListHolder:GetChildren()) do
-            if child:IsA("Frame") then child:Destroy() end
-        end
-        for idx, wp in ipairs(State.Waypoints) do
-            local row = Utils.Create("Frame", {
-                Size = UDim2.new(1, 0, 0, 40),
-                BackgroundColor3 = Theme.BgSecondary,
-                BackgroundTransparency = 0.25,
-                BorderSizePixel = 0,
-                LayoutOrder = idx,
-                ZIndex = 15,
-            }, wpListHolder)
-            Utils.AddCorner(row, 7)
-            Utils.AddStroke(row, Theme.BorderSubtle, 1, 0.3)
-
-            Utils.Create("TextLabel", {
-                Size = UDim2.new(1, -142, 1, 0),
-                Position = UDim2.new(0, 10, 0, 0),
-                BackgroundTransparency = 1,
-                Font = Theme.FontFamily,
-                Text = string.format("%s (%.0f, %.0f, %.0f)", wp.Name, wp.CFrame.X, wp.CFrame.Y, wp.CFrame.Z),
-                TextColor3 = Theme.TextPrimary,
-                TextSize = 11,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-                ZIndex = 16,
-            }, row)
-
-            local tpBtn = Utils.Create("TextButton", {
-                Size = UDim2.new(0, 72, 0, 24),
-                Position = UDim2.new(1, -116, 0.5, -12),
-                BackgroundColor3 = Theme.Accent,
-                Font = Theme.FontBold,
-                Text = "Teleport",
-                TextColor3 = Color3.new(1, 1, 1),
-                TextSize = 11,
-                AutoButtonColor = false,
-                ZIndex = 16,
-            }, row)
-            Utils.AddCorner(tpBtn, 5)
-            Utils.RegisterAccent(tpBtn, "BackgroundColor3")
-
-            local delBtn = Utils.Create("TextButton", {
-                Size = UDim2.new(0, 28, 0, 24),
-                Position = UDim2.new(1, -38, 0.5, -12),
-                BackgroundColor3 = Theme.Danger,
-                Font = Theme.FontBold,
-                Text = "✕",
-                TextColor3 = Color3.new(1, 1, 1),
-                TextSize = 11,
-                AutoButtonColor = false,
-                ZIndex = 16,
-            }, row)
-            Utils.AddCorner(delBtn, 5)
-
-            tpBtn.MouseButton1Click:Connect(function()
-                if Utils.SafeTeleport(wp.CFrame) then
-                    Utils.Notify(
-                        "Teleport",
-                        LocaleEngine.Text("Berpindah ke ", "Teleported to ") .. wp.Name,
-                        Theme.Success
-                    )
-                end
-            end)
-
-            delBtn.MouseButton1Click:Connect(function()
-                table.remove(State.Waypoints, idx)
-                renderWaypoints()
-            end)
-        end
-    end
-
-    saveWpBtn.MouseButton1Click:Connect(function()
-        local _, _, root = Utils.GetCharacter()
-        if not root then
-            Utils.Notify("Error", LocaleEngine.Text("Karakter belum siap.", "Character root not found."), Theme.Danger)
-            return
-        end
-        local name = wpBox.Text ~= "" and wpBox.Text or (LocaleEngine.Text("Titik #", "Point #") .. tostring(#State.Waypoints + 1))
-        table.insert(State.Waypoints, { Name = name, CFrame = root.CFrame })
-        wpBox.Text = ""
-        renderWaypoints()
-        Utils.Notify(
-            LocaleEngine.Text("Lokasi Tersimpan", "Waypoint Saved"),
-            LocaleEngine.Text("Menyimpan '", "Saved '") .. name .. "'",
-            Theme.Success
-        )
-    end)
-
-    Components.AddSectionHeader(page, { id = "Teleport & Pantau Pemain di Server", en = "Player Teleport & Spectate" }, 5)
-
-    local playerListHolder = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
-        LayoutOrder = 6,
-        ZIndex = 14,
-    }, page)
-    Utils.Create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, playerListHolder)
-
-    local function refreshPlayerList()
-        for _, child in ipairs(playerListHolder:GetChildren()) do
-            if child:IsA("Frame") then child:Destroy() end
-        end
-        local count = 0
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer then
-                count = count + 1
-                local row = Utils.Create("Frame", {
-                    Size = UDim2.new(1, 0, 0, 42),
-                    BackgroundColor3 = Theme.BgCard,
-                    BackgroundTransparency = 0.25,
-                    BorderSizePixel = 0,
-                    LayoutOrder = count,
-                    ZIndex = 15,
-                }, playerListHolder)
-                Utils.AddCorner(row, 8)
-                Utils.AddStroke(row, Theme.BorderSubtle, 1, 0.3)
-
-                Utils.Create("TextLabel", {
-                    Size = UDim2.new(1, -162, 1, 0),
-                    Position = UDim2.new(0, 10, 0, 0),
-                    BackgroundTransparency = 1,
-                    Font = Theme.FontFamily,
-                    Text = plr.DisplayName .. " (@" .. plr.Name .. ")",
-                    TextColor3 = Theme.TextPrimary,
-                    TextSize = 11,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    TextTruncate = Enum.TextTruncate.AtEnd,
-                    ZIndex = 16,
-                }, row)
-
-                local tpBtn = Utils.Create("TextButton", {
-                    Size = UDim2.new(0, 68, 0, 24),
-                    Position = UDim2.new(1, -146, 0.5, -12),
-                    BackgroundColor3 = Theme.Accent,
-                    Font = Theme.FontBold,
-                    Text = "Teleport",
-                    TextColor3 = Color3.new(1, 1, 1),
-                    TextSize = 11,
-                    AutoButtonColor = false,
-                    ZIndex = 16,
-                }, row)
-                Utils.AddCorner(tpBtn, 5)
-                Utils.RegisterAccent(tpBtn, "BackgroundColor3")
-
-                local isSpec = (State.SpectatingPlayer == plr)
-                local viewBtn = Utils.Create("TextButton", {
-                    Size = UDim2.new(0, 64, 0, 24),
-                    Position = UDim2.new(1, -72, 0.5, -12),
-                    BackgroundColor3 = isSpec and Theme.Warning or Theme.BgControl,
-                    Font = Theme.FontBold,
-                    Text = isSpec and LocaleEngine.Text("Berhenti", "Unview") or LocaleEngine.Text("Pantau", "View"),
-                    TextColor3 = Color3.new(1, 1, 1),
-                    TextSize = 11,
-                    AutoButtonColor = false,
-                    ZIndex = 16,
-                }, row)
-                Utils.AddCorner(viewBtn, 5)
-
-                tpBtn.MouseButton1Click:Connect(function()
-                    local targetRoot = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                    if targetRoot then
-                        if Utils.SafeTeleport(targetRoot.CFrame * CFrame.new(0, 0.5, 3)) then
-                            Utils.Notify(
-                                "Teleport",
-                                LocaleEngine.Text("Berpindah ke ", "Teleported to ") .. plr.DisplayName,
-                                Theme.Success
-                            )
-                        end
-                    else
-                        Utils.Notify(
-                            LocaleEngine.Text("Tidak Tersedia", "Unavailable"),
-                            LocaleEngine.Text("Karakter pemain belum muncul.", "Target character has not spawned yet."),
-                            Theme.Warning
-                        )
-                    end
-                end)
-
-                viewBtn.MouseButton1Click:Connect(function()
-                    local cam = workspace.CurrentCamera
-                    if State.SpectatingPlayer == plr then
-                        State.SpectatingPlayer = nil
-                        local _, myHum = Utils.GetCharacter()
-                        if cam and myHum then cam.CameraSubject = myHum end
-                        Utils.Notify(
-                            LocaleEngine.Text("Kamera", "Camera"),
-                            LocaleEngine.Text("Kamera kembali ke karakter Anda.", "Camera returned to LocalPlayer."),
-                            Theme.TextSecondary
-                        )
-                    else
-                        local targetHum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-                        if cam and targetHum then
-                            State.SpectatingPlayer = plr
-                            cam.CameraSubject = targetHum
-                            Utils.Notify(
-                                LocaleEngine.Text("Memantau Pemain", "Spectating"),
-                                LocaleEngine.Text("Memantau kamera ", "Viewing ") .. plr.DisplayName,
-                                Theme.Warning
-                            )
-                        end
-                    end
-                    refreshPlayerList()
-                end)
-            end
-        end
-
-        if count == 0 then
-            local empty = Utils.Create("Frame", {
-                Size = UDim2.new(1, 0, 0, 36),
-                BackgroundColor3 = Theme.BgCard,
-                BackgroundTransparency = 0.25,
-                BorderSizePixel = 0,
-                ZIndex = 15,
-            }, playerListHolder)
-            Utils.AddCorner(empty, 8)
-            Utils.Create("TextLabel", {
-                Size = UDim2.new(1, 0, 1, 0),
-                BackgroundTransparency = 1,
-                Font = Theme.FontFamily,
-                Text = LocaleEngine.Text("Belum ada pemain lain di server ini.", "No other players in this server yet."),
-                TextColor3 = Theme.TextMuted,
-                TextSize = 11,
-                ZIndex = 16,
-            }, empty)
-        end
-    end
-
-    refreshPlayerList()
-    LocaleEngine.Bind(refreshPlayerList)
-    Utils.Track(Players.PlayerAdded:Connect(refreshPlayerList))
-    Utils.Track(Players.PlayerRemoving:Connect(function(plr)
-        if State.SpectatingPlayer == plr then
-            State.SpectatingPlayer = nil
-            local _, myHum = Utils.GetCharacter()
-            if workspace.CurrentCamera and myHum then
-                workspace.CurrentCamera.CameraSubject = myHum
-            end
-        end
-        task.defer(refreshPlayerList)
-    end))
-end
-
--- ============================================================================
--- TAB 7: GENDONG / CARRY (INTERAKSI GENDONG PEMAIN LAIN)
--- ============================================================================
-do
-    local page = Components.CreateTab("Gendong", { id = "Gendong", en = "Carry" }, "🫂", 7)
-    Components.AddSectionHeader(page, { id = "Kontrol Utama Gendong (Carry)", en = "Interactive Carry Controls" }, 1)
-
-    local carryStatusLabel = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 22),
-        BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.25,
-        Font = Theme.FontBold,
-        Text = LocaleEngine.Text("  Target Terpilih: Belum ada pemain dipilih", "  Selected Target: No player selected"),
-        TextColor3 = Theme.TextSecondary,
-        TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = 2,
-        ZIndex = 14,
-    }, page)
-    Utils.AddCorner(carryStatusLabel, 7)
-    Utils.RegisterText(carryStatusLabel, true, Theme.TextSecondary)
-
-    local actionRow = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 42),
-        BackgroundTransparency = 1,
-        LayoutOrder = 3,
-        ZIndex = 14,
-    }, page)
-
-    local carryBtn = Utils.Create("TextButton", {
-        Size = UDim2.new(0.485, 0, 1, 0),
-        Position = UDim2.new(0, 0, 0, 0),
-        BackgroundColor3 = Theme.Success,
-        Font = Theme.FontBold,
-        Text = LocaleEngine.Text("🫂 Mulai Gendong", "🫂 Start Carry"),
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 12,
-        AutoButtonColor = false,
-        ZIndex = 15,
-    }, actionRow)
-    Utils.AddCorner(carryBtn, 8)
-
-    local releaseCarryBtn = Utils.Create("TextButton", {
-        Size = UDim2.new(0.485, 0, 1, 0),
-        Position = UDim2.new(0.515, 0, 0, 0),
-        BackgroundColor3 = Theme.Danger,
-        Font = Theme.FontBold,
-        Text = LocaleEngine.Text("✋ Lepaskan", "✋ Release Carry"),
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 12,
-        AutoButtonColor = false,
-        ZIndex = 15,
-    }, actionRow)
-    Utils.AddCorner(releaseCarryBtn, 8)
-
-    LocaleEngine.Bind(function()
-        if carryBtn and carryBtn.Parent then
-            carryBtn.Text = LocaleEngine.Text("🫂 Mulai Gendong", "🫂 Start Carry")
-        end
-        if releaseCarryBtn and releaseCarryBtn.Parent then
-            releaseCarryBtn.Text = LocaleEngine.Text("✋ Lepaskan", "✋ Release Carry")
-        end
-        if carryStatusLabel and carryStatusLabel.Parent and not Carry.TargetPlayer then
-            carryStatusLabel.Text = LocaleEngine.Text("  Target Terpilih: Belum ada pemain dipilih", "  Selected Target: No player selected")
-        end
-    end)
-
-    carryBtn.MouseButton1Click:Connect(function()
-        SafeEngine.Run("CarryStart", function()
-            if Carry.Start() and Carry.TargetPlayer then
-                local modeTag = Carry.NativePromptTriggered and "Server" or "Lokal"
-                carryStatusLabel.Text = "  Status: Menggendong " .. Carry.TargetPlayer.DisplayName .. " (" .. Carry.Style .. " | " .. modeTag .. ")"
-            end
-        end)
-    end)
-
-    releaseCarryBtn.MouseButton1Click:Connect(function()
-        SafeEngine.Run("CarryStop", function()
-            Carry.Stop()
-            carryStatusLabel.Text = Carry.TargetPlayer
-                and ("  Target Terpilih: " .. Carry.TargetPlayer.DisplayName .. " (Dilepaskan)")
-                or LocaleEngine.Text("  Target Terpilih: Belum ada pemain dipilih", "  Selected Target: No player selected")
-            Utils.Notify(
-                LocaleEngine.Text("Lepas Gendong", "Carry Released"),
-                LocaleEngine.Text("Target telah dilepaskan.", "Target has been released."),
-                Theme.TextSecondary
-            )
-        end)
-    end)
-
-    Components.AddToggle(
-        page,
-        { id = "Visual Sorotan & Tali Energi Carry", en = "Carry Visual Highlight & Tether Beam" },
-        { id = "Menampilkan sorotan avatar target dan garis penghubung visual saat menggendong", en = "Display target avatar highlight and glowing tether beam while carrying" },
-        true,
-        4,
-        function(on)
-            Carry.ShowVisualBeam = on
-            if not on then
-                Carry.CleanupVisuals()
-            end
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Pilih Posisi / Gaya Gendong", en = "Select Carry Style" }, {
-        { Label = { id = "Gendong Depan", en = "Front Carry" }, Value = "Depan" },
-        { Label = { id = "Gendong Belakang", en = "Piggyback" }, Value = "Belakang" },
-        { Label = { id = "Panggul Pundak", en = "Shoulder" }, Value = "Pundak" },
-        { Label = { id = "Seret Tanah", en = "Drag" }, Value = "Seret" },
-        { Label = { id = "Angkat Kepala", en = "Head Carry" }, Value = "Kepala" },
-        { Label = { id = "Melayang Samping", en = "Side Float" }, Value = "Melayang" },
-    }, "Depan", 5, function(val)
-        Carry.Style = val
-        if Carry.Enabled and Carry.TargetPlayer then
-            local modeTag = Carry.NativePromptTriggered and "Server" or "Lokal"
-            carryStatusLabel.Text = "  Status: Menggendong " .. Carry.TargetPlayer.DisplayName .. " (" .. Carry.Style .. " | " .. modeTag .. ")"
-        end
-        Utils.Notify(
-            LocaleEngine.Text("Gaya Gendong", "Carry Style"),
-            LocaleEngine.Text("Gaya diubah ke: ", "Style changed to: ") .. val,
-            Theme.Accent
-        )
-    end)
-
-    Components.AddSectionHeader(page, { id = "Daftar Pemain untuk Digendong", en = "Select Player to Carry" }, 6)
-
-    local carryListHolder = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
-        LayoutOrder = 7,
-        ZIndex = 14,
-    }, page)
-    Utils.Create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, carryListHolder)
-
-    local function refreshCarryPlayers()
-        for _, child in ipairs(carryListHolder:GetChildren()) do
-            if child:IsA("Frame") then
-                child:Destroy()
-            end
-        end
-        local count = 0
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer then
-                count = count + 1
-                local isSelected = (Carry.TargetPlayer == plr)
-                local row = Utils.Create("Frame", {
-                    Size = UDim2.new(1, 0, 0, 42),
-                    BackgroundColor3 = Theme.BgCard,
-                    BackgroundTransparency = 0.25,
-                    BorderSizePixel = 0,
-                    LayoutOrder = count,
-                    ZIndex = 14,
-                }, carryListHolder)
-                Utils.AddCorner(row, 8)
-                Utils.AddStroke(row, isSelected and Theme.Accent or Theme.BorderSubtle, 1, 0.25)
-
-                local nameLbl = Utils.Create("TextLabel", {
-                    Size = UDim2.new(1, -116, 1, 0),
-                    Position = UDim2.new(0, 12, 0, 0),
-                    BackgroundTransparency = 1,
-                    Font = Theme.FontFamily,
-                    Text = plr.DisplayName .. " (@" .. plr.Name .. ")",
-                    TextColor3 = Theme.TextPrimary,
-                    TextSize = 11,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    TextTruncate = Enum.TextTruncate.AtEnd,
-                    ZIndex = 15,
-                }, row)
-                Utils.RegisterText(nameLbl, false, Theme.TextPrimary)
-
-                local pickBtn = Utils.Create("TextButton", {
-                    Size = UDim2.new(0, 92, 0, 26),
-                    Position = UDim2.new(1, -102, 0.5, -13),
-                    BackgroundColor3 = isSelected and Theme.Success or Theme.Accent,
-                    Font = Theme.FontBold,
-                    Text = isSelected and LocaleEngine.Text("Terpilih ✓", "Selected ✓") or LocaleEngine.Text("Pilih Target", "Select"),
-                    TextColor3 = Color3.new(1, 1, 1),
-                    TextSize = 11,
-                    AutoButtonColor = false,
-                    ZIndex = 15,
-                }, row)
-                Utils.AddCorner(pickBtn, 6)
-
-                pickBtn.MouseButton1Click:Connect(function()
-                    if Carry.TargetPlayer and Carry.TargetPlayer ~= plr then
-                        local _, oldHum = Utils.GetCharacter(Carry.TargetPlayer)
-                        if oldHum then
-                            oldHum.PlatformStand = false
-                            if oldHum:GetState() == Enum.HumanoidStateType.Physics then
-                                oldHum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                            end
-                        end
-                    end
-                    Carry.TargetPlayer = plr
-                    if Carry.Enabled then
-                        Carry.NativePromptTriggered = false
-                        Carry.NativePromptTriggered = Carry.TryNativeMapCarry(plr)
-                        local modeTag = Carry.NativePromptTriggered and "Server" or "Lokal"
-                        carryStatusLabel.Text = "  Status: Menggendong " .. plr.DisplayName .. " (" .. Carry.Style .. " | " .. modeTag .. ")"
-                    else
-                        carryStatusLabel.Text = "  Target Terpilih: " .. plr.DisplayName .. " (Tekan Mulai Gendong)"
-                    end
-                    refreshCarryPlayers()
-                    Utils.Notify(
-                        LocaleEngine.Text("Target Dipilih", "Target Selected"),
-                        LocaleEngine.Text("Siap menggendong ", "Ready to carry ") .. plr.DisplayName,
-                        Theme.Accent
-                    )
-                end)
-            end
-        end
-
-        if count == 0 then
-            local empty = Utils.Create("Frame", {
-                Size = UDim2.new(1, 0, 0, 36),
-                BackgroundColor3 = Theme.BgCard,
-                BackgroundTransparency = 0.25,
-                BorderSizePixel = 0,
-                ZIndex = 14,
-            }, carryListHolder)
-            Utils.AddCorner(empty, 8)
-            Utils.Create("TextLabel", {
-                Size = UDim2.new(1, 0, 1, 0),
-                BackgroundTransparency = 1,
-                Font = Theme.FontFamily,
-                Text = LocaleEngine.Text("Belum ada pemain lain di server untuk digendong.", "No other players in server to carry."),
-                TextColor3 = Theme.TextMuted,
-                TextSize = 11,
-                ZIndex = 15,
-            }, empty)
-        end
-    end
-
-    refreshCarryPlayers()
-    LocaleEngine.Bind(refreshCarryPlayers)
-    Utils.Track(Players.PlayerAdded:Connect(refreshCarryPlayers))
-    Utils.Track(Players.PlayerRemoving:Connect(function(plr)
-        if Carry.TargetPlayer == plr then
-            Carry.Stop()
-            Carry.TargetPlayer = nil
-            carryStatusLabel.Text = LocaleEngine.Text("  Target Terpilih: Belum ada pemain dipilih", "  Selected Target: No player selected")
-        end
-        task.defer(refreshCarryPlayers)
-    end))
-end
-
--- ============================================================================
--- TAB 8: TARI & EMOTE (STUDIO ANIMASI REPLIKASI R6 & R15)
--- ============================================================================
-do
-    local page = Components.CreateTab("TariEmote", { id = "Tari & Emote", en = "Dances" }, "💃", 8)
-    Components.AddSectionHeader(page, { id = "Kontrol Gerakan Tari & Emote", en = "Interactive Dance Controls" }, 1)
-
-    Components.AddSlider(page, { id = "Kecepatan Animasi Tari", en = "Dance Animation Speed" }, 0.5, 2.5, 1.0, 1, 2, function(val)
-        Emotes.Speed = val
-        if Emotes.ActiveTrack then
-            pcall(function() Emotes.ActiveTrack:AdjustSpeed(val) end)
-        end
-    end)
-
-    local customAnimCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 46),
-        BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.25,
-        BorderSizePixel = 0,
-        LayoutOrder = 3,
-        ZIndex = 14,
-    }, page)
-    Utils.AddCorner(customAnimCard, 9)
-    Utils.AddStroke(customAnimCard, Theme.BorderSubtle, 1, 0.3)
-
-    local animBox = Utils.Create("TextBox", {
-        Size = UDim2.new(1, -118, 0, 28),
-        Position = UDim2.new(0, 10, 0.5, -14),
-        BackgroundColor3 = Theme.BgControl,
-        Font = Theme.FontFamily,
-        PlaceholderText = LocaleEngine.Text("Masukkan ID Animasi Roblox (angka)...", "Custom Dance Animation ID (numbers)..."),
-        PlaceholderColor3 = Theme.TextMuted,
-        Text = "",
-        TextColor3 = Theme.TextPrimary,
-        TextSize = 11,
-        ClearTextOnFocus = false,
-        ZIndex = 15,
-    }, customAnimCard)
-    Utils.AddCorner(animBox, 6)
-    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, animBox)
-
-    local playCustomBtn = Utils.Create("TextButton", {
-        Size = UDim2.new(0, 92, 0, 28),
-        Position = UDim2.new(1, -102, 0.5, -14),
-        BackgroundColor3 = Theme.Accent,
-        Font = Theme.FontBold,
-        Text = LocaleEngine.Text("Putar ID", "Play ID"),
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 11,
-        AutoButtonColor = false,
-        ZIndex = 15,
-    }, customAnimCard)
-    Utils.AddCorner(playCustomBtn, 6)
-    Utils.RegisterAccent(playCustomBtn, "BackgroundColor3")
-
-    LocaleEngine.Bind(function()
-        if animBox and animBox.Parent then
-            animBox.PlaceholderText = LocaleEngine.Text("Masukkan ID Animasi Roblox (angka)...", "Custom Dance Animation ID (numbers)...")
-        end
-        if playCustomBtn and playCustomBtn.Parent then
-            playCustomBtn.Text = LocaleEngine.Text("Putar ID", "Play ID")
-        end
-    end)
-
-    playCustomBtn.MouseButton1Click:Connect(function()
-        if animBox.Text ~= "" then
-            Emotes.PlayAsset("Custom Dance", animBox.Text)
-        else
-            Utils.Notify(
-                LocaleEngine.Text("ID Animasi", "Dance ID"),
-                LocaleEngine.Text("Masukkan angka ID animasi Roblox terlebih dahulu.", "Enter a valid Roblox animation ID first."),
-                Theme.Warning
-            )
-        end
-    end)
+    }, coordCard)
+    Utils.RegisterAccent(coordLbl, "TextColor3")
+    UI.TelemetryLabels.Coords = coordLbl
 
     Components.AddButton(
         page,
-        { id = "Hentikan Tari & Pulihkan Pose", en = "Stop Dance / Reset Pose" },
-        { id = "Menghentikan animasi tari yang sedang berjalan", en = "Stop currently playing dance animation" },
-        { id = "Hentikan", en = "Stop Dance" },
-        4,
+        { id = "Simpan Titik Lokasi (Waypoint)", en = "Save Current Waypoint" },
+        { id = "Menyimpan koordinat CFrame saat ini untuk teleport cepat", en = "Saves current CFrame coordinates for quick return" },
+        { id = "Simpan", en = "Save" },
+        3,
         function()
-            Emotes.Stop()
-            Utils.Notify("Tari & Emote", LocaleEngine.Text("Animasi tari dihentikan.", "Dance stopped."), Theme.TextSecondary)
+            local _, _, root = Utils.GetCharacter()
+            if not root then
+                Utils.Notify("Teleportasi", "Karakter tidak ditemukan.", Theme.Warning)
+                return
+            end
+            State.Waypoints["TitikUtama"] = root.CFrame
+            Utils.Notify("Waypoint Disimpan", string.format("X:%.0f Y:%.0f Z:%.0f", root.Position.X, root.Position.Y, root.Position.Z), Theme.Success)
         end
     )
 
-    Components.AddSectionHeader(page, { id = "Katalog Tari Replikasi (R6 & R15)", en = "Replicated Dance Catalog (R6 & R15)" }, 5)
+    Components.AddButton(
+        page,
+        { id = "Kembali ke Titik Simpan", en = "Teleport to Saved Waypoint" },
+        { id = "Berpindah secara aman ke koordinat yang telah disimpan", en = "Safely teleports back to your saved coordinates" },
+        { id = "Teleport", en = "Teleport" },
+        4,
+        function()
+            local wp = State.Waypoints["TitikUtama"]
+            if not wp then
+                Utils.Notify("Teleportasi", "Belum ada titik lokasi yang disimpan.", Theme.Warning)
+                return
+            end
+            Utils.SafeTeleport(wp)
+            Utils.Notify("Teleportasi", "Berhasil berpindah ke titik simpan.", Theme.Success)
+        end
+    )
 
-    local danceGrid = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
+    Components.AddSectionHeader(page, { id = "Teleportasi ke Pemain", en = "Teleport to Player" }, 5)
+
+    local plrInputBox = Utils.Create("TextBox", {
+        Size = UDim2.new(1, 0, 0, 36),
+        BackgroundColor3 = Theme.BgCard,
+        BackgroundTransparency = 0.2,
+        Font = Theme.FontFamily,
+        PlaceholderText = LocaleEngine.Text("Ketik nama / display name pemain tujuan...", "Type target player username or display name..."),
+        PlaceholderColor3 = Theme.TextMuted,
+        Text = "",
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 12,
+        ClearTextOnFocus = false,
         LayoutOrder = 6,
         ZIndex = 14,
     }, page)
+    Utils.AddCorner(plrInputBox, 8)
+    Utils.AddStroke(plrInputBox, Theme.BorderSubtle, 1, 0.3)
+    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, plrInputBox)
 
-    Utils.Create("UIGridLayout", {
-        CellSize = UDim2.new(0.485, 0, 0, 34),
-        CellPadding = UDim2.new(0.03, 0, 0, 7),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, danceGrid)
+    local function findPlayerByPartial(query)
+        local q = string.lower(string.match(query or "", "^%s*(.-)%s*$"))
+        if q == "" then return nil end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                if string.find(string.lower(plr.Name), q, 1, true) or string.find(string.lower(plr.DisplayName), q, 1, true) then
+                    return plr
+                end
+            end
+        end
+        return nil
+    end
 
-    for idx, d in ipairs(Emotes.Catalog) do
-        local btn = Utils.Create("TextButton", {
-            BackgroundColor3 = Theme.BgCard,
-            BackgroundTransparency = 0.22,
-            Font = Theme.FontBold,
-            Text = "🎵 " .. d.Label,
-            TextColor3 = Theme.TextPrimary,
-            TextSize = 11,
-            AutoButtonColor = false,
-            LayoutOrder = idx,
-            ZIndex = 15,
-        }, danceGrid)
-        Utils.AddCorner(btn, 8)
-        local stroke = Utils.AddStroke(btn, Theme.BorderSubtle, 1, 0.3)
+    Components.AddButton(
+        page,
+        { id = "Teleport ke Pemain Target", en = "Teleport to Target Player" },
+        { id = "Pindah langsung ke posisi pemain yang diketik di atas", en = "Instantly move to the player typed above" },
+        { id = "Menuju", en = "Go To" },
+        7,
+        function()
+            local target = findPlayerByPartial(plrInputBox.Text)
+            if not target then
+                Utils.Notify("Teleportasi", "Pemain tidak ditemukan di server.", Theme.Warning)
+                return
+            end
+            local _, _, tRoot = Utils.GetCharacter(target)
+            if not tRoot then
+                Utils.Notify("Teleportasi", "Karakter target belum spawn.", Theme.Warning)
+                return
+            end
+            Utils.SafeTeleport(tRoot.CFrame * CFrame.new(0, 1.5, 2.5))
+            Utils.Notify("Teleportasi", "Berpindah ke: " .. target.DisplayName, Theme.Success)
+        end
+    )
+end
 
-        btn.MouseEnter:Connect(function()
-            Utils.Tween(stroke, TweenInfo.new(0.15), { Color = Theme.Accent })
-        end)
-        btn.MouseLeave:Connect(function()
-            Utils.Tween(stroke, TweenInfo.new(0.15), { Color = Theme.BorderSubtle })
-        end)
+-- ============================================================================
+-- TAB 7: GENDONG (Interaksi Carry & Pilihan Gaya)
+-- ============================================================================
+do
+    local page = Components.CreateTab("Gendong", { id = "Gendong", en = "Carry" }, "🫂", 7)
 
-        btn.MouseButton1Click:Connect(function()
-            Emotes.PlayPreset(d)
-        end)
+    Components.AddSectionHeader(page, { id = "Kontrol Gendong Pemain", en = "Player Carry Controls" }, 1)
+
+    local carryInput = Utils.Create("TextBox", {
+        Size = UDim2.new(1, 0, 0, 36),
+        BackgroundColor3 = Theme.BgCard,
+        BackgroundTransparency = 0.2,
+        Font = Theme.FontFamily,
+        PlaceholderText = LocaleEngine.Text("Ketik nama pemain yang ingin digendong...", "Type player name to carry..."),
+        PlaceholderColor3 = Theme.TextMuted,
+        Text = "",
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 12,
+        ClearTextOnFocus = false,
+        LayoutOrder = 2,
+        ZIndex = 14,
+    }, page)
+    Utils.AddCorner(carryInput, 8)
+    Utils.AddStroke(carryInput, Theme.BorderSubtle, 1, 0.3)
+    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, carryInput)
+
+    Components.AddChipSelector(
+        page,
+        { id = "Pilih Gaya Gendong", en = "Select Carry Style" },
+        {
+            { Label = { id = "Depan", en = "Front" }, Value = "Depan" },
+            { Label = { id = "Punggung", en = "Back" }, Value = "Punggung" },
+            { Label = { id = "Bahu", en = "Shoulder" }, Value = "Bahu" },
+            { Label = { id = "Kepala", en = "Head" }, Value = "Kepala" },
+        },
+        Carry.Style,
+        3,
+        function(v) Carry.Style = v end
+    )
+
+    Components.AddButton(
+        page,
+        { id = "Mulai Gendong Target", en = "Start Carrying Target" },
+        { id = "Menempel dan memicu interaksi gendong pada pemain tujuan", en = "Attaches and triggers carry interaction on target player" },
+        { id = "Gendong", en = "Carry" },
+        4,
+        function()
+            local q = string.lower(string.match(carryInput.Text or "", "^%s*(.-)%s*$"))
+            local target = nil
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
+                    if q == "" or string.find(string.lower(plr.Name), q, 1, true) or string.find(string.lower(plr.DisplayName), q, 1, true) then
+                        target = plr
+                        break
+                    end
+                end
+            end
+            Carry.Start(target)
+        end
+    )
+
+    Components.AddButton(
+        page,
+        { id = "Lepaskan Gendongan", en = "Stop Carrying" },
+        { id = "Menghentikan mode gendong dan memulihkan posisi karakter", en = "Stops carry mode and restores character movement" },
+        { id = "Lepas", en = "Release" },
+        5,
+        function()
+            Carry.Stop()
+            Utils.Notify("Gendong", "Mode gendong dihentikan.", Theme.Success)
+        end
+    )
+end
+
+-- ============================================================================
+-- TAB 8: TARI & EMOTE (Animasi Replikasi R6/R15 & ID Kustom)
+-- ============================================================================
+do
+    local page = Components.CreateTab("TariEmote", { id = "Tari & Emote", en = "Dance & Emote" }, "💃", 8)
+
+    Components.AddSectionHeader(page, { id = "Pengaturan Pemutar Emote", en = "Emote Player Controls" }, 1)
+
+    Components.AddSlider(
+        page,
+        { id = "Kecepatan Animasi Emote", en = "Emote Animation Speed" },
+        0.2, 3.0, Emotes.Speed, 1, 2,
+        function(v)
+            Emotes.Speed = v
+            if Emotes.ActiveTrack then
+                pcall(function() Emotes.ActiveTrack:AdjustSpeed(v) end)
+            end
+        end
+    )
+
+    Components.AddButton(
+        page,
+        { id = "Hentikan Semua Tari / Emote", en = "Stop All Dances / Emotes" },
+        { id = "Menghentikan animasi yang sedang diputar", en = "Stops currently playing animation track" },
+        { id = "Stop", en = "Stop" },
+        3,
+        function()
+            Emotes.Stop()
+            Utils.Notify("Emote", "Animasi dihentikan.", Theme.Success)
+        end
+    )
+
+    Components.AddSectionHeader(page, { id = "Katalog Animasi R6 & R15", en = "R6 & R15 Animation Catalog" }, 4)
+
+    for idx, entry in ipairs(Emotes.Catalog) do
+        Components.AddButton(
+            page,
+            entry.Name,
+            string.format("R6: %s  |  R15: %s", entry.R6, entry.R15),
+            { id = "Putar", en = "Play" },
+            4 + idx,
+            function()
+                Emotes.Play(entry)
+            end
+        )
     end
 end
 
 -- ============================================================================
--- TAB 9: VISUAL (KAMERA FOV, PENCAHAYAAN PENUH & HAPUS KABUT)
+-- TAB 9: VISUAL (Kamera FOV, Fullbright & Hapus Kabut)
 -- ============================================================================
 do
-    local page = Components.CreateTab("Visual", { id = "Visual", en = "Visuals" }, "☀", 9)
-    Components.AddSectionHeader(page, { id = "Pengaturan Kamera & Pencahayaan Dunia", en = "Camera & World Lighting" }, 1)
+    local page = Components.CreateTab("Visual", { id = "Visual", en = "Visuals" }, "👁️", 9)
 
-    local fovSlider = Components.AddSlider(page, { id = "Sudut Pandang Kamera (FOV)", en = "Camera Field of View (FOV)" }, 40, 120, 70, 0, 2, function(val)
-        State.CameraFOV = val
-        local cam = workspace.CurrentCamera
-        if cam then cam.FieldOfView = val end
-    end)
+    Components.AddSectionHeader(page, { id = "Kamera & Pencahayaan Dunia", en = "Camera & World Lighting" }, 1)
+
+    Components.AddSlider(
+        page,
+        { id = "Sudut Pandang Kamera (FOV)", en = "Camera Field of View (FOV)" },
+        40, 120, State.CameraFOV, 0, 2,
+        function(v)
+            State.CameraFOV = v
+            if workspace.CurrentCamera then
+                workspace.CurrentCamera.FieldOfView = v
+            end
+        end
+    )
 
     UI.FullbrightToggle = Components.AddToggle(
         page,
-        { id = "Pencahayaan Penuh (Fullbright)", en = "Fullbright Lighting" },
-        { id = "Menerangi seluruh area gelap dan bayangan malam secara otomatis", en = "Remove darkness and equalize ambient lighting" },
-        false,
+        { id = "Penerangan Penuh (Fullbright)", en = "Fullbright Lighting" },
+        { id = "Menghilangkan area gelap dan bayangan berat di seluruh map", en = "Removes dark areas and heavy shadows across the map" },
+        State.FullbrightEnabled,
         3,
-        function(on)
-            State.FullbrightEnabled = on
-            if not on then
+        function(val)
+            State.FullbrightEnabled = val
+            if not val then
                 Lighting.Brightness = State.OriginalLighting.Brightness
                 Lighting.ClockTime = State.OriginalLighting.ClockTime
                 Lighting.GlobalShadows = State.OriginalLighting.GlobalShadows
                 Lighting.Ambient = State.OriginalLighting.Ambient
                 Lighting.OutdoorAmbient = State.OriginalLighting.OutdoorAmbient
             end
-            Utils.Notify(
-                "Visual",
-                on and LocaleEngine.Text("Pencahayaan penuh aktif.", "Fullbright enabled.")
-                    or LocaleEngine.Text("Pencahayaan dikembalikan ke bawaan.", "Lighting restored."),
-                on and Theme.Success or Theme.TextSecondary
-            )
         end
     )
 
     UI.NoFogToggle = Components.AddToggle(
         page,
-        { id = "Hapus Kabut & Jarak Pandang Jauh", en = "Remove Fog & Atmosphere" },
-        { id = "Menghilangkan kabut tebal dan kepadatan atmosfer untuk jarak pandang maksimal", en = "Clear fog limits and dense Atmosphere effects" },
-        false,
+        { id = "Hapus Kabut & Atmosfer (No Fog)", en = "Remove Fog & Atmosphere" },
+        { id = "Memperluas jarak pandang dengan menghapus kabut tebal", en = "Extends visibility by clearing dense fog" },
+        State.NoFogEnabled,
         4,
-        function(on)
-            State.NoFogEnabled = on
-            if not on then
+        function(val)
+            State.NoFogEnabled = val
+            if not val then
                 Lighting.FogEnd = State.OriginalLighting.FogEnd
                 Lighting.FogStart = State.OriginalLighting.FogStart
-                if State.OriginalAtmosphere and State.OriginalAtmosphere.Instance then
+                if State.OriginalAtmosphere and State.OriginalAtmosphere.Instance and State.OriginalAtmosphere.Instance.Parent then
                     State.OriginalAtmosphere.Instance.Density = State.OriginalAtmosphere.Density
                 end
             end
-            Utils.Notify(
-                "Visual",
-                on and LocaleEngine.Text("Kabut dihapus.", "Fog cleared.")
-                    or LocaleEngine.Text("Kabut dikembalikan ke bawaan.", "Fog restored."),
-                on and Theme.Success or Theme.TextSecondary
-            )
-        end
-    )
-
-    Components.AddButton(
-        page,
-        { id = "Pulihkan Visual Bawaan Map", en = "Restore Default Visuals" },
-        { id = "Mengembalikan FOV kamera ke 70 serta pencahayaan dan kabut asli map", en = "Reset Camera FOV to 70 and restore original world lighting" },
-        { id = "Pulihkan", en = "Restore" },
-        5,
-        function()
-            fovSlider.SetValue(70, true)
-            if UI.FullbrightToggle then UI.FullbrightToggle.SetState(false, true) end
-            if UI.NoFogToggle then UI.NoFogToggle.SetState(false, true) end
-            Utils.Notify(
-                LocaleEngine.Text("Visual Dipulihkan", "Visuals Restored"),
-                LocaleEngine.Text("Pengaturan kamera & dunia kembali normal.", "Camera and lighting reset."),
-                Theme.Success
-            )
         end
     )
 end
 
 -- ============================================================================
--- TAB 10: SALIN ASET & MAP (EKSPOR FILE .LUA/.JSON + NOTIFIKASI TELEGRAM)
+-- TAB 10: SALIN ASET (Ekspor Item/Map ke Luau/JSON & Notifikasi Telegram)
 -- ============================================================================
 do
-    local page = Components.CreateTab("SalinAset", { id = "Salin Aset", en = "Copy Assets" }, "📦", 10)
-    Components.AddSectionHeader(page, { id = "Copy Item / Map & Auto File Generator", en = "Copy Item / Map & Auto File Generator" }, 1)
+    local page = Components.CreateTab("SalinAset", { id = "Salin Aset", en = "Asset Copier" }, "📦", 10)
 
-    local targetCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 48),
+    Components.AddSectionHeader(page, { id = "Konfigurasi Ekspor Item & Map", en = "Item & Map Export Config" }, 1)
+
+    local filterBox = Utils.Create("TextBox", {
+        Size = UDim2.new(1, 0, 0, 36),
         BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.25,
-        BorderSizePixel = 0,
+        BackgroundTransparency = 0.2,
+        Font = Theme.FontFamily,
+        PlaceholderText = LocaleEngine.Text("Filter nama objek/item (kosongkan = otomatis terdekat)...", "Filter object/item name (leave empty = auto nearest)..."),
+        PlaceholderColor3 = Theme.TextMuted,
+        Text = AssetCopy.TargetFilter,
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 12,
+        ClearTextOnFocus = false,
         LayoutOrder = 2,
         ZIndex = 14,
     }, page)
-    Utils.AddCorner(targetCard, 9)
-    Utils.AddStroke(targetCard, Theme.BorderSubtle, 1, 0.3)
-
-    local filterBox = Utils.Create("TextBox", {
-        Size = UDim2.new(1, -24, 0, 30),
-        Position = UDim2.new(0, 12, 0.5, -15),
-        BackgroundColor3 = Theme.BgControl,
-        Font = Theme.FontFamily,
-        PlaceholderText = LocaleEngine.Text("Filter nama item/map (kosongkan = otomatis item dipegang / terdekat)...", "Target item/map name filter (blank = equipped or nearest)..."),
-        PlaceholderColor3 = Theme.TextMuted,
-        Text = "",
-        TextColor3 = Theme.TextPrimary,
-        TextSize = 11,
-        ClearTextOnFocus = false,
-        ZIndex = 15,
-    }, targetCard)
-    Utils.AddCorner(filterBox, 6)
-    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, filterBox)
-    filterBox:GetPropertyChangedSignal("Text"):Connect(function()
+    Utils.AddCorner(filterBox, 8)
+    Utils.AddStroke(filterBox, Theme.BorderSubtle, 1, 0.3)
+    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, filterBox)
+    filterBox.FocusLost:Connect(function()
         AssetCopy.TargetFilter = filterBox.Text
     end)
 
-    Components.AddChipSelector(page, { id = "Cakupan Copy (Item / Semua Senjata / Map)", en = "Copy Scope (Nearest / All Tools / Full Map)" }, {
-        { Label = { id = "Item Terdekat", en = "Nearest / Held" }, Value = "EquippedOrNearest" },
-        { Label = { id = "Semua Item/Tool", en = "All Tools" }, Value = "AllTools" },
-        { Label = { id = "Seluruh Map", en = "Full Map" }, Value = "FullMap" },
-    }, "EquippedOrNearest", 3, function(val)
-        AssetCopy.CopyScope = val
-    end)
-
-    Components.AddChipSelector(page, { id = "Format File Otomatis (.LUA & .JSON)", en = "Auto-Generated File Format" }, {
-        { Label = { id = "LUA + JSON", en = "LUA + JSON" }, Value = "LuauAndJSON" },
-        { Label = { id = "Hanya .LUA", en = ".LUA Only" }, Value = "LuauOnly" },
-        { Label = { id = "Hanya .JSON", en = ".JSON Only" }, Value = "JSONOnly" },
-    }, "LuauAndJSON", 4, function(val)
-        AssetCopy.FormatMode = val
-    end)
-
-    Components.AddSectionHeader(page, { id = "Konfigurasi Notifikasi Bot Telegram", en = "Telegram Bot Notification Config" }, 5)
-
-    local tgCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 84),
-        BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.25,
-        BorderSizePixel = 0,
-        LayoutOrder = 6,
-        ZIndex = 14,
-    }, page)
-    Utils.AddCorner(tgCard, 9)
-    Utils.AddStroke(tgCard, Theme.BorderSubtle, 1, 0.3)
-
-    local tokenBox = Utils.Create("TextBox", {
-        Size = UDim2.new(1, -24, 0, 28),
-        Position = UDim2.new(0, 12, 0, 10),
-        BackgroundColor3 = Theme.BgControl,
-        Font = Theme.FontFamily,
-        PlaceholderText = LocaleEngine.Text("Telegram Bot Token (mis. 123456789:ABCdef...)...", "Telegram Bot Token (e.g. 123456789:ABCdef...)..."),
-        PlaceholderColor3 = Theme.TextMuted,
-        Text = "",
-        TextColor3 = Theme.TextPrimary,
-        TextSize = 11,
-        ClearTextOnFocus = false,
-        ZIndex = 15,
-    }, tgCard)
-    Utils.AddCorner(tokenBox, 6)
-    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, tokenBox)
-    tokenBox:GetPropertyChangedSignal("Text"):Connect(function()
-        AssetCopy.TelegramBotToken = tokenBox.Text
-    end)
-
-    local chatIdBox = Utils.Create("TextBox", {
-        Size = UDim2.new(1, -24, 0, 28),
-        Position = UDim2.new(0, 12, 0, 46),
-        BackgroundColor3 = Theme.BgControl,
-        Font = Theme.FontFamily,
-        PlaceholderText = LocaleEngine.Text("Telegram Chat ID / User ID (mis. 987654321)...", "Telegram Chat ID / User ID (e.g. 987654321)..."),
-        PlaceholderColor3 = Theme.TextMuted,
-        Text = "",
-        TextColor3 = Theme.TextPrimary,
-        TextSize = 11,
-        ClearTextOnFocus = false,
-        ZIndex = 15,
-    }, tgCard)
-    Utils.AddCorner(chatIdBox, 6)
-    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, chatIdBox)
-    chatIdBox:GetPropertyChangedSignal("Text"):Connect(function()
-        AssetCopy.TelegramChatId = chatIdBox.Text
-    end)
-
-    LocaleEngine.Bind(function()
-        if filterBox and filterBox.Parent then
-            filterBox.PlaceholderText = LocaleEngine.Text("Filter nama item/map (kosongkan = otomatis item dipegang / terdekat)...", "Target item/map name filter (blank = equipped or nearest)...")
-        end
-        if tokenBox and tokenBox.Parent then
-            tokenBox.PlaceholderText = LocaleEngine.Text("Telegram Bot Token (mis. 123456789:ABCdef...)...", "Telegram Bot Token (e.g. 123456789:ABCdef...)...")
-        end
-        if chatIdBox and chatIdBox.Parent then
-            chatIdBox.PlaceholderText = LocaleEngine.Text("Telegram Chat ID / User ID (mis. 987654321)...", "Telegram Chat ID / User ID (e.g. 987654321)...")
-        end
-    end)
-
-    Components.AddToggle(
+    Components.AddChipSelector(
         page,
-        { id = "Kirim Notifikasi Telegram Otomatis", en = "Auto-Send Telegram Alert on Copy" },
-        { id = "Otomatis mengirim laporan detail ke Bot Telegram setelah file selesai dibuat", en = "Automatically push summary alert to Telegram Bot after export completes" },
-        true,
-        7,
-        function(on)
-            AssetCopy.AutoNotifyTelegram = on
-        end
-    )
-
-    local exportStatusLbl = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 22),
-        BackgroundColor3 = Theme.BgSecondary,
-        BackgroundTransparency = 0.25,
-        Font = Theme.FontFamily,
-        Text = "  Folder Output: " .. AssetCopy.FolderPath,
-        TextColor3 = Theme.TextSecondary,
-        TextSize = 10,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = 8,
-        ZIndex = 14,
-    }, page)
-    Utils.AddCorner(exportStatusLbl, 6)
-    Utils.RegisterText(exportStatusLbl, false, Theme.TextSecondary)
-
-    Components.AddButton(
-        page,
-        { id = "Mulai Copy & Buat File Sekarang", en = "Execute Copy & Generate Files" },
-        { id = "Mengekspor struktur item/map ke file .lua/.json dan mengirim alert Telegram", en = "Serialize target item/map into .lua/.json files and notify Telegram" },
-        { id = "Copy & Export", en = "Copy & Export" },
-        9,
-        function()
-            exportStatusLbl.Text = LocaleEngine.Text("  Memproses copy & membuat file...", "  Copying & generating files...")
-            task.spawn(function()
-                SafeEngine.Run("AssetCopyExport", function()
-                    AssetCopy.ExecuteCopyAndExport()
-                    if #AssetCopy.LastExportedFiles > 0 then
-                        exportStatusLbl.Text = "  File Terbaru: " .. tostring(AssetCopy.LastExportedFiles[1])
-                    else
-                        exportStatusLbl.Text = "  Folder Output: " .. AssetCopy.FolderPath
-                    end
-                end)
-            end)
+        { id = "Cakupan & Format Ekspor", en = "Export Scope & Format" },
+        {
+            { Label = { id = "Terdekat/Tool", en = "Nearest/Tool" }, Value = "EquippedOrNearest" },
+            { Label = { id = "Semua Tool", en = "All Tools" }, Value = "AllTools" },
+            { Label = { id = "Seluruh Map", en = "Full Map" }, Value = "FullMap" },
+            { Label = "Luau + JSON", Value = "LuauAndJSON" },
+            { Label = "Luau (.lua)", Value = "LuauOnly" },
+            { Label = "JSON (.json)", Value = "JSONOnly" },
+        },
+        AssetCopy.CopyScope,
+        3,
+        function(v)
+            if v == "LuauAndJSON" or v == "LuauOnly" or v == "JSONOnly" then
+                AssetCopy.FormatMode = v
+            else
+                AssetCopy.CopyScope = v
+            end
         end
     )
 
     Components.AddButton(
         page,
-        { id = "Uji Koneksi Bot Telegram", en = "Test Telegram Bot Connection" },
-        { id = "Mengirim pesan percobaan ke Chat ID Telegram yang dimasukkan", en = "Send a test notification message to your configured Telegram Chat ID" },
-        { id = "Tes Telegram", en = "Test Alert" },
-        10,
+        { id = "Salin & Ekspor Aset Sekarang", en = "Copy & Export Asset Now" },
+        { id = "Menyimpan struktur objek ke folder executor + kirim Telegram", en = "Saves serialized object to executor folder + sends Telegram" },
+        { id = "Ekspor", en = "Export" },
+        4,
         function()
-            task.spawn(function()
-                local ok, msg = AssetCopy.SendTelegramNotification({
-                    GameTitle = AssetCopy.GetGameTitleSafe(),
-                    PlaceId = game.PlaceId,
-                    AssetName = "Uji_Koneksi_Bot",
-                    ClassName = "DiagnosticTest",
-                    Scope = "TestPing",
-                    TotalNodes = 1,
-                    TimestampISO = os.date("%Y-%m-%d %H:%M:%S"),
-                }, { "Test_Connection_OK.txt" })
-                Utils.Notify(
-                    ok and LocaleEngine.Text("Telegram Terhubung ✓", "Telegram Connected ✓") or LocaleEngine.Text("Telegram Gagal", "Telegram Failed"),
-                    msg,
-                    ok and Theme.Success or Theme.Danger
-                )
-            end)
+            AssetCopy.TargetFilter = filterBox.Text
+            AssetCopy.ExecuteCopyAndExport()
         end
     )
 end
 
 -- ============================================================================
--- TAB 11 (BARU): KEAMANAN & ANTI-CHEAT (MONITOR SERVER, ZONA & DIAGNOSTIK LOG)
+-- TAB 11: KEAMANAN & AC (Universal Anti-Ban Framework v3.1 + Monitor AC & Zona)
 -- ============================================================================
 do
-    local page = Components.CreateTab("KeamananAC", { id = "Keamanan & AC", en = "Security & AC" }, "🛡", 11)
-    Components.AddSectionHeader(page, { id = "Status Server Anti-Cheat & Deteksi Zona", en = "Server Anti-Cheat & Zone Detection" }, 1)
+    local page = Components.CreateTab("KeamananAC", { id = "Keamanan & AC", en = "Security & AC" }, "🛡️", 11)
 
-    local secStatusCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 56),
+    Components.AddSectionHeader(page, { id = "Universal Anti-Ban Framework v3.1", en = "Universal Anti-Ban Framework v3.1" }, 1)
+
+    local abStatusCard = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 76),
         BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.24,
+        BackgroundTransparency = 0.22,
         BorderSizePixel = 0,
         LayoutOrder = 2,
         ZIndex = 14,
     }, page)
-    Utils.AddCorner(secStatusCard, 9)
-    Utils.AddStroke(secStatusCard, Theme.BorderSubtle, 1, 0.3)
+    Utils.AddCorner(abStatusCard, 9)
+    local abStroke = Utils.AddStroke(abStatusCard, Theme.Success, 1.2, 0.2)
 
-    local acBridgeLbl = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, -24, 0, 18),
-        Position = UDim2.new(0, 12, 0, 8),
-        BackgroundTransparency = 1,
-        Font = Theme.FontBold,
-        Text = SecurityHub.ServerConnected
-            and "🟢 Server AntiCheatFeed: TERHUBUNG"
-            or "🟡 Server AntiCheatFeed: MODE AUDIT LOKAL",
-        TextColor3 = SecurityHub.ServerConnected and Theme.Success or Theme.Warning,
-        TextSize = 12,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 15,
-    }, secStatusCard)
-
-    local zoneStatusLbl = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, -24, 0, 18),
-        Position = UDim2.new(0, 12, 0, 29),
+    local abLiveLbl = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -20, 1, -12),
+        Position = UDim2.new(0, 10, 0, 6),
         BackgroundTransparency = 1,
         Font = Theme.FontFamily,
-        Text = "📍 Zona Saat Ini: " .. SecurityHub.CurrentZoneName,
-        TextColor3 = Theme.TextSecondary,
+        Text = "",
+        TextColor3 = Theme.TextPrimary,
         TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 15,
-    }, secStatusCard)
-    Utils.RegisterText(zoneStatusLbl, false, Theme.TextSecondary)
-
-    SecurityHub.OnZoneChanged = function(newZone)
-        if zoneStatusLbl and zoneStatusLbl.Parent then
-            zoneStatusLbl.Text = "📍 Zona Saat Ini: " .. tostring(newZone)
-        end
-    end
-
-    Components.AddToggle(
-        page,
-        { id = "Pemindai Zona Otomatis (Safe / PvP)", en = "Automatic Zone Scanner (Safe / PvP)" },
-        { id = "Mendeteksi area aman, zona pertarungan, dan checkpoint secara real-time", en = "Detect safe zones, combat arenas, and checkpoints in real time" },
-        true,
-        3,
-        function(on)
-            SecurityHub.ZoneScannerEnabled = on
-        end
-    )
-
-    Components.AddToggle(
-        page,
-        { id = "Tangkap Log Error & Peringatan Live", en = "Live Console Error & Warning Capture" },
-        { id = "Merekam pesan error/warning script agar mudah dianalisis tanpa membuka F9", en = "Capture runtime script errors and warnings without opening F9 console" },
-        true,
-        4,
-        function(on)
-            SecurityHub.LogCaptureEnabled = on
-        end
-    )
-
-    Components.AddSectionHeader(page, { id = "Aksi Moderator Server & Audit Integritas", en = "Server Moderator Actions & Integrity Audit" }, 5)
-
-    Components.AddButton(
-        page,
-        { id = "Hubungkan Ulang Channel Anti-Cheat", en = "Reconnect Anti-Cheat Channel" },
-        { id = "Memindai ulang ReplicatedStorage.SecurityRemotes pada server aktif", en = "Rescan ReplicatedStorage.SecurityRemotes on current server" },
-        { id = "Hubungkan", en = "Connect" },
-        6,
-        function()
-            local ok = SecurityHub.ConnectServerChannel()
-            acBridgeLbl.Text = ok
-                and "🟢 Server AntiCheatFeed: TERHUBUNG"
-                or "🟡 Server AntiCheatFeed: MODE AUDIT LOKAL"
-            acBridgeLbl.TextColor3 = ok and Theme.Success or Theme.Warning
-            Utils.Notify(
-                "Security Hub",
-                ok and LocaleEngine.Text("Terhubung ke server AntiCheatFeed!", "Connected to AntiCheatFeed!")
-                    or LocaleEngine.Text("Map ini tidak menggunakan SecurityRemotes (Mode Lokal aktif).", "No SecurityRemotes in this map (Local Audit active)."),
-                ok and Theme.Success or Theme.Warning
-            )
-        end
-    )
-
-    Components.AddButton(
-        page,
-        { id = "Salin Laporan Diagnostik & Log Error", en = "Copy Diagnostics & Error Logs" },
-        { id = "Menyalin ringkasan error runtime, status zona, dan telemetri Anti-Bug ke clipboard", en = "Copy captured runtime logs, zone status, and Anti-Bug metrics to clipboard" },
-        { id = "Salin Log", en = "Copy Logs" },
-        7,
-        function()
-            local lines = {
-                "=== BimSakSin Hub v3.0 Diagnostics ===",
-                "PlaceId: " .. tostring(game.PlaceId) .. " | JobId: " .. tostring(game.JobId),
-                "Current Zone: " .. tostring(SecurityHub.CurrentZoneName),
-                "Anti-Bug Repairs: " .. tostring(Protection.AutoRepairs) .. " | Errors Caught: " .. tostring(Protection.ErrorsCaught),
-                "Captured Logs (" .. tostring(#SecurityHub.ConsoleLogs) .. "):",
-            }
-            for i = 1, math.min(12, #SecurityHub.ConsoleLogs) do
-                local l = SecurityHub.ConsoleLogs[i]
-                table.insert(lines, string.format("[%s][%s] %s", l.Time, l.Level, l.Text))
-            end
-            local report = table.concat(lines, "\n")
-            if Utils.CopyText(report) then
-                Utils.Notify("Diagnostik Tersalin ✓", LocaleEngine.Text("Laporan log berhasil disalin ke clipboard.", "Diagnostic report copied to clipboard."), Theme.Success)
-            else
-                Utils.Notify("Diagnostik", LocaleEngine.Text("Clipboard tidak tersedia di executor.", "Clipboard unavailable."), Theme.Warning)
-            end
-        end
-    )
-
-    Components.AddSectionHeader(page, { id = "Log Pelanggaran & Konsol Terbaru", en = "Recent Violations & Console Feed" }, 8)
-
-    local logFeedBox = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 110),
-        BackgroundColor3 = Theme.BgSecondary,
-        BackgroundTransparency = 0.22,
-        BorderSizePixel = 0,
-        LayoutOrder = 9,
-        ZIndex = 14,
-    }, page)
-    Utils.AddCorner(logFeedBox, 8)
-    Utils.AddStroke(logFeedBox, Theme.BorderSubtle, 1, 0.3)
-
-    local logFeedText = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, -16, 1, -12),
-        Position = UDim2.new(0, 8, 0, 6),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.Code,
-        Text = "Belum ada log pelanggaran atau error tercatat.",
-        TextColor3 = Theme.TextSecondary,
-        TextSize = 10,
         TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Top,
         ZIndex = 15,
-    }, logFeedBox)
+    }, abStatusCard)
+    Utils.RegisterText(abLiveLbl, false, Theme.TextPrimary)
 
-    local function refreshSecurityFeedText()
-        if not logFeedText or not logFeedText.Parent then return end
-        local lines = {}
-        for i = 1, math.min(3, #SecurityHub.ViolationLogs) do
-            local v = SecurityHub.ViolationLogs[i]
-            table.insert(lines, string.format("[AC] %s | %s (%s)", tostring(v.PlayerName), tostring(v.Rule), tostring(v.Detail)))
-        end
-        for i = 1, math.min(4, #SecurityHub.ConsoleLogs) do
-            local c = SecurityHub.ConsoleLogs[i]
-            table.insert(lines, string.format("[%s][%s] %s", c.Time, c.Level, string.sub(c.Text, 1, 80)))
-        end
-        logFeedText.Text = (#lines > 0) and table.concat(lines, "\n") or "Belum ada log pelanggaran atau error tercatat."
-    end
-
-    SecurityHub.OnViolationAdded = refreshSecurityFeedText
-    SecurityHub.OnConsoleLogAdded = refreshSecurityFeedText
-end
-
--- ============================================================================
--- TAB 12: PENGATURAN (REGION DEVICE, CONFIG JSON, ANTI-BUG & TAMPILAN)
--- ============================================================================
-do
-    local page = Components.CreateTab("Pengaturan", { id = "Pengaturan", en = "Settings" }, "⚙", 12)
-    Components.AddSectionHeader(page, { id = "Bahasa & Deteksi Region Perangkat", en = "Language & Device Region Detection" }, 1)
-
-    local regionInfoBox = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 24),
-        BackgroundColor3 = Theme.BgCard,
-        BackgroundTransparency = 0.25,
-        Font = Theme.FontBold,
-        Text = "  🌍 Region Terdeteksi: " .. LocaleEngine.RegionDisplay,
-        TextColor3 = Theme.Accent,
-        TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = 2,
-        ZIndex = 14,
-    }, page)
-    Utils.AddCorner(regionInfoBox, 7)
-    Utils.RegisterAccent(regionInfoBox, "TextColor3")
-
-    LocaleEngine.Bind(function()
-        if regionInfoBox and regionInfoBox.Parent then
-            regionInfoBox.Text = LocaleEngine.Text(
-                "  🌍 Region Terdeteksi: " .. LocaleEngine.RegionDisplay,
-                "  🌍 Detected Region: " .. LocaleEngine.RegionDisplay
-            )
-        end
-    end)
-
-    Components.AddChipSelector(page, { id = "Mode Bahasa Antarmuka", en = "Interface Language Mode" }, {
-        { Label = { id = "Otomatis Region", en = "Auto Region" }, Value = "Auto" },
-        { Label = "Bahasa Indonesia", Value = "id" },
-        { Label = "English (Global)", Value = "en" },
-    }, "Auto", 3, function(val)
-        LocaleEngine.SetMode(val)
-        Utils.Notify(
-            LocaleEngine.Text("Bahasa Diperbarui", "Language Updated"),
-            LocaleEngine.Text("Bahasa aktif: Bahasa Indonesia", "Active language: English"),
-            Theme.Success
+    local function refreshAntiBanCard()
+        if not abLiveLbl or not abLiveLbl.Parent then return end
+        local capSummary = string.format(
+            "HookMeta:%s | HookFn:%s | RawMT:%s | Req:%s",
+            AntiBan.CAP.hookmetamethod and "ON" or "N/A",
+            AntiBan.CAP.hookfunction and "ON" or "N/A",
+            AntiBan.CAP.getrawmetatable and "ON" or "N/A",
+            tostring(AntiBan.CAP.request or "N/A")
         )
-    end)
+        abLiveLbl.Text = string.format(
+            "🛡️ Anti-Ban v%s: AKTIF  |  HWID: %s...\n• Kick Diblokir: %d  |  Remote Dibatasi: %d  |  Ban-Remote Diblokir: %d\n• Capability: %s",
+            AntiBan.Version,
+            string.sub(tostring(AntiBan.Stats.SpoofedHWID or "N/A"), 1, 14),
+            AntiBan.Stats.KicksBlocked,
+            AntiBan.Stats.RemotesThrottled,
+            AntiBan.Stats.BanRemotesBlocked,
+            capSummary
+        )
+    end
+    refreshAntiBanCard()
+    AntiBan.OnStatsChanged = refreshAntiBanCard
 
-    Components.AddSectionHeader(page, { id = "Konfigurasi JSON Persisten (Simpan & Muat)", en = "Persistent JSON Config (Save & Load)" }, 4)
+    Components.AddToggle(
+        page,
+        { id = "Anti-Kick Protection (Hook + Namecall)", en = "Anti-Kick Protection (Hook + Namecall)" },
+        { id = "Memblokir pemanggilan LocalPlayer:Kick() dari skrip game", en = "Blocks LocalPlayer:Kick() invocations from game scripts" },
+        AntiBan.Config.EnableAntiKick,
+        3,
+        function(val)
+            AntiBan.Config.EnableAntiKick = val
+            FeatureAPI.Sync("AntiBanKick", val)
+            refreshAntiBanCard()
+        end
+    )
+
+    FeatureAPI.Register("AntiBanKick", {
+        Category = "KeamananAC",
+        OnEnable = function() AntiBan.Config.EnableAntiKick = true; refreshAntiBanCard() end,
+        OnDisable = function() AntiBan.Config.EnableAntiKick = false; refreshAntiBanCard() end,
+    })
+    FeatureAPI.Sync("AntiBanKick", AntiBan.Config.EnableAntiKick)
+
+    Components.AddToggle(
+        page,
+        { id = "Anti-Remote Rate Limit & Anti-Detect", en = "Anti-Remote Rate Limit & Anti-Detect" },
+        { id = "Mencegah spam remote berlebihan & memblokir remote pelapor ban", en = "Prevents excessive remote spam & blocks ban-reporting remotes" },
+        AntiBan.Config.EnableAntiRemote,
+        4,
+        function(val)
+            AntiBan.Config.EnableAntiRemote = val
+            AntiBan.Config.EnableAntiDetect = val
+            FeatureAPI.Sync("AntiBanRemote", val)
+            refreshAntiBanCard()
+        end
+    )
+
+    FeatureAPI.Register("AntiBanRemote", {
+        Category = "KeamananAC",
+        OnEnable = function() AntiBan.Config.EnableAntiRemote = true; AntiBan.Config.EnableAntiDetect = true; refreshAntiBanCard() end,
+        OnDisable = function() AntiBan.Config.EnableAntiRemote = false; AntiBan.Config.EnableAntiDetect = false; refreshAntiBanCard() end,
+    })
+    FeatureAPI.Sync("AntiBanRemote", AntiBan.Config.EnableAntiRemote)
+
+    Components.AddToggle(
+        page,
+        { id = "Anti-Stats Memory Scan", en = "Anti-Stats Memory Scan" },
+        { id = "Menyembunyikan jejak script pada pemeriksaan Stats service", en = "Filters script traces during Stats service inspection" },
+        AntiBan.Config.EnableAntiStatsScan,
+        5,
+        function(val)
+            AntiBan.Config.EnableAntiStatsScan = val
+            FeatureAPI.Sync("AntiBanStats", val)
+            refreshAntiBanCard()
+        end
+    )
+
+    FeatureAPI.Register("AntiBanStats", {
+        Category = "KeamananAC",
+        OnEnable = function() AntiBan.Config.EnableAntiStatsScan = true; refreshAntiBanCard() end,
+        OnDisable = function() AntiBan.Config.EnableAntiStatsScan = false; refreshAntiBanCard() end,
+    })
+    FeatureAPI.Sync("AntiBanStats", AntiBan.Config.EnableAntiStatsScan)
+
+    Components.AddToggle(
+        page,
+        { id = "Spoof HWID & Mini-Console Mengambang", en = "Spoof HWID & Floating Mini-Console" },
+        { id = "Menyamarkan HWID sesi & menampilkan jendela status Anti-Ban", en = "Masks session HWID & displays floating Anti-Ban monitor" },
+        AntiBan.Config.InteractiveConsole,
+        6,
+        function(val)
+            AntiBan.SetConsoleVisible(val)
+            refreshAntiBanCard()
+        end
+    )
 
     Components.AddButton(
         page,
-        { id = "Simpan Konfigurasi ke JSON", en = "Save Configuration to JSON" },
-        { id = "Menyimpan kecepatan, FOV, bahasa, dan filter ke file lokal", en = "Save speed, FOV, language, and filters to local JSON file" },
-        { id = "Simpan JSON", en = "Save JSON" },
-        5,
+        { id = "Acak Ulang HWID Sesi (Regenerate)", en = "Regenerate Session HWID" },
+        { id = "Membuat identitas GUID HWID baru secara instan", en = "Generates a fresh spoofed HWID GUID immediately" },
+        { id = "Acak HWID", en = "New HWID" },
+        7,
+        function()
+            AntiBan.RegenerateHWID()
+            refreshAntiBanCard()
+            Utils.Notify("Spoof HWID", "HWID Baru: " .. tostring(AntiBan.Stats.SpoofedHWID), Theme.Success)
+        end
+    )
+
+    Components.AddSectionHeader(page, { id = "Pemindai Zona & Audit Integritas", en = "Zone Scanner & Integrity Audit" }, 8)
+
+    local zoneCard = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 42),
+        BackgroundColor3 = Theme.BgCard,
+        BackgroundTransparency = 0.25,
+        BorderSizePixel = 0,
+        LayoutOrder = 9,
+        ZIndex = 14,
+    }, page)
+    Utils.AddCorner(zoneCard, 9)
+    Utils.AddStroke(zoneCard, Theme.BorderSubtle, 1, 0.3)
+
+    local zoneLbl = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -24, 1, 0),
+        Position = UDim2.new(0, 12, 0, 0),
+        BackgroundTransparency = 1,
+        Font = Theme.FontBold,
+        Text = "📍 Zona Saat Ini: " .. SecurityHub.CurrentZoneName,
+        TextColor3 = Theme.Accent,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 15,
+    }, zoneCard)
+    Utils.RegisterAccent(zoneLbl, "TextColor3")
+    SecurityHub.OnZoneChanged = function(newZone)
+        if zoneLbl and zoneLbl.Parent then
+            zoneLbl.Text = "📍 Zona Saat Ini: " .. tostring(newZone)
+        end
+    end
+
+    Components.AddButton(
+        page,
+        { id = "Jalankan Audit Integritas Klien", en = "Run Client Integrity Audit" },
+        { id = "Periksa anomali fisika, kecepatan & status Anti-Ban", en = "Checks physics anomalies, speed & Anti-Ban status" },
+        { id = "Audit", en = "Audit" },
+        10,
+        function()
+            SecurityHub.RunIntegrityAudit()
+            refreshAntiBanCard()
+        end
+    )
+end
+
+-- ============================================================================
+-- TAB 12: PENGATURAN (Region Device, Config JSON, Tema & Kontrol Panel)
+-- ============================================================================
+do
+    local page = Components.CreateTab("Pengaturan", { id = "Pengaturan", en = "Settings" }, "⚙️", 12)
+
+    Components.AddSectionHeader(page, { id = "Bahasa & Deteksi Region Perangkat", en = "Language & Device Region" }, 1)
+
+    Components.AddChipSelector(
+        page,
+        { id = "Pilih Bahasa Antarmuka", en = "Select Interface Language" },
+        {
+            { Label = { id = "Otomatis Region", en = "Auto Region" }, Value = "Auto" },
+            { Label = "Indonesia", Value = "id" },
+            { Label = "English", Value = "en" },
+        },
+        LocaleEngine.Mode,
+        2,
+        function(v)
+            LocaleEngine.SetMode(v)
+            Utils.Notify("Bahasa Diperbarui", LocaleEngine.RegionDisplay, Theme.Success)
+        end
+    )
+
+    Components.AddSectionHeader(page, { id = "Manajemen Konfigurasi JSON", en = "JSON Config Persistence" }, 3)
+
+    Components.AddButton(
+        page,
+        { id = "Simpan Pengaturan ke JSON", en = "Save Settings to JSON" },
+        { id = "Menyimpan konfigurasi fitur & Anti-Ban ke file lokal", en = "Saves feature & Anti-Ban settings to local JSON file" },
+        { id = "Simpan", en = "Save" },
+        4,
         function()
             ConfigManager.Save()
         end
@@ -7155,202 +7211,130 @@ do
 
     Components.AddButton(
         page,
-        { id = "Muat Konfigurasi dari JSON", en = "Load Configuration from JSON" },
-        { id = "Memulihkan pengaturan tersimpan dari BimSakSinHub_v3_Config.json", en = "Restore saved settings from BimSakSinHub_v3_Config.json" },
-        { id = "Muat JSON", en = "Load JSON" },
-        6,
+        { id = "Muat Pengaturan dari JSON", en = "Load Settings from JSON" },
+        { id = "Memulihkan pengaturan tersimpan dari file JSON", en = "Restores saved settings from JSON file" },
+        { id = "Muat", en = "Load" },
+        5,
         function()
             ConfigManager.Load(false)
         end
     )
 
-    Components.AddSectionHeader(page, { id = "Sistem Anti-Bug & Perlindungan Sesi", en = "Anti-Bug & Session Protection" }, 7)
+    Components.AddSectionHeader(page, { id = "Proteksi Sistem & Tema Warna", en = "System Protection & Theme Colors" }, 6)
 
     Components.AddToggle(
         page,
-        { id = "Sistem Pemulihan Anti-Bug Otomatis", en = "Anti-Bug Self-Healing Engine" },
-        { id = "Menangkap error runtime dan membersihkan fisika yang tersangkut secara otomatis", en = "Catch runtime errors and auto-repair stuck physics states" },
-        true,
+        { id = "Anti-AFK Otomatis (Anti Kick Idle)", en = "Auto Anti-AFK (Idle Kick Guard)" },
+        { id = "Mencegah terputus dari server akibat diam lebih dari 20 menit", en = "Prevents idle disconnection after 20 minutes" },
+        Protection.AntiAFKEnabled,
+        7,
+        function(val) Protection.AntiAFKEnabled = val end
+    )
+
+    Components.AddToggle(
+        page,
+        { id = "Anti-Bug & Pemulihan Fisika Otomatis", en = "Anti-Bug & Auto Physics Recovery" },
+        { id = "Menangkap error runtime dan memulihkan karakter otomatis", en = "Catches runtime errors and recovers character automatically" },
+        Protection.AntiBugEnabled,
         8,
-        function(on)
-            Protection.AntiBugEnabled = on
-        end
+        function(val) Protection.AntiBugEnabled = val end
     )
 
-    Components.AddToggle(
+    Components.AddChipSelector(
         page,
-        { id = "Perlindungan Anti-AFK (Anti-Kick 20 Menit)", en = "Anti-AFK Idle Protection" },
-        { id = "Mencegah akun terputus otomatis akibat diam terlalu lama di server", en = "Prevent 20-minute idle disconnection" },
-        true,
+        { id = "Warna Aksen Panel", en = "Panel Accent Color" },
+        {
+            { Label = "Oranye Royal", Value = "Orange", Color = Color3.fromRGB(255, 118, 26) },
+            { Label = "Merah Crimson", Value = "Crimson", Color = Color3.fromRGB(224, 52, 82) },
+            { Label = "Ungu Spektral", Value = "Purple", Color = Color3.fromRGB(155, 89, 245) },
+            { Label = "Hijau Emerald", Value = "Emerald", Color = Color3.fromRGB(46, 213, 115) },
+            { Label = "Biru Cyber", Value = "Cyber", Color = Color3.fromRGB(56, 182, 255) },
+            { Label = "Emas Mewah", Value = "Gold", Color = Color3.fromRGB(245, 192, 54) },
+        },
+        "Orange",
         9,
-        function(on)
-            Protection.AntiAFKEnabled = on
-        end
-    )
-
-    Components.AddSectionHeader(page, { id = "Kustomisasi Tema, Huruf & Latar Menu", en = "Menu Font, Text & Backdrop Customization" }, 10)
-
-    Components.AddChipSelector(page, { id = "Gaya Huruf (Font) Seluruh Menu", en = "Menu Font Style" }, {
-        { Label = "Gotham Semi", Value = Enum.Font.GothamSemibold, Font = Enum.Font.GothamSemibold },
-        { Label = "Fredoka One", Value = Enum.Font.FredokaOne, Font = Enum.Font.FredokaOne },
-        { Label = "Creepster", Value = Enum.Font.Creepster, Font = Enum.Font.Creepster },
-        { Label = "Roboto Mono", Value = Enum.Font.RobotoMono, Font = Enum.Font.RobotoMono },
-        { Label = "Merriweather", Value = Enum.Font.Merriweather, Font = Enum.Font.Merriweather },
-        { Label = "Bangers", Value = Enum.Font.Bangers, Font = Enum.Font.Bangers },
-    }, Enum.Font.GothamSemibold, 11, function(val)
-        Theme.FontFamily = val
-        Theme.FontBold = val
-        Utils.ApplyMenuFontAndColors()
-    end)
-
-    Components.AddChipSelector(page, { id = "Warna Teks Menu", en = "Menu Font Color" }, {
-        { Label = { id = "Kontras Otomatis", en = "Auto Contrast" }, Value = "Auto", Color = Color3.fromRGB(255, 195, 110) },
-        { Label = { id = "Putih Gading", en = "Ivory White" }, Value = Color3.fromRGB(255, 246, 235), Color = Color3.fromRGB(255, 246, 235) },
-        { Label = { id = "Emas Labu", en = "Pumpkin Gold" }, Value = Color3.fromRGB(255, 155, 55), Color = Color3.fromRGB(255, 155, 55) },
-        { Label = { id = "Hijau Mint", en = "Mint Green" }, Value = Color3.fromRGB(115, 250, 175), Color = Color3.fromRGB(115, 250, 175) },
-        { Label = { id = "Sian Es", en = "Ice Cyan" }, Value = Color3.fromRGB(110, 230, 255), Color = Color3.fromRGB(110, 230, 255) },
-        { Label = { id = "Hitam Pekat", en = "Deep Black" }, Value = Color3.fromRGB(20, 16, 28), Color = Color3.fromRGB(20, 16, 28) },
-    }, "Auto", 12, function(val)
-        Theme.FontColorMode = val
-        Utils.ApplyMenuFontAndColors()
-    end)
-
-    Components.AddToggle(
-        page,
-        { id = "Kotak Latar Teks Menu", en = "Enable Text Backdrop Box" },
-        { id = "Memberikan latar kontras di belakang teks agar lebih mudah dibaca", en = "Add contrast backdrop behind text labels" },
-        false,
-        13,
-        function(on)
-            Theme.FontBgEnabled = on
-            Utils.ApplyMenuFontAndColors()
-        end
-    )
-
-    Components.AddChipSelector(page, { id = "Warna Latar Teks Menu", en = "Menu Text Backdrop Color" }, {
-        { Label = { id = "Ungu Gelap", en = "Dark Purple" }, Value = Color3.fromRGB(18, 14, 26), Color = Color3.fromRGB(18, 14, 26) },
-        { Label = { id = "Hitam Arang", en = "Charcoal Black" }, Value = Color3.fromRGB(12, 12, 16), Color = Color3.fromRGB(12, 12, 16) },
-        { Label = { id = "Coklat Labu", en = "Pumpkin Brown" }, Value = Color3.fromRGB(48, 22, 12), Color = Color3.fromRGB(48, 22, 12) },
-        { Label = { id = "Merah Gelap", en = "Crimson Dark" }, Value = Color3.fromRGB(48, 14, 22), Color = Color3.fromRGB(48, 14, 22) },
-        { Label = { id = "Putih Gading", en = "Ivory White" }, Value = Color3.fromRGB(242, 236, 228), Color = Color3.fromRGB(242, 236, 228) },
-        { Label = { id = "Biru Malam", en = "Midnight Blue" }, Value = Color3.fromRGB(16, 26, 46), Color = Color3.fromRGB(16, 26, 46) },
-    }, Color3.fromRGB(18, 14, 26), 14, function(val)
-        Theme.FontBgColor = val
-        Utils.ApplyMenuFontAndColors()
-    end)
-
-    Components.AddChipSelector(page, { id = "Tema Aksen Panel Utama", en = "Main Accent Theme" }, {
-        { Label = { id = "Emas Labu", en = "Pumpkin Gold" }, Value = "Pumpkin", Color = Color3.fromRGB(255, 118, 26) },
-        { Label = { id = "Merah Darah", en = "Blood Crimson" }, Value = "Crimson", Color = Color3.fromRGB(225, 48, 78) },
-        { Label = { id = "Ungu Spektral", en = "Spectral Violet" }, Value = "Violet", Color = Color3.fromRGB(155, 89, 245) },
-        { Label = { id = "Hijau Racun", en = "Toxic Emerald" }, Value = "Emerald", Color = Color3.fromRGB(46, 213, 115) },
-        { Label = { id = "Sian Hantu", en = "Phantom Cyan" }, Value = "Cyan", Color = Color3.fromRGB(24, 220, 255) },
-        { Label = { id = "Emas Kerajaan", en = "Royal Gold" }, Value = "Gold", Color = Color3.fromRGB(255, 196, 54) },
-    }, "Pumpkin", 15, function(val)
-        if val == "Pumpkin" then
-            Utils.SetAccentColor(Color3.fromRGB(255, 118, 26), Color3.fromRGB(184, 72, 12))
-        elseif val == "Crimson" then
-            Utils.SetAccentColor(Color3.fromRGB(225, 48, 78), Color3.fromRGB(155, 25, 48))
-        elseif val == "Violet" then
-            Utils.SetAccentColor(Color3.fromRGB(155, 89, 245), Color3.fromRGB(102, 52, 175))
-        elseif val == "Emerald" then
-            Utils.SetAccentColor(Color3.fromRGB(46, 213, 115), Color3.fromRGB(24, 148, 76))
-        elseif val == "Cyan" then
-            Utils.SetAccentColor(Color3.fromRGB(24, 220, 255), Color3.fromRGB(14, 145, 175))
-        elseif val == "Gold" then
-            Utils.SetAccentColor(Color3.fromRGB(255, 196, 54), Color3.fromRGB(184, 134, 22))
-        end
-    end)
-
-    Components.AddSectionHeader(page, { id = "Kontrol Jendela & Bongkar Script", en = "Window & Unload Controls" }, 16)
-
-    Components.AddButton(
-        page,
-        { id = "Tutup Menu Utama", en = "Hide Main Window" },
-        { id = "Sembunyikan menu; klik ikon tengkorak mahkota emas di layar untuk membuka kembali", en = "Hide panel; tap the floating 3D royal skull icon to reopen" },
-        { id = "Sembunyikan", en = "Hide UI" },
-        17,
-        function()
-            App.IsOpen = false
-            UI.MainFrame.Visible = false
-        end
-    )
-
-    Components.AddButton(
-        page,
-        { id = "Hentikan & Bongkar Script (Unload)", en = "Unload Script Completely" },
-        { id = "Mematikan seluruh fitur, memulihkan karakter, dan menghapus antarmuka", en = "Disconnect all loops, restore character defaults, and remove UI" },
-        { id = "Bongkar", en = "Unload" },
-        18,
-        function()
-            if type(getgenv) == "function" and type(getgenv().BSS_UnloadOld) == "function" then
-                getgenv().BSS_UnloadOld()
+        function(v)
+            local palette = {
+                Orange  = { Color3.fromRGB(255, 118, 26), Color3.fromRGB(184, 72, 12) },
+                Crimson = { Color3.fromRGB(224, 52, 82),  Color3.fromRGB(156, 28, 52) },
+                Purple  = { Color3.fromRGB(155, 89, 245), Color3.fromRGB(102, 48, 178) },
+                Emerald = { Color3.fromRGB(46, 213, 115), Color3.fromRGB(24, 148, 76) },
+                Cyber   = { Color3.fromRGB(56, 182, 255), Color3.fromRGB(24, 118, 186) },
+                Gold    = { Color3.fromRGB(245, 192, 54), Color3.fromRGB(178, 132, 22) },
+            }
+            local chosen = palette[v]
+            if chosen then
+                Utils.SetAccentColor(chosen[1], chosen[2])
             end
+        end
+    )
+
+    Components.AddButton(
+        page,
+        { id = "Perbaiki Karakter & Fisika Sekarang", en = "Force Repair Character & Physics" },
+        { id = "Membersihkan gaya terbang macet dan memulihkan kontrol", en = "Clears stuck flight forces and restores movement controls" },
+        { id = "Perbaiki", en = "Repair" },
+        10,
+        function()
+            SafeEngine.AutoRepair("ManualRepair", "UserTriggered")
+            Utils.Notify("Pemulihan", "Fisika dan status karakter dipulihkan.", Theme.Success)
         end
     )
 end
 
 -- ============================================================================
--- 16. COMMAND PALETTE CEPAT (F2 SHORTCUT — PENCARIAN PERINTAH KILAT)
+-- 16. COMMAND PALETTE (F2 QUICK SEARCH & EXECUTE)
 -- ============================================================================
 do
     CommandRegistry = {
-        { Name = "Buka Tab Keamanan & Anti-Cheat", Desc = "Monitor server AC, zona & log diagnostik", Run = function() Components.SwitchTab("KeamananAC") end },
-        { Name = "Toggle Terbang Halus (Fly)", Desc = "Aktifkan atau matikan mode terbang", Run = function()
-            State.FlyEnabled = not State.FlyEnabled
-            if not State.FlyEnabled then Physics.CleanupFly() end
-            Utils.Notify("Command Palette", "Fly: " .. tostring(State.FlyEnabled), Theme.Accent)
-        end },
-        { Name = "Toggle Tembus Objek (NoClip)", Desc = "Aktifkan atau matikan tabrakan dinding", Run = function()
-            State.NoclipEnabled = not State.NoclipEnabled
-            if not State.NoclipEnabled then Physics.RestoreNoclip() end
-            Utils.Notify("Command Palette", "NoClip: " .. tostring(State.NoclipEnabled), Theme.Accent)
-        end },
-        { Name = "Toggle ESP Pemain", Desc = "Tampilkan atau sembunyikan ESP pemain", Run = function()
-            ESP.Enabled = not ESP.Enabled
-            if not ESP.Enabled then ESP.ClearAll() end
-            Utils.Notify("Command Palette", "Player ESP: " .. tostring(ESP.Enabled), Theme.Accent)
-        end },
-        { Name = "Toggle ESP Barang & Loot", Desc = "Deteksi item & loot di seluruh map", Run = function()
-            ItemESP.Enabled = not ItemESP.Enabled
-            if not ItemESP.Enabled then ItemESP.ClearAll() else ItemESP.ScanAndRender() end
-            Utils.Notify("Command Palette", "Item ESP: " .. tostring(ItemESP.Enabled), Theme.Accent)
-        end },
-        { Name = "Simpan Konfigurasi JSON", Desc = "Simpan pengaturan saat ini ke file JSON", Run = function() ConfigManager.Save() end },
-        { Name = "Muat Konfigurasi JSON", Desc = "Pulihkan pengaturan dari file JSON", Run = function() ConfigManager.Load(false) end },
-        { Name = "Segarkan Karakter (Respawn)", Desc = "Muat ulang karakter lokal jika tersangkut", Run = function()
-            local _, hum = Utils.GetCharacter()
-            if hum then hum.Health = 0 end
-        end },
+        { Title = "Toggle ESP Pemain", Category = "Radar ESP", Action = function() FeatureAPI.Toggle("PlayerESP") end },
+        { Title = "Toggle ESP Barang & Loot", Category = "Radar ESP", Action = function() FeatureAPI.Toggle("ItemESP") end },
+        { Title = "Toggle ESP Generator", Category = "Radar ESP", Action = function() FeatureAPI.Toggle("GeneratorESP") end },
+        { Title = "Toggle Auto Generator", Category = "Radar ESP", Action = function() FeatureAPI.Toggle("AutoGenerator") end },
+        { Title = "Toggle Aimbot Kamera", Category = "Pertarungan", Action = function() FeatureAPI.Toggle("Aimbot") end },
+        { Title = "Toggle Auto Parry", Category = "Pertarungan", Action = function() FeatureAPI.Toggle("AutoParry") end },
+        { Title = "Toggle Smooth Admin Fly", Category = "Pergerakan", Action = function() FeatureAPI.Toggle("Fly") end },
+        { Title = "Toggle Noclip (Tembus Dinding)", Category = "Pergerakan", Action = function() FeatureAPI.Toggle("Noclip") end },
+        { Title = "Acak Ulang HWID (Anti-Ban)", Category = "Keamanan", Action = function() AntiBan.RegenerateHWID() end },
+        { Title = "Toggle Mini-Console Anti-Ban", Category = "Keamanan", Action = function() AntiBan.SetConsoleVisible(not AntiBan.Config.InteractiveConsole) end },
+        { Title = "Jalankan Audit Integritas", Category = "Keamanan", Action = function() SecurityHub.RunIntegrityAudit() end },
+        { Title = "Salin & Ekspor Aset Terdekat", Category = "Salin Aset", Action = function() AssetCopy.ExecuteCopyAndExport() end },
+        { Title = "Simpan Konfigurasi JSON", Category = "Pengaturan", Action = function() ConfigManager.Save() end },
     }
 
-    local paletteOverlay = Utils.Create("Frame", {
-        Name = "BSS_CommandPalette",
-        Size = UDim2.new(0, 380, 0, 250),
-        Position = UDim2.new(0.5, -190, 0.25, 0),
-        BackgroundColor3 = Theme.BgPrimary,
-        BackgroundTransparency = 0.08,
-        BorderSizePixel = 0,
+    local overlay = Utils.Create("Frame", {
+        Name = "CommandPaletteOverlay",
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.45,
         Visible = false,
         ZIndex = 70,
     }, UI.ScreenGui)
-    Utils.AddCorner(paletteOverlay, 12)
-    local pStroke = Utils.AddStroke(paletteOverlay, Theme.Accent, 1.5, 0.15)
-    Utils.RegisterAccent(pStroke, "Color")
+
+    local modal = Utils.Create("Frame", {
+        Size = UDim2.new(0, 380, 0, 270),
+        Position = UDim2.new(0.5, -190, 0.5, -135),
+        BackgroundColor3 = Theme.BgSecondary,
+        BackgroundTransparency = 0.08,
+        BorderSizePixel = 0,
+        ZIndex = 71,
+    }, overlay)
+    Utils.AddCorner(modal, 12)
+    Utils.AddStroke(modal, Theme.Accent, 1.4, 0.15)
 
     local searchInput = Utils.Create("TextBox", {
         Size = UDim2.new(1, -24, 0, 34),
         Position = UDim2.new(0, 12, 0, 12),
         BackgroundColor3 = Theme.BgControl,
         Font = Theme.FontFamily,
-        PlaceholderText = LocaleEngine.Text("Ketik perintah cepat (ESC / F2 untuk tutup)...", "Type quick command (ESC / F2 to close)..."),
+        PlaceholderText = LocaleEngine.Text("Ketik perintah cepat (ESC / Klik luar untuk tutup)...", "Type quick command (ESC / Click outside to close)..."),
         PlaceholderColor3 = Theme.TextMuted,
         Text = "",
         TextColor3 = Theme.TextPrimary,
         TextSize = 12,
         ClearTextOnFocus = false,
-        ZIndex = 71,
-    }, paletteOverlay)
+        ZIndex = 72,
+    }, modal)
     Utils.AddCorner(searchInput, 8)
     Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, searchInput)
 
@@ -7362,145 +7346,87 @@ do
         ScrollBarThickness = 3,
         CanvasSize = UDim2.new(0, 0, 0, 0),
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        ZIndex = 71,
-    }, paletteOverlay)
+        ZIndex = 72,
+    }, modal)
     Utils.Create("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, resultsScroll)
 
-    local function renderCommandResults(queryText)
+    local function renderCommands(filter)
         for _, child in ipairs(resultsScroll:GetChildren()) do
             if child:IsA("TextButton") then child:Destroy() end
         end
-        local q = string.lower(queryText or "")
-        local order = 0
-        for _, cmd in ipairs(CommandRegistry) do
-            if q == "" or string.find(string.lower(cmd.Name), q, 1, true) or string.find(string.lower(cmd.Desc), q, 1, true) then
-                order = order + 1
-                local itemBtn = Utils.Create("TextButton", {
-                    Size = UDim2.new(1, 0, 0, 38),
+        local q = string.lower(filter or "")
+        for idx, cmd in ipairs(CommandRegistry) do
+            if q == "" or string.find(string.lower(cmd.Title), q, 1, true) or string.find(string.lower(cmd.Category), q, 1, true) then
+                local btn = Utils.Create("TextButton", {
+                    Size = UDim2.new(1, 0, 0, 30),
                     BackgroundColor3 = Theme.BgCard,
-                    BackgroundTransparency = 0.2,
-                    Text = "",
-                    AutoButtonColor = false,
-                    LayoutOrder = order,
-                    ZIndex = 72,
-                }, resultsScroll)
-                Utils.AddCorner(itemBtn, 7)
-
-                Utils.Create("TextLabel", {
-                    Size = UDim2.new(1, -16, 0, 17),
-                    Position = UDim2.new(0, 8, 0, 3),
-                    BackgroundTransparency = 1,
                     Font = Theme.FontBold,
-                    Text = cmd.Name,
+                    Text = string.format("  [%s] %s", cmd.Category, cmd.Title),
                     TextColor3 = Theme.TextPrimary,
                     TextSize = 11,
                     TextXAlignment = Enum.TextXAlignment.Left,
+                    LayoutOrder = idx,
                     ZIndex = 73,
-                }, itemBtn)
-
-                Utils.Create("TextLabel", {
-                    Size = UDim2.new(1, -16, 0, 14),
-                    Position = UDim2.new(0, 8, 0, 20),
-                    BackgroundTransparency = 1,
-                    Font = Theme.FontFamily,
-                    Text = cmd.Desc,
-                    TextColor3 = Theme.TextSecondary,
-                    TextSize = 10,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    ZIndex = 73,
-                }, itemBtn)
-
-                itemBtn.MouseButton1Click:Connect(function()
-                    paletteOverlay.Visible = false
-                    SafeEngine.Run("CommandPalette", cmd.Run)
+                }, resultsScroll)
+                Utils.AddCorner(btn, 6)
+                btn.MouseButton1Click:Connect(function()
+                    overlay.Visible = false
+                    SafeEngine.Run("CmdPalette:" .. cmd.Title, cmd.Action)
                 end)
             end
         end
     end
 
     searchInput:GetPropertyChangedSignal("Text"):Connect(function()
-        renderCommandResults(searchInput.Text)
+        renderCommands(searchInput.Text)
     end)
 
-    Utils.Track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if input.KeyCode == Enum.KeyCode.F2 then
-            if UserInputService:GetFocusedTextBox() and not paletteOverlay.Visible then
-                return
+    overlay.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local pos = input.Position
+            local mPos = modal.AbsolutePosition
+            local mSize = modal.AbsoluteSize
+            if pos.X < mPos.X or pos.X > (mPos.X + mSize.X) or pos.Y < mPos.Y or pos.Y > (mPos.Y + mSize.Y) then
+                overlay.Visible = false
             end
-            paletteOverlay.Visible = not paletteOverlay.Visible
-            if paletteOverlay.Visible then
-                searchInput.Text = ""
-                renderCommandResults("")
-                searchInput:CaptureFocus()
-            end
-        elseif input.KeyCode == Enum.KeyCode.Escape and paletteOverlay.Visible then
-            paletteOverlay.Visible = false
         end
-    end))
+    end)
 
-    UI.CommandPalette = paletteOverlay
+    UI.CommandPalette = {
+        Open = function()
+            overlay.Visible = true
+            searchInput.Text = ""
+            renderCommands("")
+            pcall(function() searchInput:CaptureFocus() end)
+        end,
+        Close = function()
+            overlay.Visible = false
+        end,
+        Toggle = function()
+            if overlay.Visible then
+                overlay.Visible = false
+            else
+                UI.CommandPalette.Open()
+            end
+        end,
+    }
 end
 
 -- ============================================================================
--- 17. WINDOW CONTROLS (Responsive Viewport Clamp, Corner Resize & Toggle)
+-- 17. WINDOW CONTROLS, RESIZE HANDLE, MINIMIZE & FLOATING TOGGLE
 -- ============================================================================
 do
-    local function getViewportSize()
-        local sz = UI.ScreenGui and UI.ScreenGui.AbsoluteSize or Vector2.zero
-        if sz.X > 0 and sz.Y > 0 then
-            return sz
-        end
-        local cam = workspace.CurrentCamera
-        return cam and cam.ViewportSize or Vector2.new(1280, 720)
-    end
-
-    local function applyResponsiveLayout(width, height)
-        local sidebarW = (width < 500) and math.clamp(math.floor(width * 0.30), 116, 166) or 166
-        UI.Sidebar.Size = UDim2.new(0, sidebarW, 1, -54)
-        UI.ContentContainer.Size = UDim2.new(1, -sidebarW, 1, -54)
-        UI.ContentContainer.Position = UDim2.new(0, sidebarW, 0, 54)
-
-        local isCompact = (width < 430)
-        UI.TitleLabel.TextSize = isCompact and 13 or 16
-        UI.SubLabel.TextSize = isCompact and 10 or 11
-    end
-
-    local function clampWindowToViewport(recenter)
-        if not UI.MainFrame or not UI.MainFrame.Parent then return end
-        local vp = getViewportSize()
-        local maxW = math.max(320, vp.X - 24)
-        local maxH = math.max(240, vp.Y - 24)
-        local targetW = math.clamp(App.ExpandedWidth, 320, maxW)
-        local targetH = math.clamp(App.ExpandedHeight, 240, maxH)
-        App.ExpandedWidth = targetW
-        App.ExpandedHeight = targetH
-
-        applyResponsiveLayout(targetW, targetH)
-
-        if not App.IsMinimized then
-            UI.MainFrame.Size = UDim2.new(0, targetW, 0, targetH)
-            if recenter then
-                UI.MainFrame.Position = UDim2.new(0.5, -math.floor(targetW / 2), 0.5, -math.floor(targetH / 2))
-            else
-                local absPos = UI.MainFrame.AbsolutePosition
-                local clampedX = math.clamp(absPos.X, 12, math.max(12, vp.X - targetW - 12))
-                local clampedY = math.clamp(absPos.Y, 12, math.max(12, vp.Y - targetH - 12))
-                UI.MainFrame.Position = UDim2.new(0, clampedX, 0, clampedY)
-            end
-        end
+    local function setWindowVisible(visible)
+        App.IsOpen = visible
+        UI.MainFrame.Visible = visible
     end
 
     UI.FloatingToggle.MouseButton1Click:Connect(function()
-        App.IsOpen = not App.IsOpen
-        UI.MainFrame.Visible = App.IsOpen
-        if App.IsOpen then
-            clampWindowToViewport(false)
-        end
+        setWindowVisible(not App.IsOpen)
     end)
 
     UI.CloseBtn.MouseButton1Click:Connect(function()
-        App.IsOpen = false
-        UI.MainFrame.Visible = false
+        setWindowVisible(false)
     end)
 
     UI.MinimizeBtn.MouseButton1Click:Connect(function()
@@ -7509,80 +7435,306 @@ do
             UI.Sidebar.Visible = false
             UI.ContentContainer.Visible = false
             UI.ResizeHandle.Visible = false
-            Utils.Tween(UI.MainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, math.min(App.ExpandedWidth, 340), 0, 54)
+            Utils.Tween(UI.MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0, App.ExpandedWidth, 0, 54)
             })
         else
-            UI.Sidebar.Visible = true
-            UI.ContentContainer.Visible = true
-            UI.ResizeHandle.Visible = true
-            Utils.Tween(UI.MainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Utils.Tween(UI.MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Size = UDim2.new(0, App.ExpandedWidth, 0, App.ExpandedHeight)
             })
+            task.delay(0.12, function()
+                if not App.IsMinimized and UI.Sidebar and UI.ContentContainer then
+                    UI.Sidebar.Visible = true
+                    UI.ContentContainer.Visible = true
+                    UI.ResizeHandle.Visible = true
+                end
+            end)
         end
     end)
 
     local resizing = false
-    local activeResizeInput = nil
-    local resizeStart = nil
-    local startSize = nil
+    local resizeStartPos = nil
+    local resizeStartSize = nil
 
-    Utils.Track(UI.ResizeHandle.InputBegan:Connect(function(input)
-        if not App.IsMinimized and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+    UI.ResizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             resizing = true
-            activeResizeInput = input
-            resizeStart = input.Position
-            startSize = UI.MainFrame.Size
+            resizeStartPos = input.Position
+            resizeStartSize = UI.MainFrame.AbsoluteSize
         end
-    end))
+    end)
 
     Utils.Track(UserInputService.InputChanged:Connect(function(input)
-        if not resizing or not activeResizeInput or not resizeStart or not startSize then
-            return
-        end
-        local isMatchingMouse = (activeResizeInput.UserInputType == Enum.UserInputType.MouseButton1
-            and input.UserInputType == Enum.UserInputType.MouseMovement)
-        local isMatchingTouch = (input == activeResizeInput)
-
-        if isMatchingMouse or isMatchingTouch then
-            local vp = getViewportSize()
-            local delta = input.Position - resizeStart
-            local newW = math.clamp(startSize.X.Offset + delta.X, 340, math.max(340, vp.X - 24))
-            local newH = math.clamp(startSize.Y.Offset + delta.Y, 260, math.max(260, vp.Y - 24))
+        if resizing and resizeStartPos and resizeStartSize and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - resizeStartPos
+            local newW = math.clamp(resizeStartSize.X + delta.X, 340, 920)
+            local newH = math.clamp(resizeStartSize.Y + delta.Y, 260, 680)
             App.ExpandedWidth = newW
             App.ExpandedHeight = newH
             UI.MainFrame.Size = UDim2.new(0, newW, 0, newH)
-            applyResponsiveLayout(newW, newH)
+
+            local sideW = (newW < 500) and math.clamp(math.floor(newW * 0.30), 116, 166) or 166
+            UI.Sidebar.Size = UDim2.new(0, sideW, 1, -54)
+            UI.ContentContainer.Size = UDim2.new(1, -sideW, 1, -54)
+            UI.ContentContainer.Position = UDim2.new(0, sideW, 0, 54)
         end
     end))
 
     Utils.Track(UserInputService.InputEnded:Connect(function(input)
-        if resizing and (input == activeResizeInput or (activeResizeInput and activeResizeInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1)) then
+        if resizing and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
             resizing = false
-            activeResizeInput = nil
         end
     end))
 
-    Utils.Track(UI.ScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-        clampWindowToViewport(false)
+    Utils.Track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.RightShift then
+            setWindowVisible(not App.IsOpen)
+        elseif input.KeyCode == Enum.KeyCode.F2 then
+            if UI.CommandPalette then
+                UI.CommandPalette.Toggle()
+            end
+        elseif input.KeyCode == Enum.KeyCode.Escape then
+            if UI.CommandPalette then
+                UI.CommandPalette.Close()
+            end
+        end
     end))
-
-    clampWindowToViewport(true)
 end
 
 -- ============================================================================
--- 18. CENTRAL HEARTBEAT / RENDERSTEPPED RUNTIME ENGINE
+-- 18. AUTO-GENERATOR AUTOMATION ENGINE (Map Distrik & Universal)
 -- ============================================================================
 do
-    local frameCounter = 0
-    local lastTick = os.clock()
-    local slowScanTimer = 0
-    local espTimer = 0
-    local zoneScanTimer = 0
+    local function trySolveSkillCheckUI()
+        local now = os.clock()
+        if (now - AutoGen.LastSkillCheckTime) < 0.12 then return end
+
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pGui then return end
+
+        for _, gui in ipairs(pGui:GetChildren()) do
+            if gui:IsA("ScreenGui") and gui.Enabled then
+                local gName = string.lower(gui.Name)
+                if string.find(gName, "skill", 1, true) or string.find(gName, "check", 1, true) or string.find(gName, "repair", 1, true) or string.find(gName, "gen", 1, true) or string.find(gName, "qte", 1, true) then
+                    for _, desc in ipairs(gui:GetDescendants()) do
+                        if desc:IsA("TextButton") or desc:IsA("ImageButton") then
+                            if desc.Visible and desc.Active then
+                                AutoGen.LastSkillCheckTime = now
+                                pcall(function()
+                                    if typeof(firesignal) == "function" then
+                                        firesignal(desc.MouseButton1Click)
+                                    end
+                                end)
+                                if VirtualInputManager then
+                                    pcall(function()
+                                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                                        task.delay(0.03, function()
+                                            pcall(function() VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game) end)
+                                        end)
+                                    end)
+                                end
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    function AutoGen.Step()
+        if not AutoGen.Enabled then return end
+
+        if AutoGen.AutoSkillCheck then
+            trySolveSkillCheckUI()
+        end
+
+        local now = os.clock()
+        if (now - AutoGen.LastActionTime) < AutoGen.ScanInterval then
+            return
+        end
+        AutoGen.LastActionTime = now
+
+        local target = AutoGen.CurrentTarget
+        if target and target.Instance and target.Instance.Parent then
+            local pct, _, isDone, _, _, prompt = GeneratorAPI.ReadProgress(target.Instance)
+            target.Progress = pct
+            target.Completed = isDone
+            target.Prompt = prompt
+            if isDone or pct >= 100 then
+                AutoGen.CompletedCount = AutoGen.CompletedCount + 1
+                if AutoGen.AutoSwitchNext then
+                    AutoGen.CurrentTarget = nil
+                    target = nil
+                else
+                    AutoGen.Enabled = false
+                    FeatureAPI.Sync("AutoGenerator", false)
+                    return
+                end
+            end
+        else
+            AutoGen.CurrentTarget = nil
+            target = nil
+        end
+
+        if not target then
+            target = GeneratorAPI.GetNearestIncomplete()
+            AutoGen.CurrentTarget = target
+        end
+
+        if not target or not target.Part or not target.Part.Parent then
+            AutoGen.StatusText = "Semua generator selesai!"
+            return
+        end
+
+        local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
+        if not myRoot then return end
+
+        local dist = (target.Part.Position - myRoot.Position).Magnitude
+        AutoGen.StatusText = string.format("%s (%d%% | %.0fm)", target.Name, target.Progress, dist)
+
+        if AutoGen.AutoTeleport and dist > (AutoGen.InteractRange - 2) then
+            local destCF = target.Part.CFrame * CFrame.new(AutoGen.TeleportOffset)
+            Utils.SafeTeleport(destCF)
+        end
+
+        if AutoGen.AutoInteract and dist <= AutoGen.InteractRange then
+            if target.Prompt and target.Prompt.Parent and target.Prompt.Enabled then
+                FeatureAPI.TriggerProximity(target.Prompt)
+            end
+            FeatureAPI.ScanGameRemotes(false)
+            for _, rem in ipairs(FeatureAPI.RemoteIndex.Generator) do
+                if rem and rem.Parent then
+                    AntiBan.Fire(rem, target.Instance)
+                    AntiBan.Fire(rem, "Repair", target.Instance)
+                end
+            end
+        end
+    end
+end
+
+-- ============================================================================
+-- 19. MASTER RUNTIME LOOPS (RenderStepped, Heartbeat & JumpRequest)
+-- ============================================================================
+do
+    Utils.Track(RunService.RenderStepped:Connect(function(dt)
+        SafeEngine.Run("RenderStepped", function()
+            if State.FlyEnabled then
+                Physics.StepSmoothFly(dt)
+            end
+
+            if Combat.AimbotEnabled then
+                Combat.StepAimbot()
+            end
+
+            local cam = workspace.CurrentCamera
+            if cam and State.CameraFOV ~= 70 and math.abs(cam.FieldOfView - State.CameraFOV) > 0.2 then
+                cam.FieldOfView = State.CameraFOV
+            end
+        end)
+    end))
+
+    local fpsFrames = 0
+    local fpsLastClock = os.clock()
+    local currentFPS = 60
+    local espTick = 0
+
+    Utils.Track(RunService.Heartbeat:Connect(function()
+        SafeEngine.Run("Heartbeat", function()
+            fpsFrames = fpsFrames + 1
+            local now = os.clock()
+            if (now - fpsLastClock) >= 0.5 then
+                currentFPS = math.floor((fpsFrames / (now - fpsLastClock)) + 0.5)
+                fpsFrames = 0
+                fpsLastClock = now
+
+                if UI.TelemetryLabels.FPS and UI.TelemetryLabels.FPS.Parent then
+                    UI.TelemetryLabels.FPS.Text = tostring(currentFPS) .. " FPS"
+                end
+                if UI.TelemetryLabels.Ping and UI.TelemetryLabels.Ping.Parent then
+                    local pingMs = 0
+                    pcall(function()
+                        pingMs = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue() + 0.5)
+                    end)
+                    UI.TelemetryLabels.Ping.Text = tostring(pingMs) .. " ms"
+                end
+                if UI.TelemetryLabels.Memory and UI.TelemetryLabels.Memory.Parent then
+                    local memMb = 0
+                    pcall(function()
+                        memMb = math.floor(Stats:GetTotalMemoryUsageMb() + 0.5)
+                    end)
+                    UI.TelemetryLabels.Memory.Text = tostring(memMb) .. " MB"
+                end
+                if UI.TelemetryLabels.Players and UI.TelemetryLabels.Players.Parent then
+                    UI.TelemetryLabels.Players.Text = string.format("%d/%d | %d", #Players:GetPlayers(), Players.MaxPlayers, FeatureAPI.GetActiveCount())
+                end
+            end
+
+            local char, hum, root = Utils.GetCharacter(LocalPlayer)
+            if hum then
+                if State.WalkSpeed ~= 16 and hum.WalkSpeed ~= State.WalkSpeed then
+                    hum.WalkSpeed = State.WalkSpeed
+                end
+                if State.JumpPower ~= 50 and hum.JumpPower ~= State.JumpPower then
+                    hum.UseJumpPower = true
+                    hum.JumpPower = State.JumpPower
+                end
+            end
+
+            if State.NoclipEnabled and char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        if Physics.NoclipCache[part] == nil then
+                            Physics.NoclipCache[part] = true
+                        end
+                        part.CanCollide = false
+                    end
+                end
+            end
+
+            if root and UI.TelemetryLabels.Coords and UI.Pages["Teleportasi"] and UI.Pages["Teleportasi"].Visible then
+                UI.TelemetryLabels.Coords.Text = string.format(
+                    "Posisi: X: %.1f | Y: %.1f | Z: %.1f",
+                    root.Position.X, root.Position.Y, root.Position.Z
+                )
+            end
+
+            if State.FullbrightEnabled then
+                Lighting.Brightness = 2.5
+                Lighting.ClockTime = 14
+                Lighting.GlobalShadows = false
+                Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+                Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+            end
+
+            if State.NoFogEnabled then
+                Lighting.FogEnd = 100000
+                Lighting.FogStart = 99999
+                local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+                if atmo then atmo.Density = 0 end
+            end
+
+            espTick = espTick + 1
+            if espTick >= 3 then
+                espTick = 0
+                if ESP.Enabled then ESP.UpdateAll() end
+                if ItemESP.Enabled then ItemESP.ScanAndRender() end
+                if GeneratorESP.Enabled then GeneratorESP.ScanAndRender() end
+            end
+
+            if Combat.AutoParryEnabled then Combat.StepAutoParry() end
+            if Combat.MeleeImmunity then Protection.StepMeleeImmunity() end
+            if Combat.HungerThirstGuard then Protection.StepHungerThirstGuard() end
+            if Carry.Enabled then Carry.Step() end
+            if AutoGen.Enabled then AutoGen.Step() end
+            if SecurityHub.ZoneScannerEnabled then SecurityHub.StepZoneScanner() end
+        end)
+    end))
 
     Utils.Track(UserInputService.JumpRequest:Connect(function()
         if State.InfiniteJumpEnabled then
-            local _, hum = Utils.GetCharacter()
+            local _, hum = Utils.GetCharacter(LocalPlayer)
             if hum then
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
             end
@@ -7591,551 +7743,47 @@ do
 
     Utils.Track(Players.PlayerRemoving:Connect(function(plr)
         ESP.RemovePlayer(plr)
-    end))
-
-    Utils.Track(RunService.RenderStepped:Connect(function(dt)
-        SafeEngine.Run("RenderSteppedLoop", function()
-            local now = os.clock()
-            local pulse = (math.sin(now * 3.2) + 1) * 0.5
-            local wave = math.sin(now * 2.4) * 2.5
-
-            for _, pk in ipairs(UI.Pumpkins) do
-                if pk.Holder and pk.Holder.Parent then
-                    if not pk.IsMenuPumpkin then
-                        pk.Holder.Position = UDim2.new(
-                            pk.BasePos.X.Scale,
-                            pk.BasePos.X.Offset,
-                            pk.BasePos.Y.Scale,
-                            pk.BasePos.Y.Offset + wave
-                        )
-                    end
-                    pk.Aura.BackgroundTransparency = (pk.IsHero and 0.62 or 0.72) + (pulse * 0.14)
-                    local eyeCol = Color3.fromRGB(255, math.floor(195 + pulse * 60), math.floor(60 + pulse * 60))
-                    pk.EyeLeft.BackgroundColor3 = eyeCol
-                    pk.EyeRight.BackgroundColor3 = eyeCol
-                    pk.Mouth.BackgroundColor3 = eyeCol
-                end
-            end
-
-            if Combat.AimbotEnabled then
-                local cam = workspace.CurrentCamera
-                local _, isRanged = Combat.GetEquippedRangedWeapon()
-                local shouldAim = false
-
-                if Combat.AimbotMode == "Always" then
-                    shouldAim = true
-                elseif Combat.AimbotMode == "HoldRMB" then
-                    shouldAim = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-                else
-                    local char = Utils.GetCharacter(LocalPlayer)
-                    local hasTool = char and (char:FindFirstChildOfClass("Tool") ~= nil)
-                    shouldAim = hasTool or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-                end
-
-                if shouldAim and cam then
-                    local targetPlr, targetPart = Combat.FindBestTarget()
-                    Combat.CurrentTarget = targetPlr
-                    if targetPlr and targetPart then
-                        local desiredCF = CFrame.lookAt(cam.CFrame.Position, targetPart.Position)
-                        local alpha = math.clamp(Combat.Smoothness, 0.08, 1)
-                        cam.CFrame = (alpha >= 0.98) and desiredCF or cam.CFrame:Lerp(desiredCF, alpha)
-
-                        if Combat.RGBLaserEnabled and isRanged then
-                            local tool = Combat.GetEquippedRangedWeapon()
-                            local originPart = tool and (tool:FindFirstChild("Muzzle", true) or tool:FindFirstChild("Barrel", true) or tool:FindFirstChild("Handle"))
-                            if originPart and originPart:IsA("BasePart") then
-                                Combat.UpdateLaser(originPart.Position, targetPart.Position)
-                            else
-                                Combat.HideLaser()
-                            end
-                        else
-                            Combat.HideLaser()
-                        end
-                    else
-                        Combat.HideLaser()
-                    end
-                else
-                    Combat.CurrentTarget = nil
-                    Combat.HideLaser()
-                end
-            else
-                Combat.HideLaser()
-            end
-
-            if State.FullbrightEnabled then
-                Lighting.Brightness = 2.2
-                Lighting.ClockTime = 14
-                Lighting.GlobalShadows = false
-                Lighting.Ambient = Color3.fromRGB(178, 178, 178)
-                Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
-            end
-            if State.NoFogEnabled then
-                Lighting.FogEnd = 100000
-                Lighting.FogStart = 0
-                for _, child in ipairs(Lighting:GetChildren()) do
-                    if child:IsA("Atmosphere") then
-                        child.Density = 0
-                    end
-                end
-            end
-
-            espTimer = espTimer + (dt or 0.016)
-            if espTimer >= 0.05 then
-                espTimer = 0
-                ESP.UpdateAll()
-            end
-
-            frameCounter = frameCounter + 1
-            if (now - lastTick) >= 0.5 then
-                local fps = math.floor((frameCounter / (now - lastTick)) + 0.5)
-                frameCounter = 0
-                lastTick = now
-
-                if UI.TelemetryLabels.FPS then
-                    UI.TelemetryLabels.FPS.Text = tostring(fps) .. " FPS"
-                end
-
-                local pingMs = 0
-                pcall(function()
-                    pingMs = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue() + 0.5)
-                end)
-                if UI.TelemetryLabels.Ping then
-                    UI.TelemetryLabels.Ping.Text = tostring(pingMs) .. " ms"
-                end
-
-                local memMb = 0
-                pcall(function()
-                    memMb = math.floor(Stats:GetTotalMemoryUsageMb() + 0.5)
-                end)
-                if UI.TelemetryLabels.Memory then
-                    UI.TelemetryLabels.Memory.Text = tostring(memMb) .. " MB"
-                end
-
-                if UI.TelemetryLabels.Players then
-                    UI.TelemetryLabels.Players.Text = tostring(#Players:GetPlayers()) .. " / " .. tostring(Players.MaxPlayers)
-                end
-            end
-        end)
-    end))
-
-    Utils.Track(RunService.Heartbeat:Connect(function(dt)
-        SafeEngine.Run("HeartbeatLoop", function()
-            local char, hum, root = Utils.GetCharacter()
-
-            if hum then
-                if State.WalkSpeed ~= 16 and hum.WalkSpeed ~= State.WalkSpeed then
-                    hum.WalkSpeed = State.WalkSpeed
-                end
-                if State.JumpPower ~= 50 then
-                    hum.UseJumpPower = true
-                    if hum.JumpPower ~= State.JumpPower then
-                        hum.JumpPower = State.JumpPower
-                    end
-                end
-            end
-
-            if State.FlyEnabled then
-                Physics.StepSmoothFly(dt)
-            end
-
-            if State.NoclipEnabled and char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        if Physics.NoclipCache[part] == nil then
-                            Physics.NoclipCache[part] = part.CanCollide
-                        end
-                        if part.CanCollide then
-                            part.CanCollide = false
-                        end
-                    end
-                end
-            end
-
-            if Carry.Enabled then
-                Carry.Step()
-            end
-
-            if Combat.AutoParryEnabled then
-                Combat.StepAutoParry()
-            end
-
-            if Combat.MeleeImmunity then
-                Protection.StepMeleeImmunity()
-            end
-
-            if Combat.HungerThirstGuard then
-                Protection.StepHungerThirstGuard()
-            end
-
-            if root and UI.TelemetryLabels.Coords and UI.Pages["Teleportasi"] and UI.Pages["Teleportasi"].Visible then
-                local p = root.Position
-                UI.TelemetryLabels.Coords.Text = string.format("XYZ: %.1f, %.1f, %.1f", p.X, p.Y, p.Z)
-            end
-
-            zoneScanTimer = zoneScanTimer + (dt or 0.016)
-            if zoneScanTimer >= 0.6 then
-                zoneScanTimer = 0
-                if SecurityHub.ZoneScannerEnabled then
-                    SecurityHub.ScanCurrentZone()
-                end
-            end
-
-            slowScanTimer = slowScanTimer + (dt or 0.016)
-            if slowScanTimer >= 0.45 then
-                slowScanTimer = 0
-                if ItemESP.Enabled then
-                    ItemESP.ScanAndRender()
-                end
-                if GeneratorESP.Enabled then
-                    GeneratorESP.ScanAndRender()
-                end
-            end
-        end)
-    end))
-end
-
-
--- ============================================================================
--- 18A. FEATURE API REGISTRATION & LIVE MODULE SYNCHRONIZATION
--- ============================================================================
-do
-    local function requireAliveCharacter()
-        local char, hum, root = Utils.GetCharacter(LocalPlayer)
-        if not char or not hum or not root or hum.Health <= 0 then
-            return false, LocaleEngine.Text("Karakter belum siap atau sedang respawn.", "Character is not ready or respawning.")
-        end
-        return true
-    end
-
-    -- Tab 3: Radar ESP APIs
-    FeatureAPI.Register("PlayerESP", {
-        Category = "RadarESP",
-        OnEnable = function()
-            ESP.Enabled = true
-            ESP.UpdateAll()
-        end,
-        OnDisable = function()
-            ESP.Enabled = false
-            ESP.ClearAll()
-        end,
-    })
-
-    FeatureAPI.Register("ItemESP", {
-        Category = "RadarESP",
-        OnEnable = function()
-            ItemESP.Enabled = true
-            ItemESP.ScanAndRender()
-        end,
-        OnDisable = function()
-            ItemESP.Enabled = false
-            ItemESP.ClearAll()
-        end,
-    })
-
-    FeatureAPI.Register("GeneratorESP", {
-        Category = "RadarESP",
-        OnEnable = function()
-            GeneratorESP.Enabled = true
-            GeneratorESP.ScanAndRender()
-        end,
-        OnDisable = function()
-            GeneratorESP.Enabled = false
-            GeneratorESP.ClearAll()
-        end,
-    })
-
-    -- Tab 4: Combat & Survival APIs
-    FeatureAPI.Register("Aimbot", {
-        Category = "Combat",
-        Validate = requireAliveCharacter,
-        OnEnable = function()
-            Combat.AimbotEnabled = true
-            if Combat.FOVCircle then
-                Combat.FOVCircle.Visible = Combat.ShowFOVCircle
-            end
-        end,
-        OnDisable = function()
-            Combat.AimbotEnabled = false
-            Combat.CurrentTarget = nil
-            Combat.HideLaser()
-            if Combat.FOVCircle then
-                Combat.FOVCircle.Visible = false
-            end
-        end,
-    })
-
-    FeatureAPI.Register("AutoParry", {
-        Category = "Combat",
-        Validate = requireAliveCharacter,
-        OnEnable = function()
-            Combat.AutoParryEnabled = true
-            Combat.ParryRemoteScanned = false
-            Combat.ScanParryRemotes()
-            FeatureAPI.ScanGameRemotes(true)
-        end,
-        OnDisable = function()
-            Combat.AutoParryEnabled = false
-            Combat.CleanupParryVisuals()
-        end,
-        OnRespawn = function()
-            Combat.ParryRemoteScanned = false
-            Combat.ScanParryRemotes()
-        end,
-    })
-
-    FeatureAPI.Register("MeleeImmunity", {
-        Category = "Combat",
-        Validate = requireAliveCharacter,
-        OnEnable = function()
-            Combat.MeleeImmunity = true
-        end,
-        OnDisable = function()
-            Combat.MeleeImmunity = false
-            Protection.RestoreEnemyHitboxes()
-        end,
-    })
-
-    FeatureAPI.Register("HungerThirstGuard", {
-        Category = "Combat",
-        OnEnable = function()
-            Combat.HungerThirstGuard = true
-            Protection.BindSurvivalContainer(LocalPlayer)
-            if LocalPlayer.Character then
-                Protection.BindSurvivalContainer(LocalPlayer.Character)
-            end
-        end,
-        OnDisable = function()
-            Combat.HungerThirstGuard = false
-        end,
-    })
-
-    -- Tab 5: Movement & Physics APIs
-    FeatureAPI.Register("SmoothFly", {
-        Category = "Movement",
-        Validate = requireAliveCharacter,
-        OnEnable = function()
-            local _, hum = Utils.GetCharacter(LocalPlayer)
-            if hum and hum.Sit then hum.Sit = false end
-            State.FlyEnabled = true
-        end,
-        OnDisable = function()
-            State.FlyEnabled = false
-            Physics.CleanupFly()
-        end,
-    })
-
-    FeatureAPI.Register("NoClip", {
-        Category = "Movement",
-        Validate = requireAliveCharacter,
-        OnEnable = function()
-            State.NoclipEnabled = true
-        end,
-        OnDisable = function()
-            State.NoclipEnabled = false
-            Physics.RestoreNoclip()
-        end,
-    })
-
-    FeatureAPI.Register("InfiniteJump", {
-        Category = "Movement",
-        Validate = requireAliveCharacter,
-        OnEnable = function()
-            State.InfiniteJumpEnabled = true
-        end,
-        OnDisable = function()
-            State.InfiniteJumpEnabled = false
-        end,
-    })
-
-    -- Tab 7 & 8: Carry & Emote APIs
-    FeatureAPI.Register("CarryPlayer", {
-        Category = "Social",
-        Validate = function()
-            local ok, reason = requireAliveCharacter()
-            if not ok then return false, reason end
-            if not Carry.TargetPlayer or not Carry.TargetPlayer.Parent then
-                return false, LocaleEngine.Text("Pilih target pemain terlebih dahulu.", "Select a target player first.")
-            end
-            return true
-        end,
-        OnEnable = function()
-            FeatureAPI.ScanGameRemotes(false)
-            Carry.Start()
-        end,
-        OnDisable = function()
+        if Carry.TargetPlayer == plr then
             Carry.Stop()
-        end,
-    })
-
-    FeatureAPI.Register("DanceEmote", {
-        Category = "Social",
-        Validate = requireAliveCharacter,
-        OnEnable = function()
-            Emotes.Playing = true
-        end,
-        OnDisable = function()
-            Emotes.Stop()
-        end,
-    })
-
-    -- Tab 9: Visual APIs
-    FeatureAPI.Register("Fullbright", {
-        Category = "Visual",
-        OnEnable = function()
-            State.FullbrightEnabled = true
-        end,
-        OnDisable = function()
-            State.FullbrightEnabled = false
-            Lighting.Brightness = State.OriginalLighting.Brightness
-            Lighting.ClockTime = State.OriginalLighting.ClockTime
-            Lighting.GlobalShadows = State.OriginalLighting.GlobalShadows
-            Lighting.Ambient = State.OriginalLighting.Ambient
-            Lighting.OutdoorAmbient = State.OriginalLighting.OutdoorAmbient
-        end,
-    })
-
-    FeatureAPI.Register("NoFog", {
-        Category = "Visual",
-        OnEnable = function()
-            State.NoFogEnabled = true
-        end,
-        OnDisable = function()
-            State.NoFogEnabled = false
-            Lighting.FogEnd = State.OriginalLighting.FogEnd
-            Lighting.FogStart = State.OriginalLighting.FogStart
-            if State.OriginalAtmosphere and State.OriginalAtmosphere.Instance then
-                State.OriginalAtmosphere.Instance.Density = State.OriginalAtmosphere.Density
-            end
-        end,
-    })
-
-    -- Tab 11 & 12: Security & Protection APIs
-    FeatureAPI.Register("ZoneScanner", {
-        Category = "Security",
-        OnEnable = function()
-            SecurityHub.ZoneScannerEnabled = true
-            SecurityHub.ScanCurrentZone()
-        end,
-        OnDisable = function()
-            SecurityHub.ZoneScannerEnabled = false
-        end,
-    })
-
-    FeatureAPI.Register("LogCapture", {
-        Category = "Security",
-        OnEnable = function()
-            SecurityHub.LogCaptureEnabled = true
-        end,
-        OnDisable = function()
-            SecurityHub.LogCaptureEnabled = false
-        end,
-    })
-
-    FeatureAPI.Register("AntiAFK", {
-        Category = "Protection",
-        OnEnable = function()
-            Protection.AntiAFKEnabled = true
-        end,
-        OnDisable = function()
-            Protection.AntiAFKEnabled = false
-        end,
-    })
-
-    -- Sinkronisasi otomatis status fitur dengan state table eksisting
-    Utils.Track(RunService.Heartbeat:Connect(function()
-        FeatureAPI.Sync("PlayerESP", ESP.Enabled)
-        FeatureAPI.Sync("ItemESP", ItemESP.Enabled)
-        FeatureAPI.Sync("GeneratorESP", GeneratorESP.Enabled)
-        FeatureAPI.Sync("Aimbot", Combat.AimbotEnabled)
-        FeatureAPI.Sync("AutoParry", Combat.AutoParryEnabled)
-        FeatureAPI.Sync("MeleeImmunity", Combat.MeleeImmunity)
-        FeatureAPI.Sync("HungerThirstGuard", Combat.HungerThirstGuard)
-        FeatureAPI.Sync("SmoothFly", State.FlyEnabled)
-        FeatureAPI.Sync("NoClip", State.NoclipEnabled)
-        FeatureAPI.Sync("InfiniteJump", State.InfiniteJumpEnabled)
-        FeatureAPI.Sync("CarryPlayer", Carry.Enabled)
-        FeatureAPI.Sync("DanceEmote", Emotes.Playing)
-        FeatureAPI.Sync("Fullbright", State.FullbrightEnabled)
-        FeatureAPI.Sync("NoFog", State.NoFogEnabled)
-        FeatureAPI.Sync("ZoneScanner", SecurityHub.ZoneScannerEnabled)
-        FeatureAPI.Sync("LogCapture", SecurityHub.LogCaptureEnabled)
-        FeatureAPI.Sync("AntiAFK", Protection.AntiAFKEnabled)
+        end
     end))
-
-    FeatureAPI.ScanGameRemotes(true)
 end
 
 -- ============================================================================
--- 19. GLOBAL CLEANUP & UNLOAD HANDLER
+-- 20. CLEAN UNLOAD & GLOBAL REGISTRATION
 -- ============================================================================
 local function unloadScript()
     State.FlyEnabled = false
     State.NoclipEnabled = false
-    State.FullbrightEnabled = false
-    State.NoFogEnabled = false
     ESP.Enabled = false
     ItemESP.Enabled = false
     GeneratorESP.Enabled = false
     Combat.AimbotEnabled = false
-    Combat.MeleeImmunity = false
-    Combat.HungerThirstGuard = false
     Combat.AutoParryEnabled = false
-    Carry.Stop()
-    Emotes.Stop()
+    Combat.MeleeImmunity = false
+    AutoGen.Enabled = false
 
-    Physics.CleanupFly()
-    Physics.RestoreNoclip()
-    Protection.RestoreEnemyHitboxes()
-    ESP.ClearAll()
-    ItemESP.ClearAll()
-    GeneratorESP.ClearAll()
-
-    Combat.CleanupParryVisuals()
-    Carry.CleanupVisuals()
-
-    if Combat.LaserPart then
-        pcall(function() Combat.LaserPart:Destroy() end)
-        Combat.LaserPart = nil
-    end
+    pcall(function() AntiBan.Shutdown() end)
+    pcall(function() Physics.CleanupFly() end)
+    pcall(function() Physics.RestoreNoclip() end)
+    pcall(function() Carry.Stop() end)
+    pcall(function() Emotes.Stop() end)
+    pcall(function() Combat.HideLaser() end)
+    pcall(function() Combat.CleanupParryVisuals() end)
+    pcall(function() Protection.StepMeleeImmunity() end)
 
     for _, conn in ipairs(Connections) do
         pcall(function() conn:Disconnect() end)
     end
     table.clear(Connections)
 
-    if FeatureAPI then
-        table.clear(FeatureAPI.Listeners)
-        for _, entry in pairs(FeatureAPI.Registry) do
-            entry.Enabled = false
-        end
+    if Combat.LaserPart then
+        pcall(function() Combat.LaserPart:Destroy() end)
+        Combat.LaserPart = nil
     end
-
-    local _, hum = Utils.GetCharacter()
-    if hum then
-        hum.WalkSpeed = 16
-        hum.JumpPower = 50
-        hum.PlatformStand = false
-        hum.AutoRotate = true
-        if workspace.CurrentCamera then
-            workspace.CurrentCamera.CameraSubject = hum
-            workspace.CurrentCamera.FieldOfView = 70
-        end
-    end
-
-    workspace.Gravity = State.OriginalGravity
-    Lighting.Brightness = State.OriginalLighting.Brightness
-    Lighting.ClockTime = State.OriginalLighting.ClockTime
-    Lighting.FogEnd = State.OriginalLighting.FogEnd
-    Lighting.FogStart = State.OriginalLighting.FogStart
-    Lighting.GlobalShadows = State.OriginalLighting.GlobalShadows
-    Lighting.Ambient = State.OriginalLighting.Ambient
-    Lighting.OutdoorAmbient = State.OriginalLighting.OutdoorAmbient
-    if State.OriginalAtmosphere and State.OriginalAtmosphere.Instance then
-        State.OriginalAtmosphere.Instance.Density = State.OriginalAtmosphere.Density
-    end
-
     if UI.ScreenGui then
         pcall(function() UI.ScreenGui:Destroy() end)
+        UI.ScreenGui = nil
     end
 end
 
@@ -8143,16 +7791,12 @@ if typeof(getgenv) == "function" then
     getgenv().BSS_UnloadOld = unloadScript
 end
 
--- Muat konfigurasi JSON secara diam-diam jika file sebelumnya pernah disimpan
-ConfigManager.Load(true)
-
--- Buka Tab Informasi (Paling Atas) sebagai tampilan awal
 Components.SwitchTab("Informasi")
 Utils.Notify(
-    App.Name,
+    "BimSakSin Hub v3.0 + AntiBan v3.1",
     LocaleEngine.Text(
-        "Berhasil dimuat! Region: " .. LocaleEngine.RegionDisplay .. " | Tekan F2 untuk Command Palette.",
-        "Loaded! Region: " .. LocaleEngine.RegionDisplay .. " | Press F2 for Command Palette."
+        "Siap digunakan! Semua modul & proteksi Anti-Ban aktif.",
+        "Ready! All modules & Anti-Ban protections are active."
     ),
     Theme.Success
 )

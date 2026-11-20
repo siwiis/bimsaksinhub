@@ -1,233 +1,355 @@
 --[[
-================================================================================
-  BimSakSin Hub v3.2 + Universal Anti-Ban Framework v3.1.1 | Edisi Universal
-  Creator     : BimSakSin
-  Environment : Roblox Luau (Universal / Semua Map & Kompatibel R6/R15)
-  Patch Log   :
-    - v3.2  : Perbaikan 20 bug (null-safety LocalPlayer, SafeEngine triple-return,
-              parry spam guard, Carries platformstand, emote ID strict,
-              auto-reconnect SecurityHub, memory leak console drag, auto-gen
-              remote cooldown, flight reset guard, config console sync).
-    - v3.1.1: Anti-Kick hook + namecall guard, Anti-Remote, Anti-Stats Scan,
-              HWID Spoofer, SafeFire API, Webhook Reporter.
-  Struktur Tab (urut kegunaan):
-    1. Informasi        7. Gendong
-    2. Beranda          8. Tari & Emote
-    3. Radar ESP        9. Visual
-    4. Pertarungan     10. Salin Aset
-    5. Pergerakan      11. Keamanan & AC
-    6. Teleportasi     12. Pengaturan
-================================================================================
+    UNIVERSAL ANTI-BAN FRAMEWORK v3.1 — FIXED
+    Tested-compatible: Synapse X, Krnl, Fluxus, Delta, Arceus X,
+                       Hydrogen, Codex, Wave, Solara, Xeno, AWP, Nihon
+    Bebas error dengan auto-fallback capability check.
 ]]
 
--- ============================================================================
--- 0. PRE-EXECUTION CLEANUP
--- ============================================================================
-do
-    if typeof(getgenv) == "function" then
-        local env = getgenv()
-        if type(env.BSS_UnloadOld) == "function" then
-            pcall(env.BSS_UnloadOld)
-            env.BSS_UnloadOld = nil
-        end
-    end
-
-    local existingNames = {
-        ["BimSakSinHub_v2"] = true, ["BimSakSinHub_v3"] = true,
-        ["BSS_ESP_Folder"] = true, ["BSS_ItemESP_Folder"] = true, ["BSS_GenESP_Folder"] = true,
-    }
-    local function cleanupContainer(container)
-        if not container then return end
-        pcall(function()
-            for _, child in ipairs(container:GetChildren()) do
-                if existingNames[child.Name] or string.sub(child.Name, 1, 10) == "AntiBanUI_" then
-                    child:Destroy()
-                end
-            end
-        end)
-    end
-    if typeof(gethui) == "function" then pcall(function() cleanupContainer(gethui()) end) end
-    local okCore, coreGui = pcall(function() return game:GetService("CoreGui") end)
-    if okCore then cleanupContainer(coreGui) end
-
-    local lp = game:GetService("Players").LocalPlayer
-    if lp then
-        pcall(function()
-            cleanupContainer(lp:FindFirstChild("PlayerGui"))
-            local char = lp.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            if root then
-                for _, objName in ipairs({
-                    "BSS_FlyVelocity","BSS_FlyGyro","BSS_FlyLinearVel",
-                    "BSS_FlyAlignOri","BSS_FlyAttachment","BSS_CarryVelocity","BSS_CarryWeld",
-                }) do
-                    local old = root:FindFirstChild(objName)
-                    if old then old:Destroy() end
-                end
-            end
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.PlatformStand = false; hum.AutoRotate = true end
-        end)
-    end
-    local oldLaser = workspace:FindFirstChild("BSS_RGB_AimLaser")
-    if oldLaser then oldLaser:Destroy() end
-end
-
--- ============================================================================
--- 1. CORE SERVICES
--- ============================================================================
 local Players            = game:GetService("Players")
-local RunService         = game:GetService("RunService")
-local UserInputService   = game:GetService("UserInputService")
-local TweenService       = game:GetService("TweenService")
-local Lighting           = game:GetService("Lighting")
-local Stats              = game:GetService("Stats")
-local TeleportService    = game:GetService("TeleportService")
-local Teams              = game:GetService("Teams")
-local HttpService        = game:GetService("HttpService")
-local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedStorage  = game:GetService("ReplicatedStorage")
-local LogService         = game:GetService("LogService")
+local HttpService        = game:GetService("HttpService")
+local Stats              = game:GetService("Stats")
 local CoreGui            = game:GetService("CoreGui")
-local LocalizationService= game:GetService("LocalizationService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local UserInputService   = game:GetService("UserInputService")
+local LocalPlayer        = Players.LocalPlayer
 
--- [FIX #1] LocalPlayer null-safe extraction
-local VirtualUser, VirtualInputManager
-pcall(function() VirtualUser = game:GetService("VirtualUser") end)
-pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+--========== CONFIG ==========
+local CONFIG = {
+    Version             = "3.1",
+    EnableAntiKick      = true,
+    EnableAntiRemote    = true,
+    EnableAntiDetect    = true,
+    EnableAntiStatsScan = true,
+    EnableSpoofHWID     = true,
+    EnableWebhook       = false,
+    WebhookURL          = "",
+    WebhookInterval     = 60,
+    RemoteRateLimit     = 0.03,
+    Debug               = true,
+    InteractiveConsole  = true,
+}
 
-local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    pcall(function()
-        LocalPlayer = Players:GetPropertyChangedSignal("LocalPlayer"):Wait() and Players.LocalPlayer
-    end)
-    if not LocalPlayer then
-        task.wait(0.1)
-        LocalPlayer = Players.LocalPlayer
+--========== UTIL ==========
+local function log(tag, ...)
+    if CONFIG.Debug then
+        print(("[AntiBan:%s]"):format(tag), ...)
     end
 end
 
-local App = {
-    Name     = "BimSakSin Hub v3.2",
-    Subtitle = "Semoga hari-hari kalian menyenangkan",
-    Version  = "v3.2 Universal + AntiBan v3.1.1",
-    GuiName  = "BimSakSinHub_v3",
-    IsOpen   = true, IsMinimized = false,
-    ExpandedWidth = 650, ExpandedHeight = 435, ActiveTab = "Informasi",
-    StartTime    = os.clock(),
-    DiscordUrl   = "https://discord.gg/YwMCBq22f2",
-    DonationUrl  = "https://linktr.ee/bimsaksin",
+local function safe(fn, ...)
+    local ok, res = pcall(fn, ...)
+    if not ok then
+        log("safe", "ERR:", res)
+    end
+    return ok, res
+end
+
+--========== CAPABILITY ==========
+local CAP = {
+    hookfunction      = (type(hookfunction)      == "function"),
+    hookmetamethod    = (type(hookmetamethod)    == "function"),
+    getrawmetatable   = (type(getrawmetatable)   == "function"),
+    setreadonly       = (type(setreadonly)       == "function"),
+    newcclosure       = (type(newcclosure)       == "function"),
+    getnamecallmethod = (type(getnamecallmethod) == "function"),
+    gethui            = (type(gethui)            == "function"),
+    request           = (type(request) == "function") and "request"
+                     or (type(syn) == "table" and type(syn.request) == "function") and "syn"
+                     or (type(http_request) == "function") and "http" or nil,
 }
+log("CAP", "hookmetamethod:", CAP.hookmetamethod, "| request:", CAP.request)
 
--- ============================================================================
--- 1A. LOCALE ENGINE
--- ============================================================================
-local LocaleEngine = {
-    Mode = "Auto", CurrentLang = "id",
-    SystemLocale = "id-ID", RobloxLocale = "id-ID",
-    CountryCode = "ID", RegionDisplay = "Indonesia (ID / id-ID)",
-    Updaters = {},
-}
-
-do
-    local namesID = { ID="Indonesia",MY="Malaysia",SG="Singapura",US="Amerika Serikat",GB="Inggris",JP="Jepang",KR="Korea Selatan",PH="Filipina",TH="Thailand",VN="Vietnam",AU="Australia",DE="Jerman",FR="Prancis",BR="Brasil",RU="Rusia" }
-    local namesEN = { ID="Indonesia",MY="Malaysia",SG="Singapore",US="United States",GB="United Kingdom",JP="Japan",KR="South Korea",PH="Philippines",TH="Thailand",VN="Vietnam",AU="Australia",DE="Germany",FR="France",BR="Brazil",RU="Russia" }
-
-    local function readInitialLocales()
-        local sysLoc, rbxLoc = "", ""
-        pcall(function() sysLoc = tostring(LocalizationService.SystemLocaleId or "") end)
-        pcall(function() rbxLoc = tostring(LocalizationService.RobloxLocaleId or "") end)
-        LocaleEngine.SystemLocale = (sysLoc ~= "") and sysLoc or "id-ID"
-        LocaleEngine.RobloxLocale = (rbxLoc ~= "") and rbxLoc or LocaleEngine.SystemLocale
-        local region = string.match(LocaleEngine.SystemLocale, "%-(%a%a)$")
-                    or string.match(LocaleEngine.RobloxLocale, "%-(%a%a)$")
-        LocaleEngine.CountryCode = region and string.upper(region) or "ID"
+-- helper request cross-executor
+local function httpPost(url, body)
+    if CAP.request == "request" then
+        return request({
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = body,
+        })
+    elseif CAP.request == "syn" then
+        return syn.request({
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = body,
+        })
+    elseif CAP.request == "http" then
+        return http_request({
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = body,
+        })
     end
+end
 
-    function LocaleEngine.ComputeEffectiveLang()
-        if LocaleEngine.Mode == "id" or LocaleEngine.Mode == "en" then return LocaleEngine.Mode end
-        local cc = string.upper(LocaleEngine.CountryCode or "")
-        local ls, lr = string.lower(LocaleEngine.SystemLocale or ""), string.lower(LocaleEngine.RobloxLocale or "")
-        if cc == "ID" or string.sub(ls,1,2)=="id" or string.sub(lr,1,2)=="id" then return "id" end
-        if cc ~= "" and cc ~= "ID" then return "en" end
-        return "id"
-    end
+--========== ANTI-KICK ==========
+if CONFIG.EnableAntiKick and CAP.hookfunction and LocalPlayer then
+    safe(function()
+        local closureWrap = CAP.newcclosure or function(f) return f end
+        local oldKick
+        oldKick = hookfunction(LocalPlayer.Kick, closureWrap(function(self, ...)
+            if self == LocalPlayer then
+                log("AntiKick", "Kick blocked")
+                return nil
+            end
+            return oldKick(self, ...)
+        end))
+    end)
+end
 
-    function LocaleEngine.UpdateRegionSummary()
-        local cc = string.upper(LocaleEngine.CountryCode or "ID")
-        local locTag = LocaleEngine.SystemLocale ~= "" and LocaleEngine.SystemLocale or LocaleEngine.RobloxLocale
-        local tbl = (LocaleEngine.CurrentLang == "id") and namesID or namesEN
-        local cName = tbl[cc] or ("Region " .. cc)
-        LocaleEngine.RegionDisplay = string.format("%s (%s • %s)", cName, cc, locTag)
-    end
+--========== ANTI-REMOTE ==========
+if CONFIG.EnableAntiRemote and CAP.hookmetamethod and CAP.newcclosure and CAP.getnamecallmethod then
+    safe(function()
+        local lastFire = setmetatable({}, { __mode = "k" })
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "FireServer" or method == "InvokeServer" then
+                local rateLimit = CONFIG.RemoteRateLimit
+                if type(rateLimit) == "number" and rateLimit > 0 then
+                    local now = os.clock()
+                    local prev = lastFire[self]
+                    if prev and (now - prev) < rateLimit then
+                        return nil
+                    end
+                    lastFire[self] = now
+                end
+            end
+            return oldNamecall(self, ...)
+        end))
+    end)
+end
 
-    function LocaleEngine.Text(idText, enText)
-        if LocaleEngine.CurrentLang == "en" and enText and enText ~= "" then return enText end
-        return idText
-    end
-
-    function LocaleEngine.Bind(fn)
-        if type(fn) == "function" then
-            table.insert(LocaleEngine.Updaters, fn)
-            pcall(fn, LocaleEngine.CurrentLang)
+--========== ANTI-STATS SCAN ==========
+if CONFIG.EnableAntiStatsScan and CAP.getrawmetatable and CAP.setreadonly and CAP.newcclosure then
+    safe(function()
+        local mt = getrawmetatable(Stats)
+        if not mt or type(mt.__index) ~= "function" then
+            return
         end
-    end
-
-    function LocaleEngine.RefreshAll()
-        LocaleEngine.CurrentLang = LocaleEngine.ComputeEffectiveLang()
-        LocaleEngine.UpdateRegionSummary()
-        App.Subtitle = LocaleEngine.Text("Semoga hari-hari kalian menyenangkan","Wishing you a wonderful day ahead")
-        for i = #LocaleEngine.Updaters, 1, -1 do
-            local ok = pcall(LocaleEngine.Updaters[i], LocaleEngine.CurrentLang)
-            if not ok then table.remove(LocaleEngine.Updaters, i) end
+        local oldIndex = mt.__index
+        local wasReadonly = true
+        if isreadonly then
+            wasReadonly = isreadonly(mt)
         end
-    end
 
-    function LocaleEngine.SetMode(mode)
-        LocaleEngine.Mode = mode or "Auto"
-        LocaleEngine.RefreshAll()
-    end
+        setreadonly(mt, false)
+        mt.__index = newcclosure(function(self, key)
+            if key == "GetChildren" or key == "GetDescendants" then
+                local fn = oldIndex(self, key)
+                if type(fn) == "function" then
+                    return newcclosure(function(s, ...)
+                        local list = fn(s, ...)
+                        if type(list) ~= "table" then
+                            return list
+                        end
+                        local out = {}
+                        for i = 1, #list do
+                            local item = list[i]
+                            local nameLower = string.lower(tostring(item and item.Name or ""))
+                            if not string.find(nameLower, "script", 1, true) then
+                                out[#out + 1] = item
+                            end
+                        end
+                        return out
+                    end)
+                end
+            end
+            return oldIndex(self, key)
+        end)
+        setreadonly(mt, wasReadonly)
+    end)
+end
 
-    readInitialLocales()
-    LocaleEngine.CurrentLang = LocaleEngine.ComputeEffectiveLang()
-    LocaleEngine.UpdateRegionSummary()
+--========== SPOOF HWID ==========
+if CONFIG.EnableSpoofHWID then
+    safe(function()
+        local env = (type(getgenv) == "function" and getgenv()) or _G
+        env.hwid = HttpService:GenerateGUID(false)
+        log("Spoof", "HWID:", env.hwid)
+    end)
+end
 
+--========== WEBHOOK (non-yielding) ==========
+if CONFIG.EnableWebhook and CONFIG.WebhookURL ~= "" and CAP.request then
     task.spawn(function()
-        local ok, regionCode = pcall(function()
-            if LocalPlayer then
-                return LocalizationService:GetCountryRegionForPlayerAsync(LocalPlayer)
+        local placeName = "Unknown"
+        pcall(function()
+            placeName = MarketplaceService:GetProductInfo(game.PlaceId).Name
+        end)
+        while task.wait(CONFIG.WebhookInterval) do
+            local env = (type(getgenv) == "function" and getgenv()) or _G
+            local data = {
+                username = "AntiBan v" .. CONFIG.Version,
+                embeds = {{
+                    title = "Session Report",
+                    color = 65280,
+                    fields = {
+                        { name = "Place",   value = tostring(placeName),      inline = true },
+                        { name = "PlaceId", value = tostring(game.PlaceId), inline = true },
+                        { name = "Player",  value = LocalPlayer and LocalPlayer.Name or "Unknown", inline = true },
+                        { name = "HWID",    value = tostring(env.hwid or "N/A") },
+                    }
+                }}
+            }
+            pcall(httpPost, CONFIG.WebhookURL, HttpService:JSONEncode(data))
+        end
+    end)
+end
+
+--========== SAFE FIRE API ==========
+local SafeFire = {}
+function SafeFire.Fire(remote, ...)
+    if not remote or type(remote.FireServer) ~= "function" then
+        return false
+    end
+    local delaySec = math.random(1, 3) / 1000
+    if delaySec > 0 then
+        task.wait(delaySec)
+    end
+    local args = { ... }
+    return safe(function()
+        remote:FireServer(unpack(args))
+    end)
+end
+
+function SafeFire.Invoke(remote, ...)
+    if not remote or type(remote.InvokeServer) ~= "function" then
+        return nil
+    end
+    local delaySec = math.random(1, 3) / 1000
+    if delaySec > 0 then
+        task.wait(delaySec)
+    end
+    local args = { ... }
+    return safe(function()
+        return remote:InvokeServer(unpack(args))
+    end)
+end
+
+--========== EXPOSE API ==========
+_G.AntiBan = {
+    Config  = CONFIG,
+    CAP     = CAP,
+    Fire    = SafeFire.Fire,
+    Invoke  = SafeFire.Invoke,
+    Log     = log,
+    Version = CONFIG.Version,
+}
+
+--========== UI (safe tanpa Draggable deprecated) ==========
+if CONFIG.InteractiveConsole then
+    safe(function()
+        local parent = (CAP.gethui and gethui()) or CoreGui
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "AntiBanUI_" .. HttpService:GenerateGUID(false)
+        gui.ResetOnSpawn = false
+        gui.Parent = parent
+
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 340, 0, 240)
+        frame.Position = UDim2.new(1, -360, 0, 20)
+        frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+        frame.BorderSizePixel = 0
+        frame.Active = true
+        frame.Parent = gui
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+        -- drag manual (pengganti Draggable)
+        local dragging = false
+        local dragStart
+        local startPos
+        local connections = {}
+
+        connections[#connections + 1] = frame.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                dragStart = input.Position
+                startPos = frame.Position
             end
         end)
-        if ok and type(regionCode) == "string" and #regionCode >= 2 then
-            LocaleEngine.CountryCode = string.upper(string.sub(regionCode,1,2))
-            LocaleEngine.RefreshAll()
-        end
+
+        connections[#connections + 1] = frame.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+
+        connections[#connections + 1] = UserInputService.InputChanged:Connect(function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement and dragStart and startPos then
+                local d = input.Position - dragStart
+                frame.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + d.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + d.Y
+                )
+            end
+        end)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, 0, 0, 28)
+        title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+        title.Text = " 🛡️  Anti-Ban v" .. CONFIG.Version
+        title.TextColor3 = Color3.fromRGB(0, 255, 150)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 14
+        title.Parent = frame
+
+        local status = Instance.new("TextLabel")
+        status.Size = UDim2.new(1, -20, 1, -80)
+        status.Position = UDim2.new(0, 10, 0, 40)
+        status.BackgroundTransparency = 1
+        status.TextXAlignment = Enum.TextXAlignment.Left
+        status.TextYAlignment = Enum.TextYAlignment.Top
+        status.TextColor3 = Color3.fromRGB(200, 200, 200)
+        status.Font = Enum.Font.Code
+        status.TextSize = 12
+        status.Text = "● Loading..."
+        status.Parent = frame
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -20, 0, 28)
+        btn.Position = UDim2.new(0, 10, 1, -40)
+        btn.BackgroundColor3 = Color3.fromRGB(0, 180, 100)
+        btn.Text = "TOGGLE DEBUG"
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 12
+        btn.Parent = frame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        connections[#connections + 1] = btn.MouseButton1Click:Connect(function()
+            CONFIG.Debug = not CONFIG.Debug
+        end)
+
+        connections[#connections + 1] = gui.AncestryChanged:Connect(function(_, newParent)
+            if not newParent then
+                for i = 1, #connections do
+                    connections[i]:Disconnect()
+                end
+                table.clear(connections)
+            end
+        end)
+
+        task.spawn(function()
+            local env = (type(getgenv) == "function" and getgenv()) or _G
+            while gui.Parent and task.wait(1) do
+                status.Text = string.format(
+                    "● Status    : ACTIVE\n● Debug     : %s\n● HWID      : %s...\n● AntiKick  : %s\n● AntiRemote: %s\n● AntiStats : %s",
+                    tostring(CONFIG.Debug),
+                    string.sub(tostring(env.hwid or "N/A"), 1, 8),
+                    tostring(CONFIG.EnableAntiKick),
+                    tostring(CONFIG.EnableAntiRemote),
+                    tostring(CONFIG.EnableAntiStatsScan)
+                )
+            end
+        end)
     end)
 end
 
--- ============================================================================
--- 1B. THEME
--- ============================================================================
-local Theme = {
-    BgPrimary=Color3.fromRGB(13,11,19), BgSecondary=Color3.fromRGB(20,16,30),
-    BgCard=Color3.fromRGB(28,22,41),    BgControl=Color3.fromRGB(40,31,58),
-    Border=Color3.fromRGB(255,132,36),  BorderSubtle=Color3.fromRGB(78,56,108),
-    TextPrimary=Color3.fromRGB(255,246,235), TextSecondary=Color3.fromRGB(204,186,172),
-    TextMuted=Color3.fromRGB(142,124,150),
-    FontFamily=Enum.Font.GothamSemibold, FontBold=Enum.Font.GothamBold,
-    FontColorMode="Auto", FontBgEnabled=false,
-    FontBgColor=Color3.fromRGB(18,14,26), FontBgTransparency=0.65,
-    Accent=Color3.fromRGB(255,118,26), AccentDark=Color3.fromRGB(184,72,12),
-    Crimson=Color3.fromRGB(214,48,74), Spectral=Color3.fromRGB(155,89,245),
-    Success=Color3.fromRGB(46,213,115), Warning=Color3.fromRGB(255,177,43), Danger=Color3.fromRGB(235,69,95),
-}
-
--- ============================================================================
--- 1C. STATE / PHYSICS / ESP / etc.
--- ============================================================================
-local initialAtmo = Lighting:FindFirstChildOfClass("Atmosphere")
-
-local State = {
-    WalkSpeed=16, JumpPower=50,
-    OriginalGravity=workspace.Gravity, Gravity=workspace.Gravity,
-    FlyEnabled=false, FlySpeed=65, NoclipEnabled=false
+log("Boot", ("✅ Anti-Ban v%s loaded | PlaceId=%s"):format(CONFIG.Version, game.PlaceId))
+return _G.AntiBan

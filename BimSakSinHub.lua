@@ -1,358 +1,579 @@
 --[[
     ============================================================
-    ANTI-DETECT LIBRARY v2.0
-    Untuk Roblox Executor (Synapse, Fluxus, Delta, KRNL, dll)
-    Menyembunyikan aktivitas: Teleport, Fly, Speed, Noclip, ESP
+    ANTI-DETECT LIBRARY v2.1 (FINAL - FULL VERSION)
     ============================================================
+    - HideIdentity
+    - SpoofHumanoid (metatable FloorMaterial)
+    - Teleport (smooth / tween, anti-detect tag)
+    - Fly (BodyVelocity + BodyGyro, multi-input)
+    - Speed
+    - Noclip
+    - Mobile Virtual Stick (keyboard + gamepad + touch unified)
+    - Helper API: AntiDetect.new(), :Enable(), :Disable(), dsb.
 ]]
 
 local AntiDetect = {}
 AntiDetect.__index = AntiDetect
 
--- ============================================================
+----------------------------------------------------------------
 -- KONFIGURASI
--- ============================================================
+----------------------------------------------------------------
 local CONFIG = {
-    -- Sembunyikan instance executor dari game
     HideIdentity     = true,
-    -- Spoof Humanoid State (agar tidak detect "Flying")
     SpoofHumanoid    = true,
-    -- Delay teleport agar tidak loncat tiba-tiba (ms)
-    TeleportDelay    = 50,
-    -- Maksimum delta kecepatan per frame (studs)
-    MaxSpeedDelta    = 15,
-    -- Rotasi halus untuk fly (derajat/frame)
+    TeleportDelay    = 50,      -- ms per tween step
     FlySmooth        = 0.15,
-    -- Auto-restore setelah disable
     AutoRestore      = true,
+    TouchSensitivity = 0.8,
+    EnableMultiInput = true,    -- keyboard + gamepad + mobile
 }
 
--- ============================================================
--- STATE
--- ============================================================
-local Services = {
-    Players       = game:GetService("Players"),
-    RunService    = game:GetService("RunService"),
-    Workspace     = game:GetService("Workspace"),
-    UserInput     = game:GetService("UserInputService"),
-    TweenService  = game:GetService("TweenService"),
-    ReplicatedStorage = game:GetService("ReplicatedStorage"),
-}
+----------------------------------------------------------------
+-- SERVICES & GUARD
+----------------------------------------------------------------
+local function svc(name)
+    local ok, s = pcall(function() return game:GetService(name) end)
+    return ok and s or nil
+end
 
-local LocalPlayer = Services.Players.LocalPlayer
-local Camera      = Services.Workspace.CurrentCamera
+local Players      = svc("Players")
+local RunService   = svc("RunService")
+local Workspace    = svc("Workspace")
+local UIS          = svc("UserInputService")
+local TweenService = svc("TweenService")
+local GuiService   = svc("GuiService")
+
+local LocalPlayer = Players and Players.LocalPlayer
+
+if not LocalPlayer then
+    warn("[AntiDetect] Tidak ada LocalPlayer. Jalankan dari executor/Studio.")
+    return AntiDetect
+end
 
 local State = {
-    Enabled        = false,
-    OriginalState  = {},
-    OriginalWalk   = 16,
-    OriginalJump   = 50,
-    FlyActive      = false,
-    SpeedActive    = false,
-    Connections    = {},
+    Enabled             = false,
+    FlyActive           = false,
+    SpeedActive         = false,
+    OriginalWalk        = 16,
+    Connections         = {},
+    NoclipOn            = false,
+    NoclipParts         = {},       -- [part] = true
+    HumanoidMT          = nil,
+    HumanoidOwner       = nil,
+    FlyFreefallDisabled = false,
+    TouchMove           = Vector2.zero,
+    StickGui            = nil,
+    StickConn           = nil,
+    StickConns          = {},       -- kumpulan koneksi mobile stick
+    NoclipConn          = nil,
 }
 
--- ============================================================
+----------------------------------------------------------------
 -- UTIL
--- ============================================================
+----------------------------------------------------------------
 local function getChar()
     return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
 
 local function getHRP()
-    local char = getChar()
-    return char:FindFirstChild("HumanoidRootPart")
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
 end
 
 local function getHum()
-    local char = getChar()
-    return char:FindFirstChildOfClass("Humanoid")
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChildOfClass("Humanoid")
 end
 
 local function safeCall(fn, ...)
-    -- pcalled call agar error tidak bocor ke game (detectable)
     local ok, res = pcall(fn, ...)
     return ok and res or nil
 end
 
 local function removeTag(inst, tag)
-    if inst and inst:GetAttribute(tag) then
-        inst:SetAttribute(tag, nil)
+    if inst and inst.GetAttribute and inst:GetAttribute(tag) then
+        pcall(function() inst:SetAttribute(tag, nil) end)
     end
 end
 
--- ============================================================
--- 1. IDENTITY SPOOF
--- ============================================================
-function AntiDetect:HideIdentity()
-    if not CONFIG.HideIdentity then return end
+local function safeGetRawMeta(inst)
+    if not (getrawmetatable and type(setreadonly) == "function") then
+        return nil
+    end
+    local ok, mt = pcall(getrawmetatable, inst)
+    return ok and mt or nil
+end
 
-    -- Simpan original
-    State.OriginalState.getidentity = getidentity
-    State.OriginalState.getthreadidentity = getthreadidentity
+-- Baca input gabungan (keyboard + gamepad + mobile)
+local function readInputVector(camCF)
+    local dir = Vector3.zero
+    if not UIS then return dir end
 
-    -- Coba spoof (aman kalau fungsi ada)
-    safeCall(function()
-        if setthreadidentity then setthreadidentity(2) end -- 2 = LocalScript biasa
-    end)
-
-    -- Sembunyikan executor folder / global
-    safeCall(function()
-        if getgenv then
-            getgenv().syn    = nil
-            getgenv().KRNL_LOADED = nil
-            getgenv().fluxus = nil
+    -- Keyboard
+    pcall(function()
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir += camCF.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= camCF.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= camCF.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir += camCF.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.yAxis end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift)
+            or UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
+            dir -= Vector3.yAxis
         end
     end)
 
-    -- Re-register script untuk menyamarkan closure
+    -- Gamepad
+    if CONFIG.EnableMultiInput then
+        local ok, pad = pcall(function()
+            return UIS:GetGamepadState(Enum.UserInputType.Gamepad1)
+        end)
+        if ok and pad then
+            for _, b in ipairs(pad) do
+                if b.KeyCode == Enum.KeyCode.Thumbstick1 then
+                    dir += camCF.LookVector * b.Position.Y
+                    dir += camCF.RightVector * b.Position.X
+                elseif b.KeyCode == Enum.KeyCode.Thumbstick2 then
+                    dir += Vector3.new(0, b.Position.Y, 0)
+                end
+            end
+        end
+    end
+
+    -- Mobile
+    if State.TouchMove.Magnitude > 0.05 then
+        local tv = State.TouchMove * CONFIG.TouchSensitivity
+        dir += camCF.LookVector * tv.Y
+        dir += camCF.RightVector * tv.X
+    end
+
+    return dir
+end
+
+local function disconnectAll()
+    for i = #State.Connections, 1, -1 do
+        local c = State.Connections[i]
+        if c and c.Disconnect then
+            pcall(function() c:Disconnect() end)
+        end
+        State.Connections[i] = nil
+    end
+    State.Connections = {}
+end
+
+----------------------------------------------------------------
+-- 1. IDENTITY SPOOF
+----------------------------------------------------------------
+function AntiDetect:HideIdentity()
+    if not CONFIG.HideIdentity then return end
     safeCall(function()
-        local env = getfenv and getfenv() or _G
-        if env and env.getfenv then
-            -- override identity getter agar return normal
-            env.getidentity = function() return 2 end
+        if type(setthreadidentity) == "function" then
+            setthreadidentity(2)
+        end
+    end)
+    safeCall(function()
+        if type(getgenv) == "function" then
+            local g = getgenv()
+            if g then
+                g.syn = nil
+                g.fluxus = nil
+                g.KRNL_LOADED = nil
+            end
         end
     end)
 end
 
--- ============================================================
--- 2. SPOOF HUMANOID STATE (Fly tidak ke-detect)
--- ============================================================
+----------------------------------------------------------------
+-- 2. SPOOF HUMANOID
+----------------------------------------------------------------
 function AntiDetect:SpoofHumanoid()
     if not CONFIG.SpoofHumanoid then return end
     local hum = getHum()
     if not hum then return end
 
-    State.OriginalState.humanoidState = hum:GetState()
-
-    -- Saat fly: paksa state "Running" agar tidak "Flying/Freefall"
-    local conn = hum.StateChanged:Connect(function(old, new)
-        if State.FlyActive and (new == Enum.HumanoidStateType.Freefall
-            or new == Enum.HumanoidStateType.Flying) then
-            -- Tahan state "Running" palsu
-            hum:SetStateEnabled(Enum.HumanoidStateType.Flying, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-            hum:ChangeState(Enum.HumanoidStateType.Running)
+    local conn = hum.StateChanged:Connect(function(_o, new)
+        if not State.FlyActive then return end
+        if new == Enum.HumanoidStateType.Freefall
+            or new == Enum.HumanoidStateType.Flying then
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
         end
     end)
     table.insert(State.Connections, conn)
 
-    -- Override property humanoid yang sering dicek
-    safeCall(function()
-        local mt = getrawmetatable(hum)
-        if setreadonly then setreadonly(mt, false) end
+    local mt = safeGetRawMeta(hum)
+    if mt and type(mt.__index) == "function" then
+        local owner = hum
         local oldIndex = mt.__index
+        local unlocked = pcall(function() setreadonly(mt, false) end)
+
         mt.__index = function(t, k)
-            if State.FlyActive and k == "FloorMaterial" then
-                return Enum.Material.Plastic -- paksa tidak nil
+            if t == owner and State.FlyActive and k == "FloorMaterial" then
+                return Enum.Material.Plastic
             end
-            return oldIndex(t, k)
+            local okv, v = pcall(oldIndex, t, k)
+            if okv then return v end
+            return rawget(t, k)
         end
-        if setreadonly then setreadonly(mt, true) end
-    end)
+        if unlocked then pcall(function() setreadonly(mt, true) end) end
+
+        State.HumanoidMT    = mt
+        State.HumanoidOwner = owner
+    end
 end
 
--- ============================================================
--- 3. ANTI-TELEPORT DETECT
--- ============================================================
---[[
-    Menyembunyikan teleport dengan cara:
-      - Tidak langsung set CFrame, tapi pakai TweenService (halus)
-      - Delay antar langkah
-      - Sinkron dengan render step
-]]
+----------------------------------------------------------------
+-- 3. TELEPORT
+----------------------------------------------------------------
 function AntiDetect:Teleport(position, lookAt)
     local hrp = getHRP()
-    if not hrp then return end
+    if not hrp or typeof(position) ~= "Vector3" then return end
 
     local targetCF = lookAt and CFrame.new(position, lookAt) or CFrame.new(position)
-
-    -- Kalau jarak jauh, gerakan bertahap (2-3 frame) agar tidak teleport instan
     local dist = (hrp.Position - position).Magnitude
+
     if dist > 100 then
-        -- split jadi beberapa tween
-        local steps = math.clamp(math.floor(dist / 100), 2, 6)
+        local steps = math.clamp(math.floor(dist / 100) + 1, 2, 6)
         local startPos = hrp.Position
+        local rot = hrp.CFrame - hrp.CFrame.Position
         for i = 1, steps do
-            local alpha = i / steps
-            local midPos = startPos:Lerp(position, alpha)
-            hrp.CFrame = CFrame.new(midPos) * (targetCF - targetCF.Position)
+            local a = i / steps
+            local mid = startPos:Lerp(position, a)
+            if not hrp.Parent then break end
+            hrp.CFrame = CFrame.new(mid) * rot
             task.wait(CONFIG.TeleportDelay / 1000)
         end
+        if hrp.Parent then
+            hrp.CFrame = targetCF
+        end
     else
-        -- dekat, langsung tapi tween halus dalam 1 frame
-        local tween = Services.TweenService:Create(
-            hrp,
-            TweenInfo.new(0.05, Enum.EasingStyle.Linear),
-            { CFrame = targetCF }
-        )
-        tween:Play()
+        local ok, t = pcall(function()
+            return TweenService:Create(
+                hrp,
+                TweenInfo.new(0.05, Enum.EasingStyle.Linear),
+                { CFrame = targetCF })
+        end)
+        if ok and t then
+            t:Play()
+        else
+            hrp.CFrame = targetCF
+        end
     end
 
-    -- Bersihkan attribute sisa teleport
     removeTag(hrp, "Teleporting")
     removeTag(hrp, "AntiDetect_TP")
 end
 
--- ============================================================
--- 4. FLY (Anti-Fly Detector)
--- ============================================================
+----------------------------------------------------------------
+-- 4. FLY
+----------------------------------------------------------------
 function AntiDetect:StartFly(speed)
-    self.FlyActive = true
-    State.SpeedActive = true
-    State.OriginalWalk = getHum() and getHum().WalkSpeed or 16
-
+    if State.FlyActive then return end
     local hrp = getHRP()
     local hum = getHum()
     if not hrp or not hum then return end
 
     speed = speed or 50
+    State.OriginalWalk = hum.WalkSpeed
+    State.FlyActive = true
+    State.SpeedActive = true
 
-    -- Paksa velocity langsung ke HRP (bukan humanoid)
-    local bodyVel = Instance.new("BodyVelocity")
-    bodyVel.Name = "_AD_Fly"
-    bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    bodyVel.Velocity = Vector3.zero
-    bodyVel.Parent = hrp
-
-    local bodyGyro = Instance.new("BodyGyro")
-    bodyGyro.Name = "_AD_Gyro"
-    bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-    bodyGyro.P = 1e4
-    bodyGyro.Parent = hrp
-
-    -- Set humanoid state ke Running (spoof)
-    hum:ChangeState(Enum.HumanoidStateType.Running)
-
-    local flyConn = Services.RunService.RenderStepped:Connect(function()
-        if not self.FlyActive or not hrp.Parent then return end
-
-        local camCF = Camera.CFrame
-        local moveDir = Vector3.zero
-
-        if Services.UserInput:IsKeyDown(Enum.KeyCode.W) then moveDir += camCF.LookVector end
-        if Services.UserInput:IsKeyDown(Enum.KeyCode.S) then moveDir -= camCF.LookVector end
-        if Services.UserInput:IsKeyDown(Enum.KeyCode.A) then moveDir -= camCF.RightVector end
-        if Services.UserInput:IsKeyDown(Enum.KeyCode.D) then moveDir += camCF.RightVector end
-        if Services.UserInput:IsKeyDown(Enum.KeyCode.Space) then moveDir += Vector3.new(0,1,0) end
-        if Services.UserInput:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir -= Vector3.new(0,1,0) end
-
-        if moveDir.Magnitude > 0 then
-            -- Batasi delta agar tidak terlihat seperti teleport
-            local maxVel = speed
-            moveDir = moveDir.Unit * maxVel
-            -- smoothing
-            bodyVel.Velocity = bodyVel.Velocity:Lerp(moveDir, CONFIG.FlySmooth)
-        else
-            bodyVel.Velocity = bodyVel.Velocity:Lerp(Vector3.zero, 0.3)
+    -- Bersihkan sisa BodyMover lama (kalau ada)
+    for _, o in ipairs(hrp:GetChildren()) do
+        if o.Name == "_AD_Fly" or o.Name == "_AD_Gyro" then
+            pcall(function() o:Destroy() end)
         end
+    end
 
-        bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + camCF.LookVector)
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "_AD_Fly"
+    bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bv.Velocity = Vector3.zero
+    bv.Parent = hrp
+
+    local gy = Instance.new("BodyGyro")
+    gy.Name = "_AD_Gyro"
+    gy.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    gy.P = 1e4
+    gy.Parent = hrp
+
+    pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
+    pcall(function()
+        hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+        State.FlyFreefallDisabled = true
     end)
 
-    table.insert(State.Connections, flyConn)
+    local conn = RunService.RenderStepped:Connect(function()
+        if not State.FlyActive or not hrp.Parent or not hum.Parent then return end
+        local cam = Workspace.CurrentCamera
+        if not cam then return end
 
-    -- Matikan physics humanoid agar tidak bentrok
+        local camCF = cam.CFrame
+        local dir = readInputVector(camCF)
+
+        if dir.Magnitude > 0.05 then
+            bv.Velocity = bv.Velocity:Lerp(dir.Unit * speed, CONFIG.FlySmooth)
+        else
+            bv.Velocity = bv.Velocity:Lerp(Vector3.zero, 0.3)
+        end
+        gy.CFrame = CFrame.new(hrp.Position, hrp.Position + camCF.LookVector)
+    end)
+    table.insert(State.Connections, conn)
+
     hum.PlatformStand = true
-    -- Spoof agar humanoid "Running" terus
-    hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 end
 
 function AntiDetect:StopFly()
-    self.FlyActive = false
+    if not State.FlyActive then return end
+    State.FlyActive = false
     State.SpeedActive = false
-    local hrp = getHRP()
-    local hum = getHum()
-    if not hrp then return end
 
-    -- Hapus body movers
-    for _, name in ipairs({"_AD_Fly", "_AD_Gyro"}) do
-        local obj = hrp:FindFirstChild(name)
-        if obj then obj:Destroy() end
-    end
-
-    if hum then
-        hum.PlatformStand = false
-        hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-        hum:ChangeState(Enum.HumanoidStateType.Landed)
-    end
-end
-
--- ============================================================
--- 5. SPEED (Anti-Speed Detector)
--- ============================================================
-function AntiDetect:SetWalkSpeed(speed)
-    local hum = getHum()
-    if not hum then return end
-    State.OriginalWalk = hum.WalkSpeed
-    hum.WalkSpeed = speed
-end
-
--- ============================================================
--- 6. NOCLIP
--- ============================================================
-function AntiDetect:EnableNoclip()
-    local conn = Services.RunService.Stepped:Connect(function()
-        local char = getChar()
-        if not char then return end
-        pcall(function()
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
-                    part.CanCollide = false
-                end
+    local char = LocalPlayer.Character
+    if char then
+        for _, o in ipairs(char:GetDescendants()) do
+            if o.Name == "_AD_Fly" or o.Name == "_AD_Gyro" then
+                pcall(function() o:Destroy() end)
             end
-        end)
+        end
+    end
+
+    local hum = getHum()
+    if hum then
+        pcall(function() hum.PlatformStand = false end)
+        if State.FlyFreefallDisabled then
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+            end)
+            State.FlyFreefallDisabled = false
+        end
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Landed) end)
+        if CONFIG.AutoRestore then
+            pcall(function() hum.WalkSpeed = State.OriginalWalk end)
+        end
+    end
+end
+
+----------------------------------------------------------------
+-- 5. SPEED
+----------------------------------------------------------------
+function AntiDetect:SetWalkSpeed(s)
+    local hum = getHum()
+    if not hum or type(s) ~= "number" then return end
+    State.OriginalWalk = hum.WalkSpeed
+    hum.WalkSpeed = s
+end
+
+----------------------------------------------------------------
+-- 6. NOCLIP
+----------------------------------------------------------------
+function AntiDetect:EnableNoclip()
+    if State.NoclipOn then return end
+    State.NoclipOn = true
+
+    local conn = RunService.Stepped:Connect(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.CanCollide then
+                State.NoclipParts[p] = true
+                p.CanCollide = false
+            end
+        end
     end)
+    State.NoclipConn = conn
     table.insert(State.Connections, conn)
 end
 
--- ============================================================
--- 7. CLEANUP
--- ============================================================
-function AntiDetect:Cleanup()
-    for _, conn in ipairs(State.Connections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    State.Connections = {}
+function AntiDetect:DisableNoclip()
+    if not State.NoclipOn then return end
+    State.NoclipOn = false
 
-    -- Restore identity
-    safeCall(function()
-        if getidentity and State.OriginalState.getidentity then
-            _G.getidentity = State.OriginalState.getidentity
+    if State.NoclipConn and State.NoclipConn.Disconnect then
+        pcall(function() State.NoclipConn:Disconnect() end)
+        for i = #State.Connections, 1, -1 do
+            if State.Connections[i] == State.NoclipConn then
+                table.remove(State.Connections, i)
+                break
+            end
+        end
+    end
+    State.NoclipConn = nil
+
+    for part in pairs(State.NoclipParts) do
+        if part and part.Parent then
+            pcall(function() part.CanCollide = true end)
+        end
+    end
+    State.NoclipParts = {}
+end
+
+----------------------------------------------------------------
+-- 7. MOBILE VIRTUAL STICK (GUARDED)
+----------------------------------------------------------------
+function AntiDetect:EnableMobileStick()
+    if not (UIS and UIS.TouchEnabled) then return end
+    if State.StickGui then return end
+    if not (LocalPlayer.GetPlayerGui) then return end
+
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        or LocalPlayer:WaitForChild("PlayerGui", 5)
+    if not pg then return end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "_AD_MobileStick"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.Parent = pg
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.fromOffset(180, 180)
+    frame.Position = UDim2.new(0, 30, 1, -210)
+    frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    frame.BackgroundTransparency = 0.6
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = frame
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(60, 60)
+    knob.Position = UDim2.new(0.5, -30, 0.5, -30)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BackgroundTransparency = 0.3
+    knob.BorderSizePixel = 0
+    knob.Parent = frame
+    local c2 = Instance.new("UICorner")
+    c2.CornerRadius = UDim.new(1, 0)
+    c2.Parent = knob
+
+    State.StickGui = gui
+    State.StickConns = {}
+
+    -- fungsi untuk reset knob ke tengah
+    local function resetKnob()
+        knob.Position = UDim2.new(0.5, -30, 0.5, -30)
+        State.TouchMove = Vector2.zero
+    end
+
+    local dragging = false
+    local function updateKnob(input)
+        local rel = Vector2.new(
+            input.Position.X - frame.AbsolutePosition.X - frame.AbsoluteSize.X / 2,
+            input.Position.Y - frame.AbsolutePosition.Y - frame.AbsoluteSize.Y / 2
+        )
+        local max = frame.AbsoluteSize.X / 2
+        if max <= 0 then max = 1 end
+        if rel.Magnitude > max then rel = rel.Unit * max end
+        knob.Position = UDim2.new(0.5, rel.X - 30, 0.5, rel.Y - 30)
+        State.TouchMove = rel / max
+    end
+
+    -- Input Began: mulai drag
+    local connBegan = UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            updateKnob(input)
         end
     end)
 
-    -- Stop fly kalau masih aktif
-    if self.FlyActive then self:StopFly() end
+    -- Input Changed: perbarui knob saat drag
+    local connChanged = UIS.InputChanged:Connect(function(input, gp)
+        if gp then return end
+        if dragging and input.UserInputType == Enum.UserInputType.Touch then
+            updateKnob(input)
+        end
+    end)
+
+    -- Input Ended: reset knob & stop drag
+    local connEnded = UIS.InputEnded:Connect(function(input, gp)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            resetKnob()
+        end
+    end)
+
+    table.insert(State.StickConns, connBegan)
+    table.insert(State.StickConns, connChanged)
+    table.insert(State.StickConns, connEnded)
 end
 
--- ============================================================
--- 8. ENABLE / DISABLE
--- ============================================================
-function AntiDetect:Enable()
-    if State.Enabled then return self end
+function AntiDetect:DisableMobileStick()
+    if State.StickConns then
+        for _, c in ipairs(State.StickConns) do
+            if c and c.Disconnect then
+                pcall(function() c:Disconnect() end)
+            end
+        end
+        State.StickConns = {}
+    end
+    if State.StickGui then
+        pcall(function() State.StickGui:Destroy() end)
+        State.StickGui = nil
+    end
+    State.TouchMove = Vector2.zero
+end
+
+----------------------------------------------------------------
+-- 8. INIT / ENABLE / DISABLE
+----------------------------------------------------------------
+function AntiDetect:init()
+    if State.Enabled then return end
     State.Enabled = true
+
     self:HideIdentity()
     self:SpoofHumanoid()
-    return self
+
+    -- Re-apply saat respawn
+    local conn = LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait(0.25)
+        if not State.Enabled then return end
+        self:SpoofHumanoid()
+        if State.FlyActive then
+            self:StopFly()
+            self:StartFly()
+        end
+        if State.NoclipOn then
+            State.NoclipOn = false
+            self:EnableNoclip()
+        end
+    end)
+    table.insert(State.Connections, conn)
+
+    -- Mobile stick opsional
+    pcall(function() self:EnableMobileStick() end)
+end
+
+function AntiDetect:Enable()
+    self:init()
 end
 
 function AntiDetect:Disable()
-    if not State.Enabled then return self end
+    if not State.Enabled then return end
     State.Enabled = false
-    if CONFIG.AutoRestore then
-        self:Cleanup()
+
+    self:StopFly()
+    self:DisableNoclip()
+    self:DisableMobileStick()
+
+    if State.HumanoidMT and State.HumanoidOwner then
+        pcall(function()
+            if type(setreadonly) == "function" then
+                setreadonly(State.HumanoidMT, false)
+            end
+            State.HumanoidMT = nil
+            State.HumanoidOwner = nil
+        end)
     end
+
+    disconnectAll()
+end
+
+function AntiDetect.new()
+    local self = setmetatable({}, AntiDetect)
     return self
 end
 
--- ============================================================
--- PUBLIC API
--- ============================================================
-function AntiDetect:TeleportTo(pos, lookAt) return self:Teleport(pos, lookAt) end
-function AntiDetect:Fly(speed)             return self:StartFly(speed) end
-function AntiDetect:NoFly()                return self:StopFly() end
-function AntiDetect:Speed(s)               return self:SetWalkSpeed(s) end
-function AntiDetect:Noclip()               return self:EnableNoclip() end
+-- Auto-init
+pcall(function() AntiDetect:init() end)
 
 return AntiDetect

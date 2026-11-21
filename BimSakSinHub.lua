@@ -1,2022 +1,1769 @@
---// =========================================================================
---// BIMSAKSIN HUB
---// =========================================================================
+--=============================================================================
+-- BimSakSin Hub | Modular Client Utility & Telemetry Overlay (Delta Executor)
+--=============================================================================
+-- Clean Architecture:
+--   1. Config & State Manager (JSON Persistence + Safe Schema Merging)
+--   2. Lifecycle & Cleanup Manager (Zero Orphaned Connections / Memory Safe)
+--   3. UI Component Factory (Ultra-Transparent White Glassmorphism + 3D Animated Icons)
+--   4. Feature Controllers (ESP, Generator Tracker, Movement, Network Telemetry, Anti-Lag, Target View/TP)
+--=============================================================================
 
-local Players = game:GetService("Players")
-local Teams = game:GetService("Teams")
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
-local CollectionService = game:GetService("CollectionService")
-local UIS = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local LocalizationService = game:GetService("LocalizationService")
-local Stats = game:GetService("Stats")
-local CoreGui = game:GetService("CoreGui")
-local VirtualUser = game:GetService("VirtualUser")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-
-local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    repeat task.wait() until Players.LocalPlayer
-    LocalPlayer = Players.LocalPlayer
+if getgenv and getgenv().BimSakSinHubCleanup then
+    pcall(getgenv().BimSakSinHubCleanup)
 end
 
---// ================= CLEANUP INSTANCE SEBELUMNYA =================
-pcall(function()
-    if getgenv and getgenv().BimSakSinHubCleanup then
-        getgenv().BimSakSinHubCleanup()
-    end
-end)
+--// Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
+local Stats = game:GetService("Stats")
 
-local Connections = {}
-local function bindConnection(conn)
-    table.insert(Connections, conn)
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+--// 1. LIFECYCLE & CLEANUP REGISTRY
+local Hub = {
+    Alive = true,
+    Connections = {},
+    Loops = {},
+    ESPObjects = {},
+    GeneratorObjects = {},
+    OriginalMaterials = {},
+    OriginalLighting = {},
+    SelectedTarget = nil,
+    ViewingTarget = false,
+}
+
+function Hub:AddConnection(conn)
+    if conn then
+        table.insert(self.Connections, conn)
+    end
     return conn
 end
 
---// ================= KONFIGURASI & STATE =================
-local Config = {
-    PlayerESP = false,
-    TeamFriendCheck = true,
-    EnemyOnlyESP = false,
-    GeneratorESP = false,
-    AutoGenerator = false,
-    AutoTPGenerator = false,
-    Noclip = false,
-    Fly = false,
-    Speed = 16,
-    FlySpeed = 65
-}
-
-local NetworkInfo = {
-    Region = "Mendeteksi...",
-    IP = "Memuat...",
-    Masked = false
-}
-
-local IsAlive = true
-local IsPanelOpen = true
-
-local playerEspCache = {}
-local playerEspConns = {}
-local friendStatusCache = {}
-local playerEspCleared = true
-
-local generatorCache = {}
-local generatorEspCache = {}
-local generatorEspCleared = true
-
-local noclipCache = {}
-local flyConnection = nil
-local bodyVelocity = nil
-local bodyGyro = nil
-
---// ================= HELPER KARAKTER =================
-local function getChar()
-    return LocalPlayer.Character
-end
-
-local function getHum()
-    local char = getChar()
-    return char and char:FindFirstChildOfClass("Humanoid")
-end
-
-local function getRoot()
-    local char = getChar()
-    return char and char:FindFirstChild("HumanoidRootPart")
-end
-
---// ================= API: DETEKSI TEAM / TEMAN VS MUSUH =================
-local COLOR_ENEMY  = Color3.fromRGB(248, 113, 113) -- Merah Koral (Musuh)
-local COLOR_TEAM   = Color3.fromRGB(52, 211, 153)  -- Hijau Zamrud (Satu Team)
-local COLOR_FRIEND = Color3.fromRGB(56, 189, 248)  -- Biru Langit (Teman Roblox)
-
-local function cacheFriendStatus(player)
-    if not player or player == LocalPlayer or friendStatusCache[player.UserId] ~= nil then
-        return
-    end
-    friendStatusCache[player.UserId] = false
-    task.spawn(function()
-        local ok, isFriend = pcall(function()
-            return LocalPlayer:IsFriendsWith(player.UserId)
-        end)
-        if ok and isFriend then
-            friendStatusCache[player.UserId] = true
-        end
-    end)
-end
-
-local function hasActiveTeams()
-    return (#Teams:GetTeams() > 0) and (LocalPlayer.Team ~= nil)
-end
-
--- Mengembalikan: isEnemy (bool), label (string), color (Color3)
-local function getPlayerRelation(player)
-    if not player or player == LocalPlayer then
-        return false, "SAYA", COLOR_TEAM
-    end
-
-    if not Config.TeamFriendCheck then
-        return true, "MUSUH", COLOR_ENEMY
-    end
-
-    -- Cek teman Roblox
-    if friendStatusCache[player.UserId] == true then
-        return false, "TEMAN", COLOR_FRIEND
-    end
-
-    -- Cek satu team via Teams API
-    if hasActiveTeams() then
-        if not player.Neutral and not LocalPlayer.Neutral then
-            if player.Team == LocalPlayer.Team or player.TeamColor == LocalPlayer.TeamColor then
-                return false, "TEAM", COLOR_TEAM
-            end
+function Hub:Cleanup()
+    self.Alive = false
+    self.ViewingTarget = false
+    if Camera and LocalPlayer and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            Camera.CameraSubject = hum
         end
     end
 
-    return true, "MUSUH", COLOR_ENEMY
-end
-
---// ================= API: NETWORK REGION & IP =================
-local function httpGetAsync(url)
-    local reqFunc = (typeof(request) == "function" and request)
-        or (typeof(http_request) == "function" and http_request)
-        or (syn and typeof(syn.request) == "function" and syn.request)
-        or (fluxus and typeof(fluxus.request) == "function" and fluxus.request)
-
-    if reqFunc then
-        local ok, res = pcall(reqFunc, { Url = url, Method = "GET" })
-        if ok and res and res.Body and #res.Body > 0 then
-            return res.Body
-        end
-    end
-
-    local okGet, body = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if okGet and body and #body > 0 then
-        return body
-    end
-    return nil
-end
-
-local function maskIPAddress(ipStr)
-    if not ipStr or ipStr == "Tidak Tersedia" or ipStr == "Memuat..." or ipStr == "Local Client" then
-        return ipStr
-    end
-    local parts = string.split(ipStr, ".")
-    if #parts == 4 then
-        return parts[1] .. "." .. parts[2] .. ".***.***"
-    end
-    return string.sub(ipStr, 1, 6) .. "****"
-end
-
-local function fetchRegionAndIP(onUpdated)
-    task.spawn(function()
-        local okLoc, countryCode = pcall(function()
-            return LocalizationService:GetCountryRegionForPlayerAsync(LocalPlayer)
-        end)
-        if okLoc and countryCode and countryCode ~= "" then
-            NetworkInfo.Region = countryCode
-            if onUpdated then onUpdated() end
-        end
-
-        local raw = httpGetAsync("http://ip-api.com/json/?fields=status,countryCode,regionName,city,query")
-        if raw then
-            local okJson, data = pcall(function()
-                return HttpService:JSONDecode(raw)
-            end)
-            if okJson and type(data) == "table" and data.status == "success" then
-                local city = data.city or data.regionName or ""
-                local cc = data.countryCode or NetworkInfo.Region
-                NetworkInfo.Region = (city ~= "" and (city .. ", " .. cc)) or cc
-                NetworkInfo.IP = data.query or "Tidak Tersedia"
-                if onUpdated then onUpdated() end
-                return
-            end
-        end
-
-        local rawBackup = httpGetAsync("https://ipwho.is/")
-        if rawBackup then
-            local okJson2, data2 = pcall(function()
-                return HttpService:JSONDecode(rawBackup)
-            end)
-            if okJson2 and type(data2) == "table" and data2.success then
-                local city = data2.city or data2.region or ""
-                local cc = data2.country_code or NetworkInfo.Region
-                NetworkInfo.Region = (city ~= "" and (city .. ", " .. cc)) or cc
-                NetworkInfo.IP = data2.ip or "Tidak Tersedia"
-                if onUpdated then onUpdated() end
-                return
-            end
-        end
-
-        if NetworkInfo.IP == "Memuat..." then
-            NetworkInfo.IP = "Local Client"
-            if onUpdated then onUpdated() end
-        end
-    end)
-end
-
---// ================= ANTI-AFK =================
-bindConnection(LocalPlayer.Idled:Connect(function()
-    pcall(function()
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new())
-    end)
-end))
-
---// ================= HELPER TEKS OUTLINE PER HURUF (TANPA BACKGROUND) =================
-local HasDrawing = (typeof(Drawing) == "table" or typeof(Drawing) == "function")
-
-local function newOutlinedText(sizePx, color)
-    if not HasDrawing then return nil end
-    local ok, txt = pcall(function()
-        local t = Drawing.new("Text")
-        t.Size = sizePx
-        t.Font = Drawing.Fonts.UI -- Font tipis bersih (tidak terlalu besar & tidak tebal)
-        t.Color = color or Color3.fromRGB(248, 250, 252)
-        t.Center = true
-        t.Outline = true -- Outline hanya di setiap huruf, tanpa kotak background
-        t.OutlineColor = Color3.fromRGB(10, 14, 24)
-        t.Transparency = 1
-        t.Visible = false
-        return t
-    end)
-    return ok and txt or nil
-end
-
---// ================= FITUR 1: ESP PEMAIN (NAMA, JARAK & AURA AVATAR) =================
-local function clearPlayerVisuals(player)
-    local entry = playerEspCache[player]
-    if not entry then return end
-
-    if entry.name then pcall(function() entry.name.Visible = false entry.name:Remove() end) end
-    if entry.dist then pcall(function() entry.dist.Visible = false entry.dist:Remove() end) end
-    if entry.highlight then pcall(function() entry.highlight:Destroy() end) end
-    if entry.billboard then pcall(function() entry.billboard:Destroy() end) end
-
-    playerEspCache[player] = nil
-end
-
-local function removePlayerESP(player)
-    clearPlayerVisuals(player)
-    if playerEspConns[player] then
-        for _, c in ipairs(playerEspConns[player]) do
-            pcall(function() c:Disconnect() end)
-        end
-        playerEspConns[player] = nil
-    end
-end
-
-local function createPlayerESP(player)
-    if player == LocalPlayer then return end
-    cacheFriendStatus(player)
-    removePlayerESP(player)
-    playerEspConns[player] = {}
-
-    local function setupCharVisuals(char)
-        if not char or not IsAlive then return end
-        clearPlayerVisuals(player)
-
-        local _, _, relColor = getPlayerRelation(player)
-        local entry = {}
-
-        -- 1. Aura pada Avatar (Highlight API)
+    for _, conn in ipairs(self.Connections) do
         pcall(function()
-            local hl = Instance.new("Highlight")
-            hl.Name = "BimSakSin_AvatarAura"
-            hl.Adornee = char
-            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.FillColor = relColor
-            hl.OutlineColor = relColor
-            hl.FillTransparency = 0.72
-            hl.OutlineTransparency = 0.2
-            hl.Enabled = false
-            hl.Parent = char
-            entry.highlight = hl
+            if conn.Connected then
+                conn:Disconnect()
+            end
         end)
-
-        -- 2. Teks Nama & Jarak (Outline per huruf saja, tanpa kotak background)
-        if HasDrawing then
-            entry.name = newOutlinedText(12, relColor)
-            entry.dist = newOutlinedText(11, Color3.fromRGB(226, 232, 240))
-        else
-            -- Fallback BillboardGui transparan murni dengan UIStroke per huruf
-            pcall(function()
-                local head = char:WaitForChild("Head", 3)
-                if head then
-                    local bb = Instance.new("BillboardGui")
-                    bb.Name = "BimSakSin_Tag"
-                    bb.Adornee = head
-                    bb.Size = UDim2.new(0, 160, 0, 34)
-                    bb.StudsOffset = Vector3.new(0, 2.3, 0)
-                    bb.AlwaysOnTop = true
-                    bb.Enabled = false
-                    bb.Parent = char
-
-                    local lbl = Instance.new("TextLabel")
-                    lbl.Name = "TagText"
-                    lbl.Size = UDim2.new(1, 0, 1, 0)
-                    lbl.BackgroundTransparency = 1 -- Tanpa kotak background
-                    lbl.Font = Enum.Font.Gotham -- Font reguler tidak tebal
-                    lbl.TextSize = 11
-                    lbl.TextColor3 = relColor
-                    lbl.Text = player.DisplayName
-                    lbl.Parent = bb
-
-                    local stroke = Instance.new("UIStroke")
-                    stroke.Thickness = 1.2
-                    stroke.Color = Color3.fromRGB(10, 14, 24)
-                    stroke.Parent = lbl
-
-                    entry.billboard = bb
-                end
-            end)
-        end
-
-        playerEspCache[player] = entry
     end
+    table.clear(self.Connections)
 
-    if player.Character then
-        setupCharVisuals(player.Character)
+    for _, espData in pairs(self.ESPObjects) do
+        pcall(function()
+            if espData.Billboard then espData.Billboard:Destroy() end
+            if espData.Highlight then espData.Highlight:Destroy() end
+        end)
     end
+    table.clear(self.ESPObjects)
 
-    table.insert(playerEspConns[player], player.CharacterAdded:Connect(setupCharVisuals))
-    table.insert(playerEspConns[player], player.CharacterRemoving:Connect(function()
-        clearPlayerVisuals(player)
-    end))
+    for _, genData in pairs(self.GeneratorObjects) do
+        pcall(function()
+            if genData.Billboard then genData.Billboard:Destroy() end
+            if genData.Highlight then genData.Highlight:Destroy() end
+        end)
+    end
+    table.clear(self.GeneratorObjects)
+
+    if self.ScreenGui then
+        pcall(function()
+            self.ScreenGui:Destroy()
+        end)
+    end
 end
 
-for _, plr in ipairs(Players:GetPlayers()) do
-    createPlayerESP(plr)
-end
-bindConnection(Players.PlayerAdded:Connect(createPlayerESP))
-bindConnection(Players.PlayerRemoving:Connect(removePlayerESP))
-
---// ================= FITUR 2: GENERATOR SCANNER, ESP & AUTO GENERATOR =================
-local PROGRESS_KEYS = { "Progress", "RepairProgress", "Repair", "Charge", "Percent", "Completion", "Value" }
-
-local function getGeneratorBasePart(genObj)
-    if not genObj or not genObj.Parent then return nil end
-    if genObj:IsA("BasePart") then return genObj end
-    if genObj:IsA("Model") then
-        if genObj.PrimaryPart then return genObj.PrimaryPart end
-        return genObj:FindFirstChildWhichIsA("BasePart", true)
+if getgenv then
+    getgenv().BimSakSinHubCleanup = function()
+        Hub:Cleanup()
     end
-    return nil
 end
 
-local function isGeneratorObject(obj)
-    if not obj or not obj.Parent then return false end
-    if not (obj:IsA("Model") or obj:IsA("BasePart")) then return false end
-    if Players:GetPlayerFromCharacter(obj) or obj:FindFirstAncestorOfClass("Player") then
-        return false
-    end
+--// 2. CONFIG & STATE MANAGER
+local CONFIG_FILE = "BimSakSinHub_Config.json"
 
-    if CollectionService:HasTag(obj, "Generator") or CollectionService:HasTag(obj, "Gen") then
-        return true
-    end
+local DefaultConfig = {
+    ESP_Enabled = true,
+    ESP_ShowDistance = true,
+    ESP_AvatarMarker = true,
+    ESP_TeamCheck = true, -- Distinguishes Teammates vs Enemies
+    Generator_ESP = true,
+    Fly_Enabled = false,
+    Fly_Speed = 60,
+    WalkSpeed_Enabled = false,
+    WalkSpeed_Value = 32,
+    JumpPower_Enabled = false,
+    JumpPower_Value = 85,
+    Noclip_Enabled = false,
+    AntiLag_Enabled = false,
+    Panel_Open = true,
+    Floating_Pos = { X = 0.04, Y = 0.35 },
+}
 
-    local lowerName = string.lower(obj.Name)
-    if string.find(lowerName, "generator", 1, true) or lowerName == "gen" or string.match(lowerName, "^gen[%d_%-%s]*$") then
-        local hasPrompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true) ~= nil
-        local hasClick = obj:FindFirstChildWhichIsA("ClickDetector", true) ~= nil
-        local hasProgAttr = false
-        for _, key in ipairs(PROGRESS_KEYS) do
-            if obj:GetAttribute(key) ~= nil then
-                hasProgAttr = true
-                break
-            end
-        end
-        local hasProgVal = false
-        for _, key in ipairs(PROGRESS_KEYS) do
-            local child = obj:FindFirstChild(key, true)
-            if child and (child:IsA("NumberValue") or child:IsA("IntValue")) then
-                hasProgVal = true
-                break
-            end
-        end
-        return hasPrompt or hasClick or hasProgAttr or hasProgVal or obj:IsA("Model")
-    end
-
-    return false
+local State = {}
+for k, v in pairs(DefaultConfig) do
+    State[k] = v
 end
 
-local function getGeneratorProgress(genObj)
-    if not genObj or not genObj.Parent then return 0, false end
-
-    local rawVal = nil
-    local maxVal = 100
-
-    -- 1. Cek Attribute API
-    for _, key in ipairs(PROGRESS_KEYS) do
-        local attr = genObj:GetAttribute(key)
-        if type(attr) == "number" then
-            rawVal = attr
-            break
-        elseif type(attr) == "boolean" and attr == true and (key == "Completed" or key == "Done") then
-            return 100, true
-        end
-    end
-
-    local maxAttr = genObj:GetAttribute("MaxProgress") or genObj:GetAttribute("MaxValue") or genObj:GetAttribute("Goal")
-    if type(maxAttr) == "number" and maxAttr > 0 then
-        maxVal = maxAttr
-    end
-
-    -- 2. Cek ValueBase API di dalam objek generator
-    if rawVal == nil then
-        for _, key in ipairs(PROGRESS_KEYS) do
-            local valObj = genObj:FindFirstChild(key, true)
-            if valObj and (valObj:IsA("NumberValue") or valObj:IsA("IntValue")) then
-                rawVal = valObj.Value
-                local parentMax = valObj.Parent and (valObj.Parent:FindFirstChild("MaxProgress") or valObj.Parent:FindFirstChild("MaxValue"))
-                if parentMax and (parentMax:IsA("NumberValue") or parentMax:IsA("IntValue")) and parentMax.Value > 0 then
-                    maxVal = parentMax.Value
-                end
-                break
-            end
-        end
-    end
-
-    -- 3. Cek status ProximityPrompt (jika prompt sudah nonaktif & sebelumnya ada progres)
-    local prompt = genObj:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if rawVal == nil and prompt and not prompt.Enabled then
-        return 100, true
-    end
-
-    if rawVal == nil then
-        return 0, false
-    end
-
-    local pct = 0
-    if maxVal == 100 and rawVal > 0 and rawVal <= 1 then
-        pct = math.floor(rawVal * 100 + 0.5)
-    else
-        pct = math.floor((rawVal / maxVal) * 100 + 0.5)
-    end
-
-    pct = math.clamp(pct, 0, 100)
-    return pct, (pct >= 100)
-end
-
-local function clearGeneratorVisual(genObj)
-    local vis = generatorEspCache[genObj]
-    if not vis then return end
-    if vis.title then pcall(function() vis.title.Visible = false vis.title:Remove() end) end
-    if vis.sub then pcall(function() vis.sub.Visible = false vis.sub:Remove() end) end
-    if vis.highlight then pcall(function() vis.highlight:Destroy() end) end
-    generatorEspCache[genObj] = nil
-end
-
-local function registerGenerator(obj)
-    if generatorCache[obj] or not isGeneratorObject(obj) then return end
-    local basePart = getGeneratorBasePart(obj)
-    if not basePart then return end
-
-    generatorCache[obj] = basePart
-
-    local vis = {}
+local function SaveConfig()
+    if type(writefile) ~= "function" then return end
     pcall(function()
-        local hl = Instance.new("Highlight")
-        hl.Name = "BimSakSin_GenAura"
-        hl.Adornee = obj
-        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.FillColor = Color3.fromRGB(251, 191, 36)
-        hl.OutlineColor = Color3.fromRGB(251, 191, 36)
-        hl.FillTransparency = 0.78
-        hl.OutlineTransparency = 0.3
-        hl.Enabled = false
-        hl.Parent = obj
-        vis.highlight = hl
-    end)
-
-    if HasDrawing then
-        vis.title = newOutlinedText(12, Color3.fromRGB(251, 191, 36))
-        vis.sub = newOutlinedText(11, Color3.fromRGB(226, 232, 240))
-    end
-
-    generatorEspCache[obj] = vis
-end
-
-local function unregisterGenerator(obj)
-    if generatorCache[obj] then
-        generatorCache[obj] = nil
-    end
-    clearGeneratorVisual(obj)
-end
-
--- Inisialisasi awal & event-driven listener untuk generator
-task.spawn(function()
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if isGeneratorObject(obj) then
-            registerGenerator(obj)
-        end
-    end
-end)
-
-bindConnection(Workspace.DescendantAdded:Connect(function(obj)
-    if IsAlive and isGeneratorObject(obj) then
-        task.defer(registerGenerator, obj)
-    end
-end))
-
-bindConnection(Workspace.DescendantRemoving:Connect(function(obj)
-    if generatorCache[obj] then
-        unregisterGenerator(obj)
-    end
-end))
-
-local function getNearestIncompleteGenerator()
-    local root = getRoot()
-    if not root then return nil, nil, math.huge, 0 end
-
-    local bestGen, bestPart, minDist, bestPct = nil, nil, math.huge, 0
-    for genObj, part in pairs(generatorCache) do
-        if genObj and genObj.Parent and part and part.Parent then
-            local pct, isDone = getGeneratorProgress(genObj)
-            if not isDone then
-                local d = (part.Position - root.Position).Magnitude
-                if d < minDist then
-                    minDist = d
-                    bestGen = genObj
-                    bestPart = part
-                    bestPct = pct
-                end
-            end
-        end
-    end
-    return bestGen, bestPart, minDist, bestPct
-end
-
-local function tpToGenerator(genObj)
-    local root = getRoot()
-    local part = generatorCache[genObj] or getGeneratorBasePart(genObj)
-    if root and part then
-        root.CFrame = part.CFrame * CFrame.new(0, 2.5, 4)
-        return true
-    end
-    return false
-end
-
-local function interactWithGenerator(genObj)
-    if not genObj or not genObj.Parent then return false end
-
-    -- 1. API ProximityPrompt
-    local prompt = genObj:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt and prompt.Enabled then
-        if typeof(fireproximityprompt) == "function" then
-            pcall(fireproximityprompt, prompt)
-            return true
-        else
-            pcall(function()
-                prompt:InputHoldBegin()
-                VirtualInputManager:SendKeyEvent(true, prompt.KeyboardKeyCode, false, game)
-            end)
-            return true
-        end
-    end
-
-    -- 2. API ClickDetector
-    local clickDet = genObj:FindFirstChildWhichIsA("ClickDetector", true)
-    if clickDet and typeof(fireclickdetector) == "function" then
-        pcall(fireclickdetector, clickDet)
-        return true
-    end
-
-    return false
-end
-
--- Loop Auto Generator (Ringan & Aman)
-task.spawn(function()
-    while IsAlive do
-        task.wait(0.25)
-        if Config.AutoGenerator then
-            pcall(function()
-                local root = getRoot()
-                local hum = getHum()
-                if not root or not hum or hum.Health <= 0 then return end
-
-                local genObj, part, dist = getNearestIncompleteGenerator()
-                if genObj and part then
-                    if Config.AutoTPGenerator and dist > 10 then
-                        root.CFrame = part.CFrame * CFrame.new(0, 2, 3.8)
-                        task.wait(0.1)
-                    end
-                    if (part.Position - root.Position).Magnitude <= 18 then
-                        interactWithGenerator(genObj)
-                    end
-                end
-            end)
-        end
-    end
-end)
-
---// ================= RENDER LOOP ESP (PEMAIN & GENERATOR) =================
-bindConnection(RunService.RenderStepped:Connect(function()
-    if not IsAlive then return end
-    local cam = Workspace.CurrentCamera
-    local myRoot = getRoot()
-
-    -- A. Render Player ESP
-    if not Config.PlayerESP then
-        if not playerEspCleared then
-            for _, esp in pairs(playerEspCache) do
-                if esp.name then esp.name.Visible = false end
-                if esp.dist then esp.dist.Visible = false end
-                if esp.highlight then esp.highlight.Enabled = false end
-                if esp.billboard then esp.billboard.Enabled = false end
-            end
-            playerEspCleared = true
-        end
-    elseif cam and myRoot then
-        playerEspCleared = false
-        for plr, esp in pairs(playerEspCache) do
-            local char = plr.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local head = char and char:FindFirstChild("Head")
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local isEnemy, roleTag, roleColor = getPlayerRelation(plr)
-
-            local visible = (root ~= nil) and (hum ~= nil) and (hum.Health > 0)
-            if visible and Config.EnemyOnlyESP and not isEnemy then
-                visible = false
-            end
-
-            if visible then
-                if esp.highlight then
-                    esp.highlight.Enabled = true
-                    esp.highlight.FillColor = roleColor
-                    esp.highlight.OutlineColor = roleColor
-                end
-
-                local distMeters = math.floor((root.Position - myRoot.Position).Magnitude)
-
-                if HasDrawing and esp.name and esp.dist then
-                    local targetPos = (head and head.Position or root.Position) + Vector3.new(0, 1.35, 0)
-                    local pos, onScreen = cam:WorldToViewportPoint(targetPos)
-                    if onScreen and pos.Z > 0 then
-                        esp.name.Color = roleColor
-                        esp.name.Text = "[" .. roleTag .. "] " .. plr.DisplayName
-                        esp.name.Position = Vector2.new(pos.X, pos.Y - 14)
-                        esp.name.Visible = true
-
-                        esp.dist.Text = tostring(distMeters) .. "m"
-                        esp.dist.Position = Vector2.new(pos.X, pos.Y)
-                        esp.dist.Visible = true
-                    else
-                        esp.name.Visible = false
-                        esp.dist.Visible = false
-                    end
-                elseif esp.billboard then
-                    esp.billboard.Enabled = true
-                    local tagText = esp.billboard:FindFirstChild("TagText")
-                    if tagText then
-                        tagText.TextColor3 = roleColor
-                        tagText.Text = "[" .. roleTag .. "] " .. plr.DisplayName .. "\n" .. tostring(distMeters) .. "m"
-                    end
-                end
-            else
-                if esp.highlight then esp.highlight.Enabled = false end
-                if esp.name then esp.name.Visible = false end
-                if esp.dist then esp.dist.Visible = false end
-                if esp.billboard then esp.billboard.Enabled = false end
-            end
-        end
-    end
-
-    -- B. Render Generator ESP (Jarak & Proses Pengerjaan)
-    if not Config.GeneratorESP then
-        if not generatorEspCleared then
-            for _, vis in pairs(generatorEspCache) do
-                if vis.title then vis.title.Visible = false end
-                if vis.sub then vis.sub.Visible = false end
-                if vis.highlight then vis.highlight.Enabled = false end
-            end
-            generatorEspCleared = true
-        end
-    elseif cam and myRoot then
-        generatorEspCleared = false
-        for genObj, part in pairs(generatorCache) do
-            local vis = generatorEspCache[genObj]
-            if vis then
-                if genObj and genObj.Parent and part and part.Parent then
-                    local pct, isDone = getGeneratorProgress(genObj)
-                    local genColor = isDone and Color3.fromRGB(52, 211, 153) or Color3.fromRGB(251, 191, 36)
-                    local distMeters = math.floor((part.Position - myRoot.Position).Magnitude)
-
-                    if vis.highlight then
-                        vis.highlight.Enabled = true
-                        vis.highlight.FillColor = genColor
-                        vis.highlight.OutlineColor = genColor
-                    end
-
-                    if vis.title and vis.sub then
-                        local pos, onScreen = cam:WorldToViewportPoint(part.Position + Vector3.new(0, 2.2, 0))
-                        if onScreen and pos.Z > 0 then
-                            vis.title.Color = genColor
-                            vis.title.Text = isDone and "Generator • SELESAI (100%)" or ("Generator • " .. tostring(pct) .. "%")
-                            vis.title.Position = Vector2.new(pos.X, pos.Y - 13)
-                            vis.title.Visible = true
-
-                            vis.sub.Text = tostring(distMeters) .. "m"
-                            vis.sub.Position = Vector2.new(pos.X, pos.Y)
-                            vis.sub.Visible = true
-                        else
-                            vis.title.Visible = false
-                            vis.sub.Visible = false
-                        end
-                    end
-                else
-                    if vis.highlight then vis.highlight.Enabled = false end
-                    if vis.title then vis.title.Visible = false end
-                    if vis.sub then vis.sub.Visible = false end
-                end
-            end
-        end
-    end
-end))
-
---// ================= FITUR 3: MOVEMENT (FLY, NOCLIP, SPEED) =================
-local function stopFly()
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
-    end
-    if bodyVelocity then
-        pcall(function() bodyVelocity:Destroy() end)
-        bodyVelocity = nil
-    end
-    if bodyGyro then
-        pcall(function() bodyGyro:Destroy() end)
-        bodyGyro = nil
-    end
-    local hum = getHum()
-    if hum then
-        hum.PlatformStand = false
-    end
-end
-
-local function startFly()
-    stopFly()
-    local root = getRoot()
-    local hum = getHum()
-    if not root or not hum then return end
-
-    hum.PlatformStand = true
-
-    bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Name = "BimSakSin_FlyVel"
-    bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-    bodyVelocity.Velocity = Vector3.zero
-    bodyVelocity.Parent = root
-
-    bodyGyro = Instance.new("BodyGyro")
-    bodyGyro.Name = "BimSakSin_FlyGyro"
-    bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-    bodyGyro.P = 15000
-    bodyGyro.D = 500
-    bodyGyro.CFrame = root.CFrame
-    bodyGyro.Parent = root
-
-    flyConnection = RunService.RenderStepped:Connect(function()
-        if not Config.Fly or not IsAlive then
-            stopFly()
-            return
-        end
-
-        local curRoot = getRoot()
-        local curHum = getHum()
-        local cam = Workspace.CurrentCamera
-        if not curRoot or not curHum or not cam or not bodyVelocity or not bodyGyro then
-            return
-        end
-
-        local direction = Vector3.zero
-        local forward = cam.CFrame.LookVector
-        local right = cam.CFrame.RightVector
-
-        if not UIS:GetFocusedTextBox() then
-            if UIS:IsKeyDown(Enum.KeyCode.W) then direction += forward end
-            if UIS:IsKeyDown(Enum.KeyCode.S) then direction -= forward end
-            if UIS:IsKeyDown(Enum.KeyCode.D) then direction += right end
-            if UIS:IsKeyDown(Enum.KeyCode.A) then direction -= right end
-            if UIS:IsKeyDown(Enum.KeyCode.Space) then direction += Vector3.new(0, 1, 0) end
-            if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then direction -= Vector3.new(0, 1, 0) end
-        end
-
-        if direction.Magnitude == 0 and curHum.MoveDirection.Magnitude > 0 then
-            direction = curHum.MoveDirection
-        end
-
-        if direction.Magnitude > 0 then
-            direction = direction.Unit
-        end
-
-        bodyVelocity.Velocity = direction * Config.FlySpeed
-        bodyGyro.CFrame = cam.CFrame
+        local encoded = HttpService:JSONEncode(State)
+        writefile(CONFIG_FILE, encoded)
     end)
 end
 
-local function restoreNoclip()
-    for part, originalCollide in pairs(noclipCache) do
-        if part and part.Parent and part:IsA("BasePart") then
-            part.CanCollide = originalCollide
-        end
-    end
-    table.clear(noclipCache)
-end
-
-bindConnection(RunService.Stepped:Connect(function()
-    if not IsAlive then return end
-    if Config.Noclip then
-        local char = getChar()
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    if noclipCache[part] == nil then
-                        noclipCache[part] = part.CanCollide
-                    end
-                    part.CanCollide = false
-                end
-            end
-        end
-    elseif next(noclipCache) ~= nil then
-        restoreNoclip()
-    end
-end))
-
---// ================= FITUR 4: TELEPORT =================
-local function tpToPlayer(targetPlayer)
-    local myRoot = getRoot()
-    if not myRoot or not targetPlayer or not targetPlayer.Character then return false end
-    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if targetRoot then
-        myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3.2)
-        return true
-    end
-    return false
-end
-
-local function tpNearestPlayer(onlyEnemies)
-    local myRoot = getRoot()
-    if not myRoot then return nil end
-    local nearestPlr, minDist = nil, math.huge
-
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local isEnemy = getPlayerRelation(plr)
-            if not onlyEnemies or isEnemy then
-                local r = plr.Character:FindFirstChild("HumanoidRootPart")
-                local h = plr.Character:FindFirstChildOfClass("Humanoid")
-                if r and h and h.Health > 0 then
-                    local d = (r.Position - myRoot.Position).Magnitude
-                    if d < minDist then
-                        minDist = d
-                        nearestPlr = plr
+local function LoadConfig()
+    if type(isfile) ~= "function" or type(readfile) ~= "function" then return end
+    pcall(function()
+        if isfile(CONFIG_FILE) then
+            local raw = readfile(CONFIG_FILE)
+            local decoded = HttpService:JSONDecode(raw)
+            if type(decoded) == "table" then
+                for k, defaultVal in pairs(DefaultConfig) do
+                    if decoded[k] ~= nil and type(decoded[k]) == type(defaultVal) then
+                        State[k] = decoded[k]
                     end
                 end
             end
         end
-    end
-
-    if nearestPlr and tpToPlayer(nearestPlr) then
-        return nearestPlr.DisplayName
-    end
-    return nil
+    end)
 end
 
-local function tpSpawn()
-    local myRoot = getRoot()
-    if not myRoot then return false end
-    local spawnLoc = Workspace:FindFirstChildOfClass("SpawnLocation")
-    if not spawnLoc then
-        for _, obj in ipairs(Workspace:GetChildren()) do
-            if obj:IsA("SpawnLocation") then
-                spawnLoc = obj
-                break
-            end
-        end
+LoadConfig()
+
+--// 3. HELPER UTILITIES (Safe Parent, Relationship Resolver, Text Formatting)
+local function GetSafeGuiParent()
+    if type(gethui) == "function" then
+        local ok, res = pcall(gethui)
+        if ok and res then return res end
     end
-    if spawnLoc then
-        myRoot.CFrame = spawnLoc.CFrame * CFrame.new(0, 5, 0)
-        return true
-    end
-    return false
+    local ok, cg = pcall(function() return CoreGui end)
+    if ok and cg then return cg end
+    return LocalPlayer:WaitForChild("PlayerGui")
 end
 
---// ================= RESPAWN HANDLER =================
-bindConnection(LocalPlayer.CharacterAdded:Connect(function()
-    table.clear(noclipCache)
-    task.wait(0.6)
-    if not IsAlive then return end
-
-    if Config.Fly then
-        startFly()
+local function GetPlayerRelation(targetPlayer)
+    if targetPlayer == LocalPlayer then
+        return "SELF", Color3.fromRGB(255, 255, 255)
     end
-    local hum = getHum()
-    if hum then
-        hum.WalkSpeed = Config.Speed
-    end
-end))
 
---// =========================================================================
---// UI PANEL: BIMSAKSIN HUB (TRANSPARAN BENING TANPA SPONSOR)
---// =========================================================================
+    -- Check Friend Status safely
+    local isFriend = false
+    pcall(function()
+        isFriend = LocalPlayer:IsFriendsWith(targetPlayer.UserId)
+    end)
+
+    -- Check Team Status
+    local sameTeam = false
+    if LocalPlayer.Team ~= nil and targetPlayer.Team ~= nil then
+        sameTeam = (LocalPlayer.Team == targetPlayer.Team)
+    elseif LocalPlayer.TeamColor ~= nil and targetPlayer.TeamColor ~= nil and not LocalPlayer.Neutral then
+        sameTeam = (LocalPlayer.TeamColor == targetPlayer.TeamColor)
+    end
+
+    if isFriend then
+        return "TEMAN", Color3.fromRGB(0, 230, 255)
+    elseif State.ESP_TeamCheck and sameTeam then
+        return "TEAM", Color3.fromRGB(80, 255, 130)
+    else
+        return "MUSUH", Color3.fromRGB(255, 75, 95)
+    end
+end
+
+-- Creates text label with thick black outline/background tightly wrapping text ONLY (no boxy frame background)
+local function CreateTightStyledText(parent, name, order, textSize)
+    local lbl = Instance.new("TextLabel")
+    lbl.Name = name
+    lbl.LayoutOrder = order
+    lbl.AutomaticSize = Enum.AutomaticSize.XY
+    lbl.Size = UDim2.new(0, 0, 0, 0)
+    lbl.BackgroundTransparency = 1 -- Zero box background!
+    lbl.Font = Enum.Font.GothamBlack
+    lbl.TextSize = textSize or 14
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    lbl.TextStrokeTransparency = 0.08 -- Thick crisp black glyph backing
+    lbl.RichText = true
+    lbl.Parent = parent
+
+    -- Secondary thick black UIStroke around font glyphs for high-contrast readability
+    local stroke = Instance.new("UIStroke")
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+    stroke.Color = Color3.fromRGB(0, 0, 0)
+    stroke.Thickness = 2.4
+    stroke.Transparency = 0.12
+    stroke.Parent = lbl
+
+    return lbl
+end
+
+--// 4. UI COMPONENT FACTORY (Ultra-Transparent White Glassmorphism)
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BimSakSinHub_" .. tostring(math.random(10000, 99999))
+ScreenGui.Name = "BimSakSinHub_UI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = GetSafeGuiParent()
+Hub.ScreenGui = ScreenGui
 
-pcall(function() ScreenGui.Parent = CoreGui end)
-if not ScreenGui.Parent then
-    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
-
-local function tween(obj, duration, props, style, dir)
-    local info = TweenInfo.new(
-        duration or 0.25,
-        style or Enum.EasingStyle.Quint,
-        dir or Enum.EasingDirection.Out
-    )
+-- Smooth Tween Helper
+local function TweenObj(obj, info, props)
     local t = TweenService:Create(obj, info, props)
     t:Play()
     return t
 end
 
--- Builder Emblem Logo ☠️ 3D HD
-local function create3DSkullEmblem(parent, sizePx, iconSize)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(0, sizePx, 0, sizePx)
-    container.BackgroundColor3 = Color3.fromRGB(18, 24, 38)
-    container.BackgroundTransparency = 0.25
-    container.BorderSizePixel = 0
-    container.Parent = parent
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(1, 0)
-    corner.Parent = container
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = 1.5
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Transparency = 0.25
-    stroke.Parent = container
-
-    local strokeGrad = Instance.new("UIGradient")
-    strokeGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(56, 189, 248)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(168, 85, 247)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(244, 63, 94))
-    })
-    strokeGrad.Rotation = 45
-    strokeGrad.Parent = stroke
-
-    local skullShadow = Instance.new("TextLabel")
-    skullShadow.Size = UDim2.new(1, 0, 1, 0)
-    skullShadow.Position = UDim2.new(0, 2, 0, 3)
-    skullShadow.BackgroundTransparency = 1
-    skullShadow.Text = "☠️"
-    skullShadow.TextSize = iconSize
-    skullShadow.Font = Enum.Font.GothamBlack
-    skullShadow.TextColor3 = Color3.fromRGB(10, 15, 28)
-    skullShadow.TextTransparency = 0.35
-    skullShadow.Parent = container
-
-    local skullRim = Instance.new("TextLabel")
-    skullRim.Size = UDim2.new(1, 0, 1, 0)
-    skullRim.Position = UDim2.new(0, -1, 0, -1)
-    skullRim.BackgroundTransparency = 1
-    skullRim.Text = "☠️"
-    skullRim.TextSize = iconSize
-    skullRim.Font = Enum.Font.GothamBlack
-    skullRim.TextColor3 = Color3.fromRGB(56, 189, 248)
-    skullRim.TextTransparency = 0.55
-    skullRim.Parent = container
-
-    local skullMain = Instance.new("TextLabel")
-    skullMain.Size = UDim2.new(1, 0, 1, 0)
-    skullMain.Position = UDim2.new(0, 0, 0, 0)
-    skullMain.BackgroundTransparency = 1
-    skullMain.Text = "☠️"
-    skullMain.TextSize = iconSize
-    skullMain.Font = Enum.Font.GothamBlack
-    skullMain.TextColor3 = Color3.fromRGB(255, 255, 255)
-    skullMain.Parent = container
-
-    return container, skullMain, strokeGrad
-end
-
--- Drag Handler Halus (Klik vs Geser)
-local function makeSmoothDraggable(handle, target, onClick)
+-- Draggable Utility
+local function MakeDraggable(dragHandle, targetFrame, onDragEnd)
     local dragging = false
-    local dragStart = Vector2.zero
-    local startPos = UDim2.new()
-    local movedDistance = 0
+    local dragInput, dragStart, startPos
 
-    bindConnection(handle.InputBegan:Connect(function(input)
+    Hub:AddConnection(dragHandle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            dragStart = Vector2.new(input.Position.X, input.Position.Y)
-            startPos = target.Position
-            movedDistance = 0
+            dragStart = input.Position
+            startPos = targetFrame.Position
+
+            local conn
+            conn = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    if conn then conn:Disconnect() end
+                    if onDragEnd then onDragEnd(targetFrame.Position) end
+                end
+            end)
         end
     end))
 
-    bindConnection(UIS.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
-            movedDistance = delta.Magnitude
-            if movedDistance >= 4 then
-                local nextPos = UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + delta.X,
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + delta.Y
-                )
-                tween(target, 0.08, { Position = nextPos }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-            end
+    Hub:AddConnection(dragHandle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
         end
     end))
 
-    bindConnection(UIS.InputEnded:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-            dragging = false
-            if movedDistance < 6 and onClick then
-                onClick()
-            end
+    Hub:AddConnection(UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            targetFrame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
         end
     end))
 end
 
---// ================= FLOATING TOGGLE BUTTON (LOGO ☠️ 3D HD) =================
-local FloatingDock = Instance.new("Frame")
-FloatingDock.Name = "FloatingSkullToggle"
-FloatingDock.Size = UDim2.new(0, 60, 0, 60)
-FloatingDock.Position = UDim2.new(0, 24, 0.5, -30)
-FloatingDock.BackgroundTransparency = 1
-FloatingDock.ZIndex = 20
-FloatingDock.Parent = ScreenGui
+-- 3D HD Skull Builder (ViewportFrame with Rotating 3D Mesh/Construct + Corner Accents)
+local function Build3DSkullViewport(parent, sizeUDim2, posUDim2, anchorPoint)
+    local vp = Instance.new("ViewportFrame")
+    vp.Size = sizeUDim2
+    vp.Position = posUDim2
+    vp.AnchorPoint = anchorPoint or Vector2.new(0.5, 0.5)
+    vp.BackgroundTransparency = 1
+    vp.Ambient = Color3.fromRGB(220, 235, 255)
+    vp.LightColor = Color3.fromRGB(255, 255, 255)
+    vp.LightDirection = Vector3.new(-1, -1, -1)
+    vp.Parent = parent
 
-local dockScale = Instance.new("UIScale")
-dockScale.Scale = 1
-dockScale.Parent = FloatingDock
+    local wm = Instance.new("WorldModel")
+    wm.Parent = vp
 
-local DockGlow = Instance.new("Frame")
-DockGlow.Size = UDim2.new(1, 12, 1, 12)
-DockGlow.Position = UDim2.new(0, -6, 0, -6)
-DockGlow.BackgroundColor3 = Color3.fromRGB(56, 189, 248)
-DockGlow.BackgroundTransparency = 0.84
-DockGlow.BorderSizePixel = 0
-DockGlow.ZIndex = 19
-DockGlow.Parent = FloatingDock
+    local vpCam = Instance.new("Camera")
+    vpCam.CFrame = CFrame.new(Vector3.new(0, 0.1, 3.6), Vector3.new(0, 0, 0))
+    vpCam.Parent = vp
+    vp.CurrentCamera = vpCam
 
-local dockGlowCorner = Instance.new("UICorner")
-dockGlowCorner.CornerRadius = UDim.new(1, 0)
-dockGlowCorner.Parent = DockGlow
+    local skullModel = Instance.new("Model")
+    skullModel.Name = "HD_Skull_3D"
+    skullModel.Parent = wm
 
-local FloatingEmblem, FloatingSkullText, FloatingGrad = create3DSkullEmblem(FloatingDock, 60, 30)
-FloatingEmblem.ZIndex = 21
+    -- Cranium (Smooth Metallic/Pearl 3D Sphere Mesh)
+    local cranium = Instance.new("Part")
+    cranium.Size = Vector3.new(1.55, 1.45, 1.65)
+    cranium.Position = Vector3.new(0, 0.28, 0)
+    cranium.Material = Enum.Material.SmoothPlastic
+    cranium.Color = Color3.fromRGB(245, 248, 255)
+    cranium.Anchored = true
+    local craniumMesh = Instance.new("SpecialMesh")
+    craniumMesh.MeshType = Enum.MeshType.Sphere
+    craniumMesh.Parent = cranium
+    cranium.Parent = skullModel
 
-local FloatingHitbox = Instance.new("TextButton")
-FloatingHitbox.Size = UDim2.new(1, 0, 1, 0)
-FloatingHitbox.BackgroundTransparency = 1
-FloatingHitbox.Text = ""
-FloatingHitbox.ZIndex = 25
-FloatingHitbox.Parent = FloatingDock
+    -- Cheekbones & Jaw Structure
+    local jaw = Instance.new("Part")
+    jaw.Size = Vector3.new(0.95, 0.72, 1.05)
+    jaw.Position = Vector3.new(0, -0.45, 0.18)
+    jaw.Material = Enum.Material.SmoothPlastic
+    jaw.Color = Color3.fromRGB(230, 236, 245)
+    jaw.Anchored = true
+    local jawMesh = Instance.new("SpecialMesh")
+    jawMesh.MeshType = Enum.MeshType.Sphere
+    jawMesh.Parent = jaw
+    jaw.Parent = skullModel
 
-bindConnection(FloatingHitbox.MouseEnter:Connect(function()
-    tween(dockScale, 0.22, { Scale = 1.08 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-    tween(DockGlow, 0.22, { BackgroundTransparency = 0.68 })
-end))
+    -- Glowing Cyan-Blue 3D Eye Sockets
+    for _, side in ipairs({ -1, 1 }) do
+        local eye = Instance.new("Part")
+        eye.Size = Vector3.new(0.36, 0.36, 0.25)
+        eye.Position = Vector3.new(side * 0.34, 0.15, 0.72)
+        eye.Material = Enum.Material.Neon
+        eye.Color = Color3.fromRGB(40, 175, 255)
+        eye.Anchored = true
+        local eyeMesh = Instance.new("SpecialMesh")
+        eyeMesh.MeshType = Enum.MeshType.Sphere
+        eyeMesh.Parent = eye
+        eye.Parent = skullModel
+    end
 
-bindConnection(FloatingHitbox.MouseLeave:Connect(function()
-    tween(dockScale, 0.22, { Scale = 1.0 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-    tween(DockGlow, 0.22, { BackgroundTransparency = 0.84 })
-end))
+    -- Nasal Cavity
+    local nose = Instance.new("Part")
+    nose.Size = Vector3.new(0.22, 0.28, 0.2)
+    nose.Position = Vector3.new(0, -0.1, 0.76)
+    nose.Material = Enum.Material.SmoothPlastic
+    nose.Color = Color3.fromRGB(25, 30, 40)
+    nose.Anchored = true
+    local noseMesh = Instance.new("SpecialMesh")
+    noseMesh.MeshType = Enum.MeshType.Wedge
+    noseMesh.Parent = nose
+    nose.Parent = skullModel
 
---// ================= PANEL UTAMA: TRANSPARAN BENING =================
+    -- Teeth Detail Ridges
+    for i = -2, 2 do
+        local tooth = Instance.new("Part")
+        tooth.Size = Vector3.new(0.11, 0.22, 0.14)
+        tooth.Position = Vector3.new(i * 0.15, -0.62, 0.65)
+        tooth.Material = Enum.Material.SmoothPlastic
+        tooth.Color = Color3.fromRGB(255, 255, 255)
+        tooth.Anchored = true
+        tooth.Parent = skullModel
+    end
+
+    skullModel.PrimaryPart = cranium
+
+    return vp, skullModel
+end
+
+-- 3D Animated Blue Verification Checkmark Builder (Positioned neatly behind "BimSakSin Hub")
+local function Build3DBlueCheckmark(parent)
+    local vp = Instance.new("ViewportFrame")
+    vp.Name = "BlueBadge3D"
+    vp.Size = UDim2.new(0, 26, 0, 26)
+    vp.BackgroundTransparency = 1
+    vp.Ambient = Color3.fromRGB(180, 225, 255)
+    vp.LightColor = Color3.fromRGB(255, 255, 255)
+    vp.LightDirection = Vector3.new(1, -1, -1)
+    vp.Parent = parent
+
+    local wm = Instance.new("WorldModel")
+    wm.Parent = vp
+
+    local cam = Instance.new("Camera")
+    cam.CFrame = CFrame.new(Vector3.new(0, 0, 3.1), Vector3.new(0, 0, 0))
+    cam.Parent = vp
+    vp.CurrentCamera = cam
+
+    local badgeModel = Instance.new("Model")
+    badgeModel.Parent = wm
+
+    -- 3D Starburst / Rosette Medal Base (Verified Blue)
+    local layers = 3
+    for i = 1, layers do
+        local disc = Instance.new("Part")
+        disc.Size = Vector3.new(1.55, 1.55, 0.26)
+        disc.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad((i - 1) * 30))
+        disc.Material = Enum.Material.Neon
+        disc.Color = Color3.fromRGB(24, 155, 255)
+        disc.Anchored = true
+        disc.Parent = badgeModel
+        if i == 1 then
+            badgeModel.PrimaryPart = disc
+        end
+    end
+
+    -- 3D White Checkmark Short Leg
+    local leg1 = Instance.new("Part")
+    leg1.Size = Vector3.new(0.24, 0.56, 0.36)
+    leg1.CFrame = CFrame.new(-0.22, -0.08, 0.04) * CFrame.Angles(0, 0, math.rad(42))
+    leg1.Material = Enum.Material.SmoothPlastic
+    leg1.Color = Color3.fromRGB(255, 255, 255)
+    leg1.Anchored = true
+    leg1.Parent = badgeModel
+
+    -- 3D White Checkmark Long Leg
+    local leg2 = Instance.new("Part")
+    leg2.Size = Vector3.new(0.24, 0.96, 0.36)
+    leg2.CFrame = CFrame.new(0.22, 0.08, 0.04) * CFrame.Angles(0, 0, math.rad(-42))
+    leg2.Material = Enum.Material.SmoothPlastic
+    leg2.Color = Color3.fromRGB(255, 255, 255)
+    leg2.Anchored = true
+    leg2.Parent = badgeModel
+
+    return vp, badgeModel
+end
+
+--// FLOATING TOGGLE BUTTON (Ultra-Transparent White Glass + 3D HD Skull Logo)
+local FloatingBtn = Instance.new("TextButton")
+FloatingBtn.Name = "BimSakSin_FloatingToggle"
+FloatingBtn.Size = UDim2.new(0, 58, 0, 58)
+FloatingBtn.Position = UDim2.new(State.Floating_Pos.X, 0, State.Floating_Pos.Y, 0)
+FloatingBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+FloatingBtn.BackgroundTransparency = 0.84 -- True transparent white glass look
+FloatingBtn.Text = ""
+FloatingBtn.AutoButtonColor = false
+FloatingBtn.Parent = ScreenGui
+
+local FloatCorner = Instance.new("UICorner")
+FloatCorner.CornerRadius = UDim.new(1, 0)
+FloatCorner.Parent = FloatingBtn
+
+local FloatStroke = Instance.new("UIStroke")
+FloatStroke.Color = Color3.fromRGB(255, 255, 255)
+FloatStroke.Thickness = 1.6
+FloatStroke.Transparency = 0.35
+FloatStroke.Parent = FloatingBtn
+
+local FloatGradient = Instance.new("UIGradient")
+FloatGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(210, 235, 255)),
+})
+FloatGradient.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 0.15),
+    NumberSequenceKeypoint.new(1, 0.45),
+})
+FloatGradient.Rotation = 45
+FloatGradient.Parent = FloatingBtn
+
+local _, FloatingSkullModel = Build3DSkullViewport(
+    FloatingBtn,
+    UDim2.new(0, 48, 0, 48),
+    UDim2.new(0.5, 0, 0.5, 0),
+    Vector2.new(0.5, 0.5)
+)
+
+MakeDraggable(FloatingBtn, FloatingBtn, function(newPos)
+    State.Floating_Pos = { X = newPos.X.Scale, Y = newPos.Y.Scale }
+    SaveConfig()
+end)
+
+--// MAIN PANEL (Ultra-Transparent White Glassmorphism + 4 Corner 3D HD Skulls)
 local MainPanel = Instance.new("Frame")
-MainPanel.Name = "BimSakSinMainPanel"
-MainPanel.Size = UDim2.new(0, 440, 0, 380)
-MainPanel.Position = UDim2.new(0.5, -220, 0.5, -190)
-MainPanel.BackgroundColor3 = Color3.fromRGB(12, 17, 29)
-MainPanel.BackgroundTransparency = 0.32 -- Transparan bening
+MainPanel.Name = "BimSakSin_MainPanel"
+MainPanel.Size = UDim2.new(0, 560, 0, 390)
+MainPanel.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+MainPanel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+MainPanel.BackgroundTransparency = 0.86 -- Ultra-transparent crisp white web-glass
 MainPanel.BorderSizePixel = 0
-MainPanel.ClipsDescendants = true
-MainPanel.ZIndex = 10
+MainPanel.ClipsDescendants = false
 MainPanel.Parent = ScreenGui
 
-local panelScale = Instance.new("UIScale")
-panelScale.Scale = 0.88
-panelScale.Parent = MainPanel
+local PanelScale = Instance.new("UIScale")
+PanelScale.Scale = State.Panel_Open and 1 or 0.01
+PanelScale.Parent = MainPanel
+MainPanel.Visible = State.Panel_Open
 
-local panelCorner = Instance.new("UICorner")
-panelCorner.CornerRadius = UDim.new(0, 16)
-panelCorner.Parent = MainPanel
+local PanelCorner = Instance.new("UICorner")
+PanelCorner.CornerRadius = UDim.new(0, 16)
+PanelCorner.Parent = MainPanel
 
-local glassGradient = Instance.new("UIGradient")
-glassGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 39, 64)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(15, 23, 42)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 14, 24))
+local PanelStroke = Instance.new("UIStroke")
+PanelStroke.Color = Color3.fromRGB(255, 255, 255)
+PanelStroke.Thickness = 1.6
+PanelStroke.Transparency = 0.3
+PanelStroke.Parent = MainPanel
+
+local PanelGlassGrad = Instance.new("UIGradient")
+PanelGlassGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(240, 248, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(225, 240, 255)),
 })
-glassGradient.Transparency = NumberSequence.new({
-    NumberSequenceKeypoint.new(0, 0.2),
-    NumberSequenceKeypoint.new(0.5, 0.3),
-    NumberSequenceKeypoint.new(1, 0.22)
+PanelGlassGrad.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 0.1),
+    NumberSequenceKeypoint.new(1, 0.35),
 })
-glassGradient.Rotation = 135
-glassGradient.Parent = MainPanel
+PanelGlassGrad.Rotation = 135
+PanelGlassGrad.Parent = MainPanel
 
-local panelStroke = Instance.new("UIStroke")
-panelStroke.Thickness = 1.4
-panelStroke.Color = Color3.fromRGB(255, 255, 255)
-panelStroke.Transparency = 0.6
-panelStroke.Parent = MainPanel
+-- 4 Corner 3D HD Skull Badges on the Main Panel
+local CornerSkullModels = {}
+local cornerConfigs = {
+    { pos = UDim2.new(0, 4, 0, 4), anchor = Vector2.new(0.5, 0.5), dir = 1 },
+    { pos = UDim2.new(1, -4, 0, 4), anchor = Vector2.new(0.5, 0.5), dir = -1 },
+    { pos = UDim2.new(0, 4, 1, -4), anchor = Vector2.new(0.5, 0.5), dir = -1 },
+    { pos = UDim2.new(1, -4, 1, -4), anchor = Vector2.new(0.5, 0.5), dir = 1 },
+}
+for idx, cfg in ipairs(cornerConfigs) do
+    local _, model = Build3DSkullViewport(
+        MainPanel,
+        UDim2.new(0, 34, 0, 34),
+        cfg.pos,
+        cfg.anchor
+    )
+    table.insert(CornerSkullModels, { Model = model, Dir = cfg.dir, Phase = idx * 0.8 })
+end
 
-local panelStrokeGrad = Instance.new("UIGradient")
-panelStrokeGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(125, 211, 252)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(192, 132, 252)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(56, 189, 248))
-})
-panelStrokeGrad.Rotation = 35
-panelStrokeGrad.Parent = panelStroke
-
-local TopGlassReflection = Instance.new("Frame")
-TopGlassReflection.Size = UDim2.new(1, -32, 0, 1)
-TopGlassReflection.Position = UDim2.new(0, 16, 0, 1)
-TopGlassReflection.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-TopGlassReflection.BackgroundTransparency = 0.68
-TopGlassReflection.BorderSizePixel = 0
-TopGlassReflection.ZIndex = 12
-TopGlassReflection.Parent = MainPanel
-
---// ================= HEADER PANEL (BIMSAKSIN HUB + REGION/IP) =================
+-- Header Bar
 local Header = Instance.new("Frame")
-Header.Name = "HeaderBar"
-Header.Size = UDim2.new(1, 0, 0, 56)
+Header.Name = "Header"
+Header.Size = UDim2.new(1, -24, 0, 46)
+Header.Position = UDim2.new(0, 12, 0, 8)
 Header.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-Header.BackgroundTransparency = 0.95
-Header.BorderSizePixel = 0
-Header.ZIndex = 12
+Header.BackgroundTransparency = 0.88
 Header.Parent = MainPanel
 
-local HeaderDivider = Instance.new("Frame")
-HeaderDivider.Size = UDim2.new(1, -24, 0, 1)
-HeaderDivider.Position = UDim2.new(0, 12, 1, -1)
-HeaderDivider.BackgroundColor3 = Color3.fromRGB(148, 163, 184)
-HeaderDivider.BackgroundTransparency = 0.84
-HeaderDivider.BorderSizePixel = 0
-HeaderDivider.ZIndex = 12
-HeaderDivider.Parent = Header
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 12)
+HeaderCorner.Parent = Header
 
--- Emblem ☠️ 3D HD Sisi Kiri Panel
-local LeftEmblem, LeftSkullText = create3DSkullEmblem(Header, 34, 18)
-LeftEmblem.Position = UDim2.new(0, 14, 0.5, -17)
-LeftEmblem.ZIndex = 14
+local HeaderStroke = Instance.new("UIStroke")
+HeaderStroke.Color = Color3.fromRGB(255, 255, 255)
+HeaderStroke.Thickness = 1
+HeaderStroke.Transparency = 0.45
+HeaderStroke.Parent = Header
 
--- Judul "BimSakSin Hub" + Bar Region & IP
+MakeDraggable(Header, MainPanel)
+
+-- Title Container: "BimSakSin Hub" + Spaced 3D Animated Blue Checkmark Behind Title
 local TitleContainer = Instance.new("Frame")
-TitleContainer.Size = UDim2.new(1, -162, 1, 0)
-TitleContainer.Position = UDim2.new(0, 56, 0, 0)
+TitleContainer.Size = UDim2.new(0, 260, 1, 0)
+TitleContainer.Position = UDim2.new(0, 22, 0, 0)
 TitleContainer.BackgroundTransparency = 1
-TitleContainer.ZIndex = 13
 TitleContainer.Parent = Header
 
+local TitleLayout = Instance.new("UIListLayout")
+TitleLayout.FillDirection = Enum.FillDirection.Horizontal
+TitleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+TitleLayout.Padding = UDim.new(0, 6) -- Natural verification badge spacing behind title
+TitleLayout.Parent = TitleContainer
+
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, 0, 0, 22)
-TitleLabel.Position = UDim2.new(0, 0, 0, 7)
+TitleLabel.Name = "HubTitle"
+TitleLabel.AutomaticSize = Enum.AutomaticSize.X
+TitleLabel.Size = UDim2.new(0, 0, 1, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "BimSakSin Hub"
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Font = Enum.Font.GothamBlack
-TitleLabel.TextSize = 17
-TitleLabel.TextColor3 = Color3.fromRGB(248, 250, 252)
-TitleLabel.ZIndex = 14
+TitleLabel.Text = "BimSakSin Hub"
+TitleLabel.TextSize = 19
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+TitleLabel.TextStrokeTransparency = 0.25
 TitleLabel.Parent = TitleContainer
 
-local titleGrad = Instance.new("UIGradient")
-titleGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-    ColorSequenceKeypoint.new(0.6, Color3.fromRGB(125, 211, 252)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(192, 132, 252))
-})
-titleGrad.Parent = TitleLabel
+local TitleStroke = Instance.new("UIStroke")
+TitleStroke.Color = Color3.fromRGB(15, 25, 45)
+TitleStroke.Thickness = 1.6
+TitleStroke.Transparency = 0.2
+TitleStroke.Parent = TitleLabel
 
-local RegionIpBtn = Instance.new("TextButton")
-RegionIpBtn.Size = UDim2.new(1, 0, 0, 18)
-RegionIpBtn.Position = UDim2.new(0, 0, 0, 31)
-RegionIpBtn.BackgroundTransparency = 1
-RegionIpBtn.Text = "🌐 Region: Mendeteksi... | IP: Memuat..."
-RegionIpBtn.TextXAlignment = Enum.TextXAlignment.Left
-RegionIpBtn.Font = Enum.Font.Gotham
-RegionIpBtn.TextSize = 11
-RegionIpBtn.TextColor3 = Color3.fromRGB(125, 211, 252)
-RegionIpBtn.ZIndex = 15
-RegionIpBtn.Parent = TitleContainer
+local _, BlueCheckmarkModel = Build3DBlueCheckmark(TitleContainer)
 
-local function updateRegionIpDisplay()
-    if not RegionIpBtn or not RegionIpBtn.Parent then return end
-    local shownIP = NetworkInfo.Masked and maskIPAddress(NetworkInfo.IP) or NetworkInfo.IP
-    local pingStr = ""
-    pcall(function()
-        local pingItem = Stats.Network.ServerStatsItem["Data Ping"]
-        if pingItem then
-            pingStr = " • " .. tostring(math.floor(pingItem:GetValue())) .. "ms"
+-- Close / Minimize Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -38, 0.5, 0)
+CloseBtn.AnchorPoint = Vector2.new(0, 0.5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.BackgroundTransparency = 0.82
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Text = "—"
+CloseBtn.TextSize = 15
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Parent = Header
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 8)
+CloseCorner.Parent = CloseBtn
+
+-- Smooth Panel Open / Close Animation
+local isAnimatingPanel = false
+local function SetPanelOpen(openState)
+    if isAnimatingPanel then return end
+    isAnimatingPanel = true
+    State.Panel_Open = openState
+    SaveConfig()
+
+    if openState then
+        MainPanel.Visible = true
+        PanelScale.Scale = 0.82
+        MainPanel.BackgroundTransparency = 1
+        TweenObj(PanelScale, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+        local t = TweenObj(MainPanel, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 0.86 })
+        t.Completed:Wait()
+    else
+        TweenObj(PanelScale, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.82 })
+        local t = TweenObj(MainPanel, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { BackgroundTransparency = 1 })
+        t.Completed:Wait()
+        MainPanel.Visible = false
+    end
+    isAnimatingPanel = false
+end
+
+Hub:AddConnection(FloatingBtn.MouseButton1Click:Connect(function()
+    TweenObj(FloatingBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.new(0, 52, 0, 52) })
+    task.delay(0.12, function()
+        if FloatingBtn and FloatingBtn.Parent then
+            TweenObj(FloatingBtn, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.new(0, 58, 0, 58) })
         end
     end)
-    RegionIpBtn.Text = "🌐 Region: " .. NetworkInfo.Region .. " | IP: " .. shownIP .. pingStr
-end
-
-bindConnection(RegionIpBtn.MouseButton1Click:Connect(function()
-    NetworkInfo.Masked = not NetworkInfo.Masked
-    updateRegionIpDisplay()
+    SetPanelOpen(not State.Panel_Open)
 end))
 
-fetchRegionAndIP(updateRegionIpDisplay)
-
--- Emblem ☠️ 3D HD Sisi Kanan Panel
-local RightEmblem, RightSkullText = create3DSkullEmblem(Header, 34, 18)
-RightEmblem.Position = UDim2.new(1, -86, 0.5, -17)
-RightEmblem.ZIndex = 14
-
--- Tombol Minimize ke Floating Logo ☠️
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Size = UDim2.new(0, 30, 0, 30)
-MinimizeBtn.Position = UDim2.new(1, -44, 0.5, -15)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeBtn.BackgroundTransparency = 0.92
-MinimizeBtn.Text = "—"
-MinimizeBtn.Font = Enum.Font.GothamBold
-MinimizeBtn.TextSize = 13
-MinimizeBtn.TextColor3 = Color3.fromRGB(226, 232, 240)
-MinimizeBtn.ZIndex = 15
-MinimizeBtn.Parent = Header
-
-local minCorner = Instance.new("UICorner")
-minCorner.CornerRadius = UDim.new(0, 8)
-minCorner.Parent = MinimizeBtn
-
-local minStroke = Instance.new("UIStroke")
-minStroke.Thickness = 1
-minStroke.Color = Color3.fromRGB(255, 255, 255)
-minStroke.Transparency = 0.8
-minStroke.Parent = MinimizeBtn
-
-bindConnection(MinimizeBtn.MouseEnter:Connect(function()
-    tween(MinimizeBtn, 0.18, { BackgroundTransparency = 0.8, TextColor3 = Color3.fromRGB(56, 189, 248) })
-end))
-bindConnection(MinimizeBtn.MouseLeave:Connect(function()
-    tween(MinimizeBtn, 0.18, { BackgroundTransparency = 0.92, TextColor3 = Color3.fromRGB(226, 232, 240) })
+Hub:AddConnection(CloseBtn.MouseButton1Click:Connect(function()
+    SetPanelOpen(false)
 end))
 
---// ================= ANIMASI BUKA / TUTUP PANEL & LOGO ☠️ =================
-local function setPanelState(open)
-    IsPanelOpen = open
-    if open then
-        MainPanel.Visible = true
-        tween(FloatingSkullText, 0.35, { Rotation = 360 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tween(dockScale, 0.25, { Scale = 0.85 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+--// 3D LOGO ANIMATION LOOP (Smooth Continuous Motion for Blue Checkmark & All 3D HD Skulls)
+local animClock = 0
+Hub:AddConnection(RunService.RenderStepped:Connect(function(dt)
+    if not Hub.Alive then return end
+    animClock = animClock + dt
 
-        panelScale.Scale = 0.86
-        MainPanel.BackgroundTransparency = 0.78
-        tween(panelScale, 0.34, { Scale = 1.0 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tween(MainPanel, 0.28, { BackgroundTransparency = 0.32 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-
-        LeftSkullText.Rotation = -25
-        RightSkullText.Rotation = 25
-        tween(LeftSkullText, 0.45, { Rotation = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tween(RightSkullText, 0.45, { Rotation = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-    else
-        tween(FloatingSkullText, 0.35, { Rotation = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tween(dockScale, 0.28, { Scale = 1.0 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-
-        tween(panelScale, 0.22, { Scale = 0.86 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        local closeTween = tween(MainPanel, 0.2, { BackgroundTransparency = 0.95 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        closeTween.Completed:Connect(function()
-            if not IsPanelOpen and MainPanel then
-                MainPanel.Visible = false
-            end
-        end)
+    -- Smooth 3D Blue Checkmark Y-axis rotation + gentle float
+    if BlueCheckmarkModel and BlueCheckmarkModel.PrimaryPart then
+        local rotY = math.sin(animClock * 2.2) * math.rad(28)
+        local bobY = math.sin(animClock * 3.0) * 0.08
+        BlueCheckmarkModel:PivotTo(CFrame.new(0, bobY, 0) * CFrame.Angles(0, rotY, 0))
     end
-end
 
-makeSmoothDraggable(FloatingHitbox, FloatingDock, function()
-    setPanelState(not IsPanelOpen)
-end)
+    -- Floating Toggle 3D HD Skull smooth spin & hover
+    if FloatingSkullModel and FloatingSkullModel.PrimaryPart then
+        local rotY = animClock * 1.4
+        local bobY = math.sin(animClock * 2.6) * 0.09
+        FloatingSkullModel:PivotTo(CFrame.new(0, bobY, 0) * CFrame.Angles(math.sin(animClock * 1.5) * 0.12, rotY, 0))
+    end
 
-makeSmoothDraggable(Header, MainPanel, nil)
-
-bindConnection(MinimizeBtn.MouseButton1Click:Connect(function()
-    setPanelState(false)
-end))
-
--- Animasi melayang halus 3D pada logo ☠️ + pembaruan ping & daftar generator
-local refreshGeneratorListCallback = nil
-
-task.spawn(function()
-    local phase = 0
-    local secTimer = 0
-    while IsAlive do
-        local dt = task.wait(0.03)
-        phase += dt * 2.4
-        secTimer += dt
-
-        local waveY = math.sin(phase) * 2.0
-        local tilt = math.cos(phase * 0.8) * 5
-
-        if FloatingSkullText and FloatingSkullText.Parent then
-            FloatingSkullText.Position = UDim2.new(0, 0, 0, waveY)
-            FloatingGrad.Rotation = (phase * 28) % 360
-        end
-        if IsPanelOpen and LeftSkullText and RightSkullText then
-            LeftSkullText.Position = UDim2.new(0, 0, 0, waveY * 0.65)
-            LeftSkullText.Rotation = tilt
-            RightSkullText.Position = UDim2.new(0, 0, 0, -waveY * 0.65)
-            RightSkullText.Rotation = -tilt
-        end
-
-        if secTimer >= 2.0 then
-            secTimer = 0
-            updateRegionIpDisplay()
-            if IsPanelOpen and refreshGeneratorListCallback then
-                pcall(refreshGeneratorListCallback)
-            end
+    -- 4 Corner Panel 3D HD Skulls synchronized smooth rotation
+    for _, item in ipairs(CornerSkullModels) do
+        if item.Model and item.Model.PrimaryPart then
+            local rotY = (animClock * 1.3 * item.Dir) + item.Phase
+            local bobY = math.sin(animClock * 2.5 + item.Phase) * 0.07
+            item.Model:PivotTo(CFrame.new(0, bobY, 0) * CFrame.Angles(0, rotY, 0))
         end
     end
-end)
+end))
 
---// ================= NAVIGASI 4 TAB SESUAI KEGUNAAN =================
-local TabBar = Instance.new("Frame")
-TabBar.Name = "TabBar"
-TabBar.Size = UDim2.new(1, -28, 0, 32)
-TabBar.Position = UDim2.new(0, 14, 0, 64)
-TabBar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-TabBar.BackgroundTransparency = 0.95
-TabBar.BorderSizePixel = 0
-TabBar.ZIndex = 12
-TabBar.Parent = MainPanel
+--// NAVIGATION SIDEBAR & CONTENT PAGES
+local BodyFrame = Instance.new("Frame")
+BodyFrame.Size = UDim2.new(1, -24, 1, -68)
+BodyFrame.Position = UDim2.new(0, 12, 0, 60)
+BodyFrame.BackgroundTransparency = 1
+BodyFrame.Parent = MainPanel
 
-local tabBarCorner = Instance.new("UICorner")
-tabBarCorner.CornerRadius = UDim.new(0, 9)
-tabBarCorner.Parent = TabBar
+local Sidebar = Instance.new("Frame")
+Sidebar.Size = UDim2.new(0, 138, 1, 0)
+Sidebar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Sidebar.BackgroundTransparency = 0.88
+Sidebar.Parent = BodyFrame
 
-local tabBarStroke = Instance.new("UIStroke")
-tabBarStroke.Thickness = 1
-tabBarStroke.Color = Color3.fromRGB(255, 255, 255)
-tabBarStroke.Transparency = 0.86
-tabBarStroke.Parent = TabBar
+local SidebarCorner = Instance.new("UICorner")
+SidebarCorner.CornerRadius = UDim.new(0, 12)
+SidebarCorner.Parent = Sidebar
 
-local tabNames = { "👁️ ESP", "⚙️ Generator", "🚀 Movement", "🌐 Teleport" }
-local tabCount = #tabNames
+local SidebarStroke = Instance.new("UIStroke")
+SidebarStroke.Color = Color3.fromRGB(255, 255, 255)
+SidebarStroke.Thickness = 1
+SidebarStroke.Transparency = 0.45
+SidebarStroke.Parent = Sidebar
 
-local ActiveTabIndicator = Instance.new("Frame")
-ActiveTabIndicator.Size = UDim2.new(1 / tabCount, -6, 1, -6)
-ActiveTabIndicator.Position = UDim2.new(0, 3, 0, 3)
-ActiveTabIndicator.BackgroundColor3 = Color3.fromRGB(56, 189, 248)
-ActiveTabIndicator.BackgroundTransparency = 0.8
-ActiveTabIndicator.BorderSizePixel = 0
-ActiveTabIndicator.ZIndex = 13
-ActiveTabIndicator.Parent = TabBar
+local SidebarLayout = Instance.new("UIListLayout")
+SidebarLayout.Padding = UDim.new(0, 6)
+SidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SidebarLayout.Parent = Sidebar
 
-local indCorner = Instance.new("UICorner")
-indCorner.CornerRadius = UDim.new(0, 7)
-indCorner.Parent = ActiveTabIndicator
+local SidebarPad = Instance.new("UIPadding")
+SidebarPad.PaddingTop = UDim.new(0, 10)
+SidebarPad.PaddingLeft = UDim.new(0, 8)
+SidebarPad.PaddingRight = UDim.new(0, 8)
+SidebarPad.Parent = Sidebar
 
-local indStroke = Instance.new("UIStroke")
-indStroke.Thickness = 1
-indStroke.Color = Color3.fromRGB(125, 211, 252)
-indStroke.Transparency = 0.48
-indStroke.Parent = ActiveTabIndicator
+local ContentContainer = Instance.new("Frame")
+ContentContainer.Size = UDim2.new(1, -146, 1, 0)
+ContentContainer.Position = UDim2.new(0, 146, 0, 0)
+ContentContainer.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+ContentContainer.BackgroundTransparency = 0.89
+ContentContainer.Parent = BodyFrame
 
-local ContentHolder = Instance.new("Frame")
-ContentHolder.Name = "TabContentHolder"
-ContentHolder.Size = UDim2.new(1, -28, 1, -108)
-ContentHolder.Position = UDim2.new(0, 14, 0, 102)
-ContentHolder.BackgroundTransparency = 1
-ContentHolder.ClipsDescendants = true
-ContentHolder.ZIndex = 12
-ContentHolder.Parent = MainPanel
+local ContentCorner = Instance.new("UICorner")
+ContentCorner.CornerRadius = UDim.new(0, 12)
+ContentCorner.Parent = ContentContainer
 
-local tabButtons = {}
-local tabPages = {}
+local ContentStroke = Instance.new("UIStroke")
+ContentStroke.Color = Color3.fromRGB(255, 255, 255)
+ContentStroke.Thickness = 1
+ContentStroke.Transparency = 0.45
+ContentStroke.Parent = ContentContainer
 
-local function switchTab(index)
-    local targetX = (index - 1) / tabCount
-    tween(ActiveTabIndicator, 0.26, {
-        Position = UDim2.new(targetX, 3, 0, 3)
-    }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local Tabs = {}
+local ActiveTabName = nil
 
-    for i, btn in ipairs(tabButtons) do
-        local isSelected = (i == index)
-        tween(btn, 0.2, {
-            TextColor3 = isSelected and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(148, 163, 184)
-        })
-        local page = tabPages[i]
-        if isSelected then
-            page.Visible = true
-            page.Position = UDim2.new(0, 12, 0, 0)
-            tween(page, 0.24, { Position = UDim2.new(0, 0, 0, 0) }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-        else
-            page.Visible = false
-        end
-    end
-end
+local function CreateTab(tabName)
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Name = tabName .. "_TabBtn"
+    tabBtn.Size = UDim2.new(1, 0, 0, 34)
+    tabBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    tabBtn.BackgroundTransparency = 0.92
+    tabBtn.Font = Enum.Font.GothamBold
+    tabBtn.Text = tabName
+    tabBtn.TextSize = 13
+    tabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tabBtn.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    tabBtn.TextStrokeTransparency = 0.45
+    tabBtn.AutoButtonColor = false
+    tabBtn.Parent = Sidebar
 
-for i, label in ipairs(tabNames) do
-    local tBtn = Instance.new("TextButton")
-    tBtn.Size = UDim2.new(1 / tabCount, 0, 1, 0)
-    tBtn.Position = UDim2.new((i - 1) / tabCount, 0, 0, 0)
-    tBtn.BackgroundTransparency = 1
-    tBtn.Text = label
-    tBtn.Font = Enum.Font.GothamSemibold
-    tBtn.TextSize = 11
-    tBtn.TextColor3 = (i == 1) and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(148, 163, 184)
-    tBtn.ZIndex = 15
-    tBtn.Parent = TabBar
-    tabButtons[i] = tBtn
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 8)
+    btnCorner.Parent = tabBtn
+
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Color = Color3.fromRGB(255, 255, 255)
+    btnStroke.Thickness = 1
+    btnStroke.Transparency = 0.65
+    btnStroke.Parent = tabBtn
 
     local page = Instance.new("ScrollingFrame")
-    page.Name = "Page_" .. tostring(i)
-    page.Size = UDim2.new(1, 0, 1, 0)
+    page.Name = tabName .. "_Page"
+    page.Size = UDim2.new(1, -16, 1, -16)
+    page.Position = UDim2.new(0, 8, 0, 8)
     page.BackgroundTransparency = 1
     page.BorderSizePixel = 0
     page.ScrollBarThickness = 3
-    page.ScrollBarImageColor3 = Color3.fromRGB(125, 211, 252)
-    page.ScrollBarImageTransparency = 0.5
-    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
     page.CanvasSize = UDim2.new(0, 0, 0, 0)
-    page.Visible = (i == 1)
-    page.ZIndex = 13
-    page.Parent = ContentHolder
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.Visible = false
+    page.Parent = ContentContainer
 
-    local list = Instance.new("UIListLayout")
-    list.Padding = UDim.new(0, 8)
-    list.SortOrder = Enum.SortOrder.LayoutOrder
-    list.Parent = page
+    local pageLayout = Instance.new("UIListLayout")
+    pageLayout.Padding = UDim.new(0, 8)
+    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    pageLayout.Parent = page
 
-    local pad = Instance.new("UIPadding")
-    pad.PaddingTop = UDim.new(0, 2)
-    pad.PaddingBottom = UDim.new(0, 8)
-    pad.PaddingRight = UDim.new(0, 4)
-    pad.Parent = page
+    local pagePad = Instance.new("UIPadding")
+    pagePad.PaddingBottom = UDim.new(0, 8)
+    pagePad.Parent = page
 
-    tabPages[i] = page
+    Tabs[tabName] = { Button = tabBtn, Stroke = btnStroke, Page = page }
 
-    bindConnection(tBtn.MouseButton1Click:Connect(function()
-        switchTab(i)
+    Hub:AddConnection(tabBtn.MouseButton1Click:Connect(function()
+        for name, data in pairs(Tabs) do
+            local isTarget = (name == tabName)
+            data.Page.Visible = isTarget
+            TweenObj(data.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+                BackgroundTransparency = isTarget and 0.68 or 0.92
+            })
+            TweenObj(data.Stroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+                Transparency = isTarget and 0.15 or 0.65
+            })
+        end
+        ActiveTabName = tabName
     end))
+
+    if not ActiveTabName then
+        ActiveTabName = tabName
+        page.Visible = true
+        tabBtn.BackgroundTransparency = 0.68
+        btnStroke.Transparency = 0.15
+    end
+
+    return page
 end
 
---// ================= KOMPONEN UI REUSABLE =================
-local function addGlassCard(parent, height, order)
+-- Interactive Component Builders
+local function AddSectionHeader(parent, titleText, descText)
     local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, 0, 0, height)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    card.Size = UDim2.new(1, -4, 0, 34)
     card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    card.BackgroundTransparency = 0.94
-    card.BorderSizePixel = 0
-    card.LayoutOrder = order or 1
-    card.ZIndex = 14
+    card.BackgroundTransparency = 0.88
     card.Parent = parent
 
-    local cCorner = Instance.new("UICorner")
-    cCorner.CornerRadius = UDim.new(0, 10)
-    cCorner.Parent = card
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 8)
+    c.Parent = card
 
-    local cStroke = Instance.new("UIStroke")
-    cStroke.Thickness = 1
-    cStroke.Color = Color3.fromRGB(255, 255, 255)
-    cStroke.Transparency = 0.86
-    cStroke.Parent = card
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 6)
+    pad.PaddingBottom = UDim.new(0, 6)
+    pad.PaddingLeft = UDim.new(0, 10)
+    pad.PaddingRight = UDim.new(0, 10)
+    pad.Parent = card
 
-    return card, cStroke
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 18)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBlack
+    title.Text = titleText
+    title.TextSize = 13
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    title.TextStrokeTransparency = 0.35
+    title.Parent = card
+
+    if descText then
+        local desc = Instance.new("TextLabel")
+        desc.Size = UDim2.new(1, 0, 0, 15)
+        desc.Position = UDim2.new(0, 0, 0, 18)
+        desc.BackgroundTransparency = 1
+        desc.Font = Enum.Font.GothamMedium
+        desc.Text = descText
+        desc.TextSize = 11
+        desc.TextXAlignment = Enum.TextXAlignment.Left
+        desc.TextColor3 = Color3.fromRGB(235, 245, 255)
+        desc.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        desc.TextStrokeTransparency = 0.5
+        desc.Parent = card
+    end
 end
 
-local function createToggleControl(parent, title, desc, configKey, order, onToggle)
-    local card, cardStroke = addGlassCard(parent, 46, order)
+local function AddToggle(parent, titleText, subtitleText, stateKey, callback)
+    local row = Instance.new("TextButton")
+    row.Size = UDim2.new(1, -4, 0, 44)
+    row.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    row.BackgroundTransparency = 0.90
+    row.Text = ""
+    row.AutoButtonColor = false
+    row.Parent = parent
 
-    local lblTitle = Instance.new("TextLabel")
-    lblTitle.Size = UDim2.new(1, -74, 0, 19)
-    lblTitle.Position = UDim2.new(0, 12, 0, 6)
-    lblTitle.BackgroundTransparency = 1
-    lblTitle.Text = title
-    lblTitle.TextXAlignment = Enum.TextXAlignment.Left
-    lblTitle.Font = Enum.Font.GothamSemibold
-    lblTitle.TextSize = 12
-    lblTitle.TextColor3 = Color3.fromRGB(241, 245, 249)
-    lblTitle.ZIndex = 15
-    lblTitle.Parent = card
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 10)
+    c.Parent = row
 
-    local lblDesc = Instance.new("TextLabel")
-    lblDesc.Size = UDim2.new(1, -74, 0, 14)
-    lblDesc.Position = UDim2.new(0, 12, 0, 25)
-    lblDesc.BackgroundTransparency = 1
-    lblDesc.Text = desc
-    lblDesc.TextXAlignment = Enum.TextXAlignment.Left
-    lblDesc.Font = Enum.Font.Gotham
-    lblDesc.TextSize = 10
-    lblDesc.TextColor3 = Color3.fromRGB(148, 163, 184)
-    lblDesc.ZIndex = 15
-    lblDesc.Parent = card
+    local s = Instance.new("UIStroke")
+    s.Color = Color3.fromRGB(255, 255, 255)
+    s.Thickness = 1
+    s.Transparency = 0.55
+    s.Parent = row
 
-    local track = Instance.new("Frame")
-    track.Size = UDim2.new(0, 44, 0, 22)
-    track.Position = UDim2.new(1, -56, 0.5, -11)
-    track.BackgroundColor3 = Color3.fromRGB(51, 65, 85)
-    track.BackgroundTransparency = 0.25
-    track.BorderSizePixel = 0
-    track.ZIndex = 15
-    track.Parent = card
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -64, 0, 20)
+    lbl.Position = UDim2.new(0, 10, 0, 5)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.GothamBold
+    lbl.Text = titleText
+    lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    lbl.TextStrokeTransparency = 0.4
+    lbl.Parent = row
 
-    local tCorner = Instance.new("UICorner")
-    tCorner.CornerRadius = UDim.new(1, 0)
-    tCorner.Parent = track
+    local sub = Instance.new("TextLabel")
+    sub.Size = UDim2.new(1, -64, 0, 15)
+    sub.Position = UDim2.new(0, 10, 0, 24)
+    sub.BackgroundTransparency = 1
+    sub.Font = Enum.Font.Gotham
+    sub.Text = subtitleText
+    sub.TextSize = 10
+    sub.TextXAlignment = Enum.TextXAlignment.Left
+    sub.TextColor3 = Color3.fromRGB(230, 240, 255)
+    sub.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    sub.TextStrokeTransparency = 0.55
+    sub.Parent = row
+
+    local pill = Instance.new("Frame")
+    pill.Size = UDim2.new(0, 42, 0, 22)
+    pill.Position = UDim2.new(1, -52, 0.5, 0)
+    pill.AnchorPoint = Vector2.new(0, 0.5)
+    pill.BackgroundColor3 = State[stateKey] and Color3.fromRGB(30, 165, 255) or Color3.fromRGB(255, 255, 255)
+    pill.BackgroundTransparency = State[stateKey] and 0.25 or 0.78
+    pill.Parent = row
+
+    local pc = Instance.new("UICorner")
+    pc.CornerRadius = UDim.new(1, 0)
+    pc.Parent = pill
 
     local knob = Instance.new("Frame")
     knob.Size = UDim2.new(0, 16, 0, 16)
-    knob.Position = UDim2.new(0, 3, 0.5, -8)
-    knob.BackgroundColor3 = Color3.fromRGB(226, 232, 240)
-    knob.BorderSizePixel = 0
-    knob.ZIndex = 16
-    knob.Parent = track
+    knob.Position = State[stateKey] and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+    knob.AnchorPoint = Vector2.new(0, 0.5)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.Parent = pill
 
-    local kCorner = Instance.new("UICorner")
-    kCorner.CornerRadius = UDim.new(1, 0)
-    kCorner.Parent = knob
+    local kc = Instance.new("UICorner")
+    kc.CornerRadius = UDim.new(1, 0)
+    kc.Parent = knob
 
-    local hit = Instance.new("TextButton")
-    hit.Size = UDim2.new(1, 0, 1, 0)
-    hit.BackgroundTransparency = 1
-    hit.Text = ""
-    hit.ZIndex = 17
-    hit.Parent = card
-
-    local function updateVisual(state, instant)
-        local dur = instant and 0 or 0.22
-        if state then
-            tween(track, dur, { BackgroundColor3 = Color3.fromRGB(14, 165, 233), BackgroundTransparency = 0.1 })
-            tween(knob, dur, { Position = UDim2.new(1, -19, 0.5, -8), BackgroundColor3 = Color3.fromRGB(255, 255, 255) }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-            tween(cardStroke, dur, { Color = Color3.fromRGB(56, 189, 248), Transparency = 0.48 })
-        else
-            tween(track, dur, { BackgroundColor3 = Color3.fromRGB(51, 65, 85), BackgroundTransparency = 0.25 })
-            tween(knob, dur, { Position = UDim2.new(0, 3, 0.5, -8), BackgroundColor3 = Color3.fromRGB(226, 232, 240) })
-            tween(cardStroke, dur, { Color = Color3.fromRGB(255, 255, 255), Transparency = 0.86 })
-        end
+    local function RefreshVisual()
+        local on = State[stateKey]
+        TweenObj(pill, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+            BackgroundColor3 = on and Color3.fromRGB(30, 165, 255) or Color3.fromRGB(255, 255, 255),
+            BackgroundTransparency = on and 0.2 or 0.78
+        })
+        TweenObj(knob, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = on and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+        })
     end
 
-    updateVisual(Config[configKey], true)
-
-    bindConnection(hit.MouseEnter:Connect(function()
-        tween(card, 0.18, { BackgroundTransparency = 0.89 })
-    end))
-    bindConnection(hit.MouseLeave:Connect(function()
-        tween(card, 0.18, { BackgroundTransparency = 0.94 })
-    end))
-
-    bindConnection(hit.MouseButton1Click:Connect(function()
-        Config[configKey] = not Config[configKey]
-        updateVisual(Config[configKey], false)
-        if onToggle then
-            pcall(onToggle, Config[configKey])
+    Hub:AddConnection(row.MouseButton1Click:Connect(function()
+        State[stateKey] = not State[stateKey]
+        RefreshVisual()
+        SaveConfig()
+        if callback then
+            task.spawn(callback, State[stateKey])
         end
     end))
+
+    return RefreshVisual
 end
 
-local function createSliderControl(parent, title, minVal, maxVal, configKey, order, onChanged)
-    local card = addGlassCard(parent, 52, order)
+local function AddSlider(parent, titleText, minVal, maxVal, stateKey, callback)
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(1, -4, 0, 48)
+    box.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    box.BackgroundTransparency = 0.90
+    box.Parent = parent
 
-    local lblTitle = Instance.new("TextLabel")
-    lblTitle.Size = UDim2.new(0.65, 0, 0, 18)
-    lblTitle.Position = UDim2.new(0, 12, 0, 6)
-    lblTitle.BackgroundTransparency = 1
-    lblTitle.Text = title
-    lblTitle.TextXAlignment = Enum.TextXAlignment.Left
-    lblTitle.Font = Enum.Font.GothamSemibold
-    lblTitle.TextSize = 12
-    lblTitle.TextColor3 = Color3.fromRGB(241, 245, 249)
-    lblTitle.ZIndex = 15
-    lblTitle.Parent = card
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 10)
+    c.Parent = box
 
-    local lblValue = Instance.new("TextLabel")
-    lblValue.Size = UDim2.new(0.35, -12, 0, 18)
-    lblValue.Position = UDim2.new(0.65, 0, 0, 6)
-    lblValue.BackgroundTransparency = 1
-    lblValue.Text = tostring(Config[configKey])
-    lblValue.TextXAlignment = Enum.TextXAlignment.Right
-    lblValue.Font = Enum.Font.GothamBold
-    lblValue.TextSize = 12
-    lblValue.TextColor3 = Color3.fromRGB(56, 189, 248)
-    lblValue.ZIndex = 15
-    lblValue.Parent = card
+    local s = Instance.new("UIStroke")
+    s.Color = Color3.fromRGB(255, 255, 255)
+    s.Thickness = 1
+    s.Transparency = 0.55
+    s.Parent = box
 
-    local barBg = Instance.new("Frame")
-    barBg.Size = UDim2.new(1, -24, 0, 7)
-    barBg.Position = UDim2.new(0, 12, 0, 32)
-    barBg.BackgroundColor3 = Color3.fromRGB(30, 41, 59)
-    barBg.BackgroundTransparency = 0.2
-    barBg.BorderSizePixel = 0
-    barBg.ZIndex = 15
-    barBg.Parent = card
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.7, 0, 0, 18)
+    lbl.Position = UDim2.new(0, 10, 0, 5)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.GothamBold
+    lbl.Text = titleText
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    lbl.TextStrokeTransparency = 0.4
+    lbl.Parent = box
 
-    local barCorner = Instance.new("UICorner")
-    barCorner.CornerRadius = UDim.new(1, 0)
-    barCorner.Parent = barBg
+    local valLbl = Instance.new("TextLabel")
+    valLbl.Size = UDim2.new(0.28, -10, 0, 18)
+    valLbl.Position = UDim2.new(0.72, 0, 0, 5)
+    valLbl.BackgroundTransparency = 1
+    valLbl.Font = Enum.Font.GothamBlack
+    valLbl.Text = tostring(State[stateKey])
+    valLbl.TextSize = 12
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.TextColor3 = Color3.fromRGB(90, 200, 255)
+    valLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    valLbl.TextStrokeTransparency = 0.35
+    valLbl.Parent = box
 
-    local initialRatio = math.clamp((Config[configKey] - minVal) / (maxVal - minVal), 0, 1)
+    local track = Instance.new("TextButton")
+    track.Size = UDim2.new(1, -20, 0, 8)
+    track.Position = UDim2.new(0, 10, 0, 30)
+    track.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    track.BackgroundTransparency = 0.78
+    track.Text = ""
+    track.AutoButtonColor = false
+    track.Parent = box
 
-    local barFill = Instance.new("Frame")
-    barFill.Size = UDim2.new(initialRatio, 0, 1, 0)
-    barFill.BackgroundColor3 = Color3.fromRGB(56, 189, 248)
-    barFill.BorderSizePixel = 0
-    barFill.ZIndex = 16
-    barFill.Parent = barBg
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(1, 0)
+    tc.Parent = track
 
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(1, 0)
-    fillCorner.Parent = barFill
+    local fill = Instance.new("Frame")
+    local initRatio = math.clamp((State[stateKey] - minVal) / (maxVal - minVal), 0, 1)
+    fill.Size = UDim2.new(initRatio, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(40, 175, 255)
+    fill.BackgroundTransparency = 0.15
+    fill.Parent = track
 
-    local fillGrad = Instance.new("UIGradient")
-    fillGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(56, 189, 248)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(168, 85, 247))
-    })
-    fillGrad.Parent = barFill
+    local fc = Instance.new("UICorner")
+    fc.CornerRadius = UDim.new(1, 0)
+    fc.Parent = fill
 
     local sliding = false
-
-    local function applyFromInput(inputPos)
-        local relX = math.clamp((inputPos.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
-        local newVal = math.floor(minVal + (maxVal - minVal) * relX + 0.5)
-        Config[configKey] = newVal
-        lblValue.Text = tostring(newVal)
-        barFill.Size = UDim2.new(relX, 0, 1, 0)
-        if onChanged then
-            pcall(onChanged, newVal)
-        end
+    local function UpdateFromInput(inputPos)
+        local ratio = math.clamp((inputPos.X - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+        local value = math.floor(minVal + (maxVal - minVal) * ratio + 0.5)
+        State[stateKey] = value
+        valLbl.Text = tostring(value)
+        fill.Size = UDim2.new(ratio, 0, 1, 0)
+        if callback then callback(value) end
     end
 
-    bindConnection(barBg.InputBegan:Connect(function(input)
+    Hub:AddConnection(track.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             sliding = true
-            applyFromInput(input.Position)
+            UpdateFromInput(input.Position)
         end
     end))
 
-    bindConnection(UIS.InputChanged:Connect(function(input)
+    Hub:AddConnection(UserInputService.InputChanged:Connect(function(input)
         if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            applyFromInput(input.Position)
+            UpdateFromInput(input.Position)
         end
     end))
 
-    bindConnection(UIS.InputEnded:Connect(function(input)
+    Hub:AddConnection(UserInputService.InputEnded:Connect(function(input)
         if sliding and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
             sliding = false
+            SaveConfig()
         end
     end))
 end
 
-local function createActionButton(parent, text, accentColor, order, onClick)
-    local card, stroke = addGlassCard(parent, 36, order)
-    stroke.Color = accentColor
-    stroke.Transparency = 0.65
-
+local function AddActionButton(parent, btnText, callback)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.BackgroundTransparency = 1
-    btn.Text = text
-    btn.Font = Enum.Font.GothamSemibold
-    btn.TextSize = 11
-    btn.TextColor3 = Color3.fromRGB(248, 250, 252)
-    btn.ZIndex = 16
-    btn.Parent = card
+    btn.Size = UDim2.new(1, -4, 0, 36)
+    btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    btn.BackgroundTransparency = 0.84
+    btn.Font = Enum.Font.GothamBold
+    btn.Text = btnText
+    btn.TextSize = 12
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    btn.TextStrokeTransparency = 0.4
+    btn.AutoButtonColor = false
+    btn.Parent = parent
 
-    bindConnection(btn.MouseEnter:Connect(function()
-        tween(card, 0.18, { BackgroundColor3 = accentColor, BackgroundTransparency = 0.84 })
-        tween(stroke, 0.18, { Transparency = 0.35 })
-    end))
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 10)
+    c.Parent = btn
 
-    bindConnection(btn.MouseLeave:Connect(function()
-        tween(card, 0.18, { BackgroundColor3 = Color3.fromRGB(255, 255, 255), BackgroundTransparency = 0.94 })
-        tween(stroke, 0.18, { Transparency = 0.65 })
-    end))
+    local s = Instance.new("UIStroke")
+    s.Color = Color3.fromRGB(255, 255, 255)
+    s.Thickness = 1
+    s.Transparency = 0.45
+    s.Parent = btn
 
-    bindConnection(btn.MouseButton1Click:Connect(function()
-        local origText = btn.Text
-        if onClick then
-            local statusMsg = onClick()
-            if statusMsg then
-                btn.Text = statusMsg
-                task.delay(1.2, function()
-                    if btn and btn.Parent then
-                        btn.Text = origText
-                    end
-                end)
+    Hub:AddConnection(btn.MouseButton1Click:Connect(function()
+        TweenObj(btn, TweenInfo.new(0.1), { BackgroundTransparency = 0.65 })
+        task.delay(0.12, function()
+            if btn and btn.Parent then
+                TweenObj(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.84 })
             end
-        end
+        end)
+        if callback then callback() end
     end))
 
     return btn
 end
 
---// ================= ISI TAB 1: ESP (PEMAIN & GENERATOR) =================
-createToggleControl(
-    tabPages[1],
-    "Player ESP (Nama, Jarak & Aura Avatar)",
-    "Font outline tipis tanpa kotak • Aura highlight avatar",
-    "PlayerESP",
-    1
-)
+--// BUILD STRUCTURED TABS
+local TabVisual = CreateTab("Visual & ESP")
+local TabGenerator = CreateTab("Generator")
+local TabMove = CreateTab("Movement")
+local TabPlayer = CreateTab("Player & View")
+local TabSystem = CreateTab("Region & Opt")
 
-createToggleControl(
-    tabPages[1],
-    "Team & Teman Check",
-    "Bedakan otomatis Musuh, Satu Team & Teman Roblox",
-    "TeamFriendCheck",
-    2
-)
+--=============================================================================
+-- 5. FEATURE CONTROLLER A: PLAYER ESP (TIGHT FONT BACKING + TEAM/FRIEND/ENEMY)
+--=============================================================================
+AddSectionHeader(TabVisual, "Player ESP & Avatar Marker", "Font tebal berlatar hitam pekat menempel pada teks tanpa kotak.")
+AddToggle(TabVisual, "Aktifkan Player ESP", "Tampilkan nama, jarak, dan status Team/Teman/Musuh", "ESP_Enabled")
+AddToggle(TabVisual, "Tampilkan Jarak (Studs)", "Menghitung jarak real-time dari kamera ke target", "ESP_ShowDistance")
+AddToggle(TabVisual, "Tanda Avatar ESP (Highlight & Pin)", "Menambahkan outline avatar dan ikon penanda di atas kepala", "ESP_AvatarMarker")
+AddToggle(TabVisual, "Deteksi Team & Teman Otomatis", "Memisahkan warna Teman (Cyan), Team (Hijau), Musuh (Merah)", "ESP_TeamCheck")
 
-createToggleControl(
-    tabPages[1],
-    "Filter Musuh Saja (Enemy Only)",
-    "Hanya tampilkan ESP & aura pada pemain musuh",
-    "EnemyOnlyESP",
-    3
-)
-
-createToggleControl(
-    tabPages[1],
-    "Generator ESP (Jarak & Proses %)",
-    "Tampilkan status pengerjaan, persentase & jarak",
-    "GeneratorESP",
-    4
-)
-
---// ================= ISI TAB 2: GENERATOR =================
-createToggleControl(
-    tabPages[2],
-    "Auto Generator (API Interact)",
-    "Otomatis mengerjakan generator terdekat via Prompt API",
-    "AutoGenerator",
-    1
-)
-
-createToggleControl(
-    tabPages[2],
-    "Auto TP ke Generator Belum Selesai",
-    "Otomatis berpindah ke generator berikutnya saat Auto aktif",
-    "AutoTPGenerator",
-    2
-)
-
-createActionButton(
-    tabPages[2],
-    "⚡ TP → Generator Terdekat (Belum Selesai)",
-    Color3.fromRGB(251, 191, 36),
-    3,
-    function()
-        local genObj, _, dist, pct = getNearestIncompleteGenerator()
-        if genObj and tpToGenerator(genObj) then
-            return "✅ TP Generator (" .. tostring(pct) .. "% • " .. tostring(math.floor(dist)) .. "m)"
-        end
-        return "⚠️ Tidak ada generator aktif"
+local function RemovePlayerESP(player)
+    local data = Hub.ESPObjects[player]
+    if data then
+        pcall(function()
+            if data.Billboard then data.Billboard:Destroy() end
+            if data.Highlight then data.Highlight:Destroy() end
+        end)
+        Hub.ESPObjects[player] = nil
     end
-)
+end
 
-local genListContainer = Instance.new("Frame")
-genListContainer.Size = UDim2.new(1, 0, 0, 0)
-genListContainer.AutomaticSize = Enum.AutomaticSize.Y
-genListContainer.BackgroundTransparency = 1
-genListContainer.LayoutOrder = 4
-genListContainer.ZIndex = 13
-genListContainer.Parent = tabPages[2]
-
-local genListLayout = Instance.new("UIListLayout")
-genListLayout.Padding = UDim.new(0, 6)
-genListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-genListLayout.Parent = genListContainer
-
-refreshGeneratorListCallback = function()
-    if not genListContainer or not genListContainer.Parent then return end
-    for _, child in ipairs(genListContainer:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
-        end
-    end
-
-    local myRoot = getRoot()
-    local items = {}
-    for genObj, part in pairs(generatorCache) do
-        if genObj and genObj.Parent and part and part.Parent then
-            local pct, isDone = getGeneratorProgress(genObj)
-            local dist = myRoot and math.floor((part.Position - myRoot.Position).Magnitude) or 0
-            table.insert(items, { obj = genObj, pct = pct, done = isDone, dist = dist })
-        end
-    end
-
-    table.sort(items, function(a, b)
-        return a.dist < b.dist
-    end)
-
-    if #items == 0 then
-        local emptyCard = addGlassCard(genListContainer, 34, 1)
-        local emptyLbl = Instance.new("TextLabel")
-        emptyLbl.Size = UDim2.new(1, 0, 1, 0)
-        emptyLbl.BackgroundTransparency = 1
-        emptyLbl.Text = "Tidak ada generator terdeteksi di map ini"
-        emptyLbl.Font = Enum.Font.Gotham
-        emptyLbl.TextSize = 11
-        emptyLbl.TextColor3 = Color3.fromRGB(148, 163, 184)
-        emptyLbl.ZIndex = 15
-        emptyLbl.Parent = emptyCard
+local function EnsurePlayerESP(player)
+    if player == LocalPlayer then return end
+    local char = player.Character
+    if not char then
+        RemovePlayerESP(player)
         return
     end
 
-    for idx, info in ipairs(items) do
-        local accent = info.done and COLOR_TEAM or Color3.fromRGB(251, 191, 36)
-        local statusTxt = info.done and "SELESAI" or (tostring(info.pct) .. "%")
-        createActionButton(
-            genListContainer,
-            "⚙️ Generator #" .. tostring(idx) .. " • [" .. statusTxt .. "] • " .. tostring(info.dist) .. "m (Klik TP)",
-            accent,
-            idx,
-            function()
-                return tpToGenerator(info.obj) and "✅ Teleported ke Generator #" .. tostring(idx) or "⚠️ Gagal TP"
+    local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not head or not hum or hum.Health <= 0 then
+        RemovePlayerESP(player)
+        return
+    end
+
+    local data = Hub.ESPObjects[player]
+    if not data or not data.Billboard or not data.Billboard.Parent or data.Billboard.Adornee ~= head then
+        RemovePlayerESP(player)
+
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "BimSakSin_ESP_" .. player.Name
+        bb.Adornee = head
+        bb.AlwaysOnTop = true
+        bb.Size = UDim2.new(0, 240, 0, 72)
+        bb.StudsOffset = Vector3.new(0, 2.7, 0)
+        bb.ResetOnSpawn = false
+        bb.Parent = ScreenGui
+
+        local layout = Instance.new("UIListLayout")
+        layout.FillDirection = Enum.FillDirection.Vertical
+        layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+        layout.Padding = UDim.new(0, 1)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Parent = bb
+
+        -- Avatar Marker Pin (Diamond/Chevron Symbol)
+        local markerLbl = CreateTightStyledText(bb, "MarkerLabel", 1, 15)
+        markerLbl.Text = "◆"
+
+        -- Bold Name + Relation Tag (Tight Font Black Outline, No Box Background)
+        local nameLbl = CreateTightStyledText(bb, "NameLabel", 2, 14)
+
+        -- Bold Distance + HP Tag
+        local distLbl = CreateTightStyledText(bb, "DistLabel", 3, 12)
+
+        -- Avatar Highlight Outline
+        local hl = Instance.new("Highlight")
+        hl.Name = "BimSakSin_AvatarHL"
+        hl.Adornee = char
+        hl.FillTransparency = 0.78
+        hl.OutlineTransparency = 0.05
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = ScreenGui
+
+        data = {
+            Billboard = bb,
+            MarkerLabel = markerLbl,
+            NameLabel = nameLbl,
+            DistLabel = distLbl,
+            Highlight = hl,
+        }
+        Hub.ESPObjects[player] = data
+    end
+
+    -- Update visibility & values
+    data.Billboard.Enabled = State.ESP_Enabled
+    data.Highlight.Enabled = State.ESP_Enabled and State.ESP_AvatarMarker
+    data.MarkerLabel.Visible = State.ESP_AvatarMarker
+
+    if not State.ESP_Enabled then return end
+
+    local relationTag, relationColor = GetPlayerRelation(player)
+    data.MarkerLabel.TextColor3 = relationColor
+    data.Highlight.FillColor = relationColor
+    data.Highlight.OutlineColor = relationColor
+
+    local displayName = player.DisplayName ~= player.Name
+        and string.format("%s (@%s)", player.DisplayName, player.Name)
+        or player.Name
+
+    data.NameLabel.TextColor3 = relationColor
+    data.NameLabel.Text = string.format("[%s] %s", relationTag, displayName)
+
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local targetRoot = char:FindFirstChild("HumanoidRootPart") or head
+    local dist = (myRoot and targetRoot) and math.floor((myRoot.Position - targetRoot.Position).Magnitude) or 0
+    local hp = math.floor(hum.Health)
+
+    data.DistLabel.Visible = State.ESP_ShowDistance
+    data.DistLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    data.DistLabel.Text = string.format("%d m  |  HP: %d", dist, hp)
+end
+
+--=============================================================================
+-- 6. FEATURE CONTROLLER B: GENERATOR ESP + REAL-TIME PROGRESS (%)
+--=============================================================================
+AddSectionHeader(TabGenerator, "Generator Telemetry & Progress ESP", "Mendeteksi semua generator di map, jarak, serta % selesai vs % tersisa.")
+AddToggle(TabGenerator, "Aktifkan Generator ESP", "Tampilkan lokasi generator, jarak, dan persentase pengerjaan", "Generator_ESP")
+
+local GeneratorStatusLabel = Instance.new("TextLabel")
+GeneratorStatusLabel.Size = UDim2.new(1, -4, 0, 28)
+GeneratorStatusLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+GeneratorStatusLabel.BackgroundTransparency = 0.90
+GeneratorStatusLabel.Font = Enum.Font.GothamBold
+GeneratorStatusLabel.Text = "  Scanning generator di map..."
+GeneratorStatusLabel.TextSize = 12
+GeneratorStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+GeneratorStatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+GeneratorStatusLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+GeneratorStatusLabel.TextStrokeTransparency = 0.45
+GeneratorStatusLabel.Parent = TabGenerator
+local gsc = Instance.new("UICorner")
+gsc.CornerRadius = UDim.new(0, 8)
+gsc.Parent = GeneratorStatusLabel
+
+-- Universal Generator Progress Extractor (Supports Attributes, ValueObjects, & UI ProgressBars)
+local function ReadGeneratorProgress(genObj)
+    -- 1. Check Attributes (Progress, Percent, Repair, Charge, Work)
+    local attrNames = { "Progress", "Percent", "Percentage", "RepairProgress", "Charge", "Completion", "Work" }
+    for _, attr in ipairs(attrNames) do
+        local val = genObj:GetAttribute(attr)
+        if type(val) == "number" then
+            local maxVal = genObj:GetAttribute("Max" .. attr) or genObj:GetAttribute("MaxProgress") or (val <= 1.01 and 1 or 100)
+            local pct = math.clamp((val / math.max(maxVal, 0.001)) * 100, 0, 100)
+            return math.floor(pct + 0.5)
+        end
+    end
+
+    -- 2. Check Descendant NumberValue / IntValue / BoolValue
+    local isCompleted = false
+    for _, desc in ipairs(genObj:GetDescendants()) do
+        local lowerName = string.lower(desc.Name)
+        if desc:IsA("BoolValue") and (string.find(lowerName, "done") or string.find(lowerName, "complete") or string.find(lowerName, "fixed") or string.find(lowerName, "repaired")) then
+            if desc.Value == true then
+                isCompleted = true
             end
-        )
+        elseif (desc:IsA("NumberValue") or desc:IsA("IntValue")) and (
+            string.find(lowerName, "progress") or
+            string.find(lowerName, "percent") or
+            string.find(lowerName, "repair") or
+            string.find(lowerName, "charge") or
+            string.find(lowerName, "work")
+        ) then
+            local val = desc.Value
+            local parentMax = desc.Parent and (desc.Parent:FindFirstChild("MaxProgress") or desc.Parent:FindFirstChild("MaxCharge"))
+            local maxVal = (parentMax and parentMax.Value) or (val <= 1.01 and val > 0 and 1 or 100)
+            local pct = math.clamp((val / math.max(maxVal, 0.001)) * 100, 0, 100)
+            return math.floor(pct + 0.5)
+        end
+    end
+
+    if isCompleted then
+        return 100
+    end
+
+    return 0
+end
+
+local function IsGeneratorInstance(inst)
+    if not (inst:IsA("Model") or inst:IsA("BasePart")) then return false end
+    local lname = string.lower(inst.Name)
+    if string.find(lname, "generator") or string.find(lname, "gen_") or lname == "gen" then
+        -- Avoid matching small sub-parts inside an already tracked Generator Model
+        if inst.Parent and string.find(string.lower(inst.Parent.Name), "generator") then
+            return false
+        end
+        return true
+    end
+    return false
+end
+
+local function ScanGenerators()
+    -- Clean invalid entries
+    for obj, data in pairs(Hub.GeneratorObjects) do
+        if not obj or not obj.Parent then
+            pcall(function()
+                if data.Billboard then data.Billboard:Destroy() end
+                if data.Highlight then data.Highlight:Destroy() end
+            end)
+            Hub.GeneratorObjects[obj] = nil
+        end
+    end
+
+    local count = 0
+    for _, inst in ipairs(Workspace:GetDescendants()) do
+        if IsGeneratorInstance(inst) then
+            count = count + 1
+            if not Hub.GeneratorObjects[inst] then
+                local adornee = inst:IsA("BasePart") and inst or (inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true))
+                if adornee then
+                    local bb = Instance.new("BillboardGui")
+                    bb.Name = "BimSakSin_GenESP"
+                    bb.Adornee = adornee
+                    bb.AlwaysOnTop = true
+                    bb.Size = UDim2.new(0, 260, 0, 56)
+                    bb.StudsOffset = Vector3.new(0, 3.2, 0)
+                    bb.Parent = ScreenGui
+
+                    local layout = Instance.new("UIListLayout")
+                    layout.FillDirection = Enum.FillDirection.Vertical
+                    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                    layout.VerticalAlignment = Enum.VerticalAlignment.Center
+                    layout.Padding = UDim.new(0, 1)
+                    layout.Parent = bb
+
+                    local titleLbl = CreateTightStyledText(bb, "GenTitle", 1, 13)
+                    local progLbl = CreateTightStyledText(bb, "GenProg", 2, 12)
+
+                    local hl = Instance.new("Highlight")
+                    hl.Adornee = inst
+                    hl.FillTransparency = 0.8
+                    hl.OutlineTransparency = 0.1
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = ScreenGui
+
+                    Hub.GeneratorObjects[inst] = {
+                        Adornee = adornee,
+                        Billboard = bb,
+                        TitleLabel = titleLbl,
+                        ProgLabel = progLbl,
+                        Highlight = hl,
+                    }
+                end
+            end
+        end
+    end
+
+    GeneratorStatusLabel.Text = string.format("  Terdeteksi: %d Generator aktif di map", count)
+end
+
+local function UpdateGeneratorVisuals()
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    for genObj, data in pairs(Hub.GeneratorObjects) do
+        if genObj and genObj.Parent and data.Adornee then
+            data.Billboard.Enabled = State.Generator_ESP
+            data.Highlight.Enabled = State.Generator_ESP
+
+            if State.Generator_ESP then
+                local donePct = ReadGeneratorProgress(genObj)
+                local remPct = math.max(0, 100 - donePct)
+                local dist = myRoot and math.floor((myRoot.Position - data.Adornee.Position).Magnitude) or 0
+
+                local statusColor = donePct >= 100
+                    and Color3.fromRGB(70, 255, 130)
+                    or (donePct > 0 and Color3.fromRGB(255, 215, 65) or Color3.fromRGB(75, 205, 255))
+
+                data.Highlight.FillColor = statusColor
+                data.Highlight.OutlineColor = statusColor
+                data.TitleLabel.TextColor3 = statusColor
+                data.TitleLabel.Text = string.format("⚡ GENERATOR [%d m]", dist)
+
+                data.ProgLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                data.ProgLabel.Text = string.format("Selesai: %d%%  |  Belum: %d%%", donePct, remPct)
+            end
+        end
     end
 end
 
-refreshGeneratorListCallback()
+AddActionButton(TabGenerator, "🔄 Rescan Generator di Map Sekarang", function()
+    ScanGenerators()
+    UpdateGeneratorVisuals()
+end)
 
---// ================= ISI TAB 3: MOVEMENT =================
-createToggleControl(
-    tabPages[3],
-    "3D Free Fly",
-    "WASD bergerak • Space naik • LeftCtrl turun",
-    "Fly",
-    1,
-    function(state)
-        if state then startFly() else stopFly() end
+--=============================================================================
+-- 7. FEATURE CONTROLLER C: MOVEMENT (FLY, WALKSPEED, JUMP, NOCLIP)
+--=============================================================================
+AddSectionHeader(TabMove, "Character Movement & Physics", "Kontrol terbang 3D kamera, kecepatan lari, lompatan, dan tembus dinding.")
+
+local flyBodyGyro, flyBodyVel
+
+local function DisableFly()
+    if flyBodyGyro then pcall(function() flyBodyGyro:Destroy() end) flyBodyGyro = nil end
+    if flyBodyVel then pcall(function() flyBodyVel:Destroy() end) flyBodyVel = nil end
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand = false end
+end
+
+local function EnableFly()
+    DisableFly()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum then return end
+
+    hum.PlatformStand = true
+    flyBodyGyro = Instance.new("BodyGyro")
+    flyBodyGyro.P = 9e4
+    flyBodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    flyBodyGyro.CFrame = root.CFrame
+    flyBodyGyro.Parent = root
+
+    flyBodyVel = Instance.new("BodyVelocity")
+    flyBodyVel.Velocity = Vector3.zero
+    flyBodyVel.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    flyBodyVel.Parent = root
+end
+
+AddToggle(TabMove, "Fly Mode (3D Directional)", "Terbang bebas mengikuti arah kamera (WASD / Analog)", "Fly_Enabled", function(on)
+    if on then EnableFly() else DisableFly() end
+end)
+AddSlider(TabMove, "Kecepatan Fly", 16, 250, "Fly_Speed")
+
+AddToggle(TabMove, "WalkHack / Custom Speed", "Mengubah kecepatan jalan/lari karakter secara stabil", "WalkSpeed_Enabled", function(on)
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum and not on then hum.WalkSpeed = 16 end
+end)
+AddSlider(TabMove, "Nilai WalkSpeed", 16, 200, "WalkSpeed_Value")
+
+AddToggle(TabMove, "Super Jump", "Meningkatkan tinggi lompatan karakter", "JumpPower_Enabled", function(on)
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum and not on then
+        hum.UseJumpPower = true
+        hum.JumpPower = 50
     end
-)
+end)
+AddSlider(TabMove, "Nilai JumpPower", 50, 300, "JumpPower_Value")
 
-createToggleControl(
-    tabPages[3],
-    "Smart Noclip",
-    "Tembus dinding & memulihkan kolisi saat OFF",
-    "Noclip",
-    2,
-    function(state)
-        if not state then restoreNoclip() end
-    end
-)
-
-createSliderControl(
-    tabPages[3],
-    "WalkSpeed (Kecepatan Lari)",
-    16,
-    200,
-    "Speed",
-    3,
-    function(val)
-        local hum = getHum()
-        if hum then
-            hum.WalkSpeed = val
+AddToggle(TabMove, "Noclip (Tembus Objek)", "Menonaktifkan kolisi karakter untuk menembus dinding", "Noclip_Enabled", function(on)
+    if not on and LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
         end
     end
-)
+end)
 
-createSliderControl(
-    tabPages[3],
-    "FlySpeed (Kecepatan Terbang)",
-    20,
-    250,
-    "FlySpeed",
-    4
-)
+-- Physics & Movement Step Loop
+Hub:AddConnection(RunService.Stepped:Connect(function()
+    if not Hub.Alive then return end
+    local char = LocalPlayer.Character
+    if not char then return end
 
---// ================= ISI TAB 4: TELEPORT =================
-createActionButton(
-    tabPages[4],
-    "⚔️ TP → Musuh Terdekat",
-    COLOR_ENEMY,
-    1,
-    function()
-        local targetName = tpNearestPlayer(true)
-        return targetName and ("✅ TP ke Musuh: " .. targetName) or "⚠️ Tidak ada musuh aktif"
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+
+    if hum then
+        if State.WalkSpeed_Enabled then
+            hum.WalkSpeed = State.WalkSpeed_Value
+        end
+        if State.JumpPower_Enabled then
+            hum.UseJumpPower = true
+            hum.JumpPower = State.JumpPower_Value
+        end
     end
-)
 
-createActionButton(
-    tabPages[4],
-    "🎯 TP → Player Terdekat (Semua)",
-    COLOR_FRIEND,
-    2,
-    function()
-        local targetName = tpNearestPlayer(false)
-        return targetName and ("✅ TP ke " .. targetName) or "⚠️ Tidak ada player lain"
+    if State.Noclip_Enabled then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
     end
-)
 
-createActionButton(
-    tabPages[4],
-    "🏠 TP → Spawn Location",
-    Color3.fromRGB(168, 85, 247),
-    3,
-    function()
-        return tpSpawn() and "✅ Berhasil TP ke Spawn" or "⚠️ Spawn tidak ditemukan"
+    if State.Fly_Enabled and root and hum then
+        if not flyBodyGyro or not flyBodyVel or flyBodyGyro.Parent ~= root then
+            EnableFly()
+        end
+        if flyBodyGyro and flyBodyVel then
+            local camCF = Workspace.CurrentCamera.CFrame
+            local moveDir = hum.MoveDirection
+            local forward = camCF.LookVector
+            local right = camCF.RightVector
+
+            -- Project MoveDirection onto camera orientation for mobile & PC compatibility
+            local flatLook = Vector3.new(forward.X, 0, forward.Z)
+            local flatRight = Vector3.new(right.X, 0, right.Z)
+            if flatLook.Magnitude > 0.01 then flatLook = flatLook.Unit end
+            if flatRight.Magnitude > 0.01 then flatRight = flatRight.Unit end
+
+            local forwardAmt = moveDir:Dot(flatLook)
+            local rightAmt = moveDir:Dot(flatRight)
+
+            local velocity = (forward * forwardAmt + right * rightAmt) * State.Fly_Speed
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                velocity = velocity + Vector3.new(0, State.Fly_Speed * 0.7, 0)
+            elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                velocity = velocity - Vector3.new(0, State.Fly_Speed * 0.7, 0)
+            end
+
+            flyBodyGyro.CFrame = camCF
+            flyBodyVel.Velocity = velocity
+        end
     end
-)
+end))
 
-local playerListContainer = Instance.new("Frame")
-playerListContainer.Size = UDim2.new(1, 0, 0, 0)
-playerListContainer.AutomaticSize = Enum.AutomaticSize.Y
-playerListContainer.BackgroundTransparency = 1
-playerListContainer.LayoutOrder = 4
-playerListContainer.ZIndex = 13
-playerListContainer.Parent = tabPages[4]
+--=============================================================================
+-- 8. FEATURE CONTROLLER D: PLAYER TARGETING, VIEW (SPECTATE) & AUTO TELEPORT
+--=============================================================================
+AddSectionHeader(TabPlayer, "Auto Teleport & View Pemain", "Pilih pemain target untuk memantau kamera (View) atau teleport instan.")
 
-local pListLayout = Instance.new("UIListLayout")
-pListLayout.Padding = UDim.new(0, 6)
-pListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-pListLayout.Parent = playerListContainer
+local SelectedPlayerLabel = Instance.new("TextLabel")
+SelectedPlayerLabel.Size = UDim2.new(1, -4, 0, 28)
+SelectedPlayerLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SelectedPlayerLabel.BackgroundTransparency = 0.88
+SelectedPlayerLabel.Font = Enum.Font.GothamBold
+SelectedPlayerLabel.Text = "  Target Dipilih: Belum ada"
+SelectedPlayerLabel.TextSize = 12
+SelectedPlayerLabel.TextXAlignment = Enum.TextXAlignment.Left
+SelectedPlayerLabel.TextColor3 = Color3.fromRGB(90, 210, 255)
+SelectedPlayerLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+SelectedPlayerLabel.TextStrokeTransparency = 0.4
+SelectedPlayerLabel.Parent = TabPlayer
+local spc = Instance.new("UICorner")
+spc.CornerRadius = UDim.new(0, 8)
+spc.Parent = SelectedPlayerLabel
 
-local function refreshPlayerList()
-    if not playerListContainer or not playerListContainer.Parent then return end
-    for _, child in ipairs(playerListContainer:GetChildren()) do
-        if child:IsA("Frame") then
+AddActionButton(TabPlayer, "⚡ Auto Teleport ke Target", function()
+    local target = Hub.SelectedTarget
+    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if myRoot then
+            myRoot.CFrame = target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 2, 3)
+        end
+    end
+end)
+
+local ViewBtn
+ViewBtn = AddActionButton(TabPlayer, "👁️ View / Spectate Target: OFF", function()
+    Hub.ViewingTarget = not Hub.ViewingTarget
+    if Hub.ViewingTarget and Hub.SelectedTarget and Hub.SelectedTarget.Character then
+        local targetHum = Hub.SelectedTarget.Character:FindFirstChildOfClass("Humanoid")
+        if targetHum then
+            Workspace.CurrentCamera.CameraSubject = targetHum
+            ViewBtn.Text = "👁️ View / Spectate Target: ON (" .. Hub.SelectedTarget.Name .. ")"
+            return
+        end
+    end
+    Hub.ViewingTarget = false
+    local myHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if myHum then
+        Workspace.CurrentCamera.CameraSubject = myHum
+    end
+    ViewBtn.Text = "👁️ View / Spectate Target: OFF"
+end)
+
+-- Dynamic Player List Container inside TabPlayer
+local PlayerListFrame = Instance.new("Frame")
+PlayerListFrame.AutomaticSize = Enum.AutomaticSize.Y
+PlayerListFrame.Size = UDim2.new(1, -4, 0, 40)
+PlayerListFrame.BackgroundTransparency = 1
+PlayerListFrame.Parent = TabPlayer
+
+local PlayerListLayout = Instance.new("UIListLayout")
+PlayerListLayout.Padding = UDim.new(0, 5)
+PlayerListLayout.Parent = PlayerListFrame
+
+local function RebuildPlayerSelector()
+    for _, child in ipairs(PlayerListFrame:GetChildren()) do
+        if child:IsA("TextButton") then
             child:Destroy()
         end
     end
 
-    local idx = 1
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            local _, roleTag, roleColor = getPlayerRelation(plr)
-            createActionButton(
-                playerListContainer,
-                "[" .. roleTag .. "] TP → " .. plr.DisplayName .. " (@" .. plr.Name .. ")",
-                roleColor,
-                idx,
-                function()
-                    return tpToPlayer(plr) and ("✅ Teleported ke " .. plr.DisplayName) or "⚠️ Karakter tidak aktif"
+            local rel, col = GetPlayerRelation(plr)
+            local pBtn = Instance.new("TextButton")
+            pBtn.Size = UDim2.new(1, 0, 0, 32)
+            pBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn.BackgroundTransparency = (Hub.SelectedTarget == plr) and 0.72 or 0.90
+            pBtn.Font = Enum.Font.GothamBold
+            pBtn.Text = string.format("  [%s] %s (@%s)", rel, plr.DisplayName, plr.Name)
+            pBtn.TextSize = 11
+            pBtn.TextXAlignment = Enum.TextXAlignment.Left
+            pBtn.TextColor3 = col
+            pBtn.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+            pBtn.TextStrokeTransparency = 0.45
+            pBtn.Parent = PlayerListFrame
+
+            local c = Instance.new("UICorner")
+            c.CornerRadius = UDim.new(0, 8)
+            c.Parent = pBtn
+
+            Hub:AddConnection(pBtn.MouseButton1Click:Connect(function()
+                Hub.SelectedTarget = plr
+                SelectedPlayerLabel.Text = "  Target Dipilih: " .. plr.DisplayName .. " (@" .. plr.Name .. ")"
+                if Hub.ViewingTarget and plr.Character then
+                    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        Workspace.CurrentCamera.CameraSubject = hum
+                        ViewBtn.Text = "👁️ View / Spectate Target: ON (" .. plr.Name .. ")"
+                    end
                 end
-            )
-            idx += 1
+                RebuildPlayerSelector()
+            end))
         end
     end
 end
 
-refreshPlayerList()
-bindConnection(Players.PlayerAdded:Connect(function()
-    task.defer(refreshPlayerList)
-end))
-bindConnection(Players.PlayerRemoving:Connect(function()
-    task.defer(refreshPlayerList)
-end))
-bindConnection(LocalPlayer:GetPropertyChangedSignal("Team"):Connect(refreshPlayerList))
+--=============================================================================
+-- 9. FEATURE CONTROLLER E: REGION / SERVER IP TELEMETRY & ANTI-LAG ENGINE
+--=============================================================================
+AddSectionHeader(TabSystem, "Region & Server Network Telemetry", "Mendeteksi wilayah server, ping jaringan, dan metadata pengguna aktif.")
 
---// ================= REGISTRASI CLEANUP GLOBAL =================
-local function Cleanup()
-    IsAlive = false
-    Config.AutoGenerator = false
-    Config.Fly = false
-    Config.Noclip = false
-    Config.PlayerESP = false
-    Config.GeneratorESP = false
+local RegionInfoLabel = Instance.new("TextLabel")
+RegionInfoLabel.AutomaticSize = Enum.AutomaticSize.Y
+RegionInfoLabel.Size = UDim2.new(1, -4, 0, 96)
+RegionInfoLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+RegionInfoLabel.BackgroundTransparency = 0.90
+RegionInfoLabel.Font = Enum.Font.GothamBold
+RegionInfoLabel.Text = "  Memuat informasi Region & Server API..."
+RegionInfoLabel.TextSize = 11
+RegionInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+RegionInfoLabel.TextYAlignment = Enum.TextYAlignment.Top
+RegionInfoLabel.TextWrapped = true
+RegionInfoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+RegionInfoLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+RegionInfoLabel.TextStrokeTransparency = 0.45
+RegionInfoLabel.Parent = TabSystem
 
-    stopFly()
-    restoreNoclip()
+local rc = Instance.new("UICorner")
+rc.CornerRadius = UDim.new(0, 10)
+rc.Parent = RegionInfoLabel
 
-    for _, conn in ipairs(Connections) do
-        pcall(function() conn:Disconnect() end)
+local rpad = Instance.new("UIPadding")
+rpad.PaddingTop = UDim.new(0, 8)
+rpad.PaddingBottom = UDim.new(0, 8)
+rpad.PaddingLeft = UDim.new(0, 10)
+rpad.PaddingRight = UDim.new(0, 10)
+rpad.Parent = RegionInfoLabel
+
+-- Public HTTP Request Resolver (Delta / Executor Compatible)
+local function HttpGetSafe(url)
+    local reqFunc = (syn and syn.request) or (http and http.request) or http_request or request
+    if type(reqFunc) == "function" then
+        local ok, res = pcall(function()
+            return reqFunc({ Url = url, Method = "GET" })
+        end)
+        if ok and res and res.Body then
+            return res.Body
+        end
     end
-    table.clear(Connections)
-
-    for plr in pairs(playerEspCache) do
-        removePlayerESP(plr)
-    end
-
-    for genObj in pairs(generatorEspCache) do
-        clearGeneratorVisual(genObj)
-    end
-    table.clear(generatorCache)
-
-    if ScreenGui then
-        pcall(function() ScreenGui:Destroy() end)
-    end
+    local ok, body = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if ok then return body end
+    return nil
 end
 
-pcall(function()
-    if getgenv then
-        getgenv().BimSakSinHubCleanup = Cleanup
+local CachedServerRegion = "Mendeteksi..."
+local CachedClientLocale = "ID / UTC+7"
+
+task.spawn(function()
+    -- Detect Local Player Locale via Roblox LocalizationService API
+    pcall(function()
+        local LocalizationService = game:GetService("LocalizationService")
+        CachedClientLocale = tostring(LocalizationService.RobloxLocaleId)
+    end)
+
+    -- Fetch Server Node Region / IP Geolocation via Public Telemetry Endpoint
+    local body = HttpGetSafe("http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,query")
+    if body then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(body)
+        end)
+        if ok and type(data) == "table" and data.status == "success" then
+            CachedServerRegion = string.format("%s, %s (%s) | Node: %s", data.city or "-", data.country or "-", data.countryCode or "-", data.query or "Protected")
+        else
+            CachedServerRegion = "Roblox Dedicated Edge Node"
+        end
+    else
+        CachedServerRegion = "Roblox Dedicated Edge Node"
     end
 end)
 
-setPanelState(true)
-print("✅ BimSakSin Hub loaded!")
+-- Anti-Lag Map Optimizer Engine
+local function ApplyAntiLag(enabled)
+    if enabled then
+        Hub.OriginalLighting = {
+            GlobalShadows = Lighting.GlobalShadows,
+            FogEnd = Lighting.FogEnd,
+            Brightness = Lighting.Brightness,
+        }
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 9e9
+
+        pcall(function()
+            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+        end)
+
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            if inst:IsA("BasePart") then
+                if not Hub.OriginalMaterials[inst] then
+                    Hub.OriginalMaterials[inst] = inst.Material
+                end
+                inst.Material = Enum.Material.SmoothPlastic
+                inst.CastShadow = false
+            elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") then
+                inst.Enabled = false
+            elseif inst:IsA("Decal") or inst:IsA("Texture") then
+                inst.Transparency = 1
+            end
+        end
+    else
+        if Hub.OriginalLighting.GlobalShadows ~= nil then
+            Lighting.GlobalShadows = Hub.OriginalLighting.GlobalShadows
+            Lighting.FogEnd = Hub.OriginalLighting.FogEnd
+        end
+        for inst, origMat in pairs(Hub.OriginalMaterials) do
+            if inst and inst.Parent then
+                inst.Material = origMat
+            end
+        end
+        table.clear(Hub.OriginalMaterials)
+    end
+end
+
+AddSectionHeader(TabSystem, "Anti-Lag Map Optimizer", "Menurunkan beban shader, partikel, dan shadow di semua map untuk FPS maksimal.")
+AddToggle(TabSystem, "Aktifkan Anti-Lag Engine", "Optimasi material SmoothPlastic, matikan partikel & shadow berat", "AntiLag_Enabled", function(on)
+    ApplyAntiLag(on)
+end)
+
+if State.AntiLag_Enabled then
+    task.defer(function() ApplyAntiLag(true) end)
+end
+
+--// 10. PERIODIC RUNTIME SCHEDULER (Frame-Safe, Zero Lag)
+Hub:AddConnection(Players.PlayerAdded:Connect(function()
+    RebuildPlayerSelector()
+end))
+
+Hub:AddConnection(Players.PlayerRemoving:Connect(function(plr)
+    RemovePlayerESP(plr)
+    if Hub.SelectedTarget == plr then
+        Hub.SelectedTarget = nil
+        Hub.ViewingTarget = false
+        SelectedPlayerLabel.Text = "  Target Dipilih: Belum ada"
+        ViewBtn.Text = "👁️ View / Spectate Target: OFF"
+        local myHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if myHum then Workspace.CurrentCamera.CameraSubject = myHum end
+    end
+    RebuildPlayerSelector()
+end))
+
+RebuildPlayerSelector()
+ScanGenerators()
+
+-- Fast ESP & Generator Distance Loop (10 Hz / 0.1s interval for crisp numbers without frame drops)
+task.spawn(function()
+    while Hub.Alive do
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                pcall(EnsurePlayerESP, plr)
+            end
+        end
+        pcall(UpdateGeneratorVisuals)
+
+        -- Update Region & Telemetry Card
+        local pingMs = 0
+        pcall(function()
+            pingMs = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+        end)
+        local jobIdShort = (#game.JobId > 0) and string.sub(game.JobId, 1, 18) .. "..." or "Local/Studio"
+        RegionInfoLabel.Text = string.format(
+            "Server Region: %s\nUser Locale: %s  |  Ping: %d ms\nActive Players: %d/%d  |  Server ID: %s",
+            CachedServerRegion,
+            CachedClientLocale,
+            pingMs,
+            #Players:GetPlayers(),
+            Players.MaxPlayers,
+            jobIdShort
+        )
+
+        task.wait(0.1)
+    end
+end)
+
+-- Periodic Generator Rescan Loop (Every 3 seconds to catch newly spawned generators)
+task.spawn(function()
+    while Hub.Alive do
+        task.wait(3)
+        if Hub.Alive then
+            pcall(ScanGenerators)
+        end
+    end
+end)

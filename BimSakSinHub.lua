@@ -4930,8 +4930,7 @@ do
                     local dist = (info.Position - myPos).Magnitude
                     local streamTag = info.IsStreamedIn and "Terlihat" or "Lintas Dunia"
                     lbl.Text = string.format(
-                        "Jarak: %s (%s)
-%s | XYZ: %.0f, %.0f, %.0f",
+                        "Jarak: %s (%s)\n%s | XYZ: %.0f, %.0f, %.0f",
                         TeleportAPI.FormatDistance(dist),
                         streamTag,
                         info.WorldName,

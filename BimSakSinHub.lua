@@ -84,6 +84,9 @@ do
 
     local oldLaser = workspace:FindFirstChild("BSS_RGB_AimLaser")
     if oldLaser then oldLaser:Destroy() end
+
+    local oldViewAnchor = workspace:FindFirstChild("BSS_RemoteViewAnchor")
+    if oldViewAnchor then oldViewAnchor:Destroy() end
 end
 
 -- ============================================================================
@@ -173,6 +176,7 @@ local State = {
     NoFogEnabled = false,
     SpectatingPlayer = nil,
     SpectateStreamTick = 0,
+    SpectateAnchorPart = nil,
     Waypoints = {},
 
     -- Teleport Concurrency Guard & Distance Telemetry
@@ -180,6 +184,7 @@ local State = {
     IsTeleportLocking = false,
     PreTeleportAnchored = false,
     LastTeleportDistance = 0,
+    CustomTeleportDistance = 500,
 
     -- UI Registries
     AccentObjects = {},
@@ -543,7 +548,301 @@ function Utils.CopyText(text)
     return ok
 end
 
--- Pembaca Posisi Dunia Universal (Mendukung Player, Model, BasePart, CFrame, & Vector3)
+-- ============================================================================
+-- PROFESSIONAL CROSS-WORLD TELEPORT & REMOTE VIEW STREAMING API (TeleportAPI)
+-- Mendukung jangkauan tanpa batas jarak & multi-dunia di dalam satu map
+-- ============================================================================
+local TeleportAPI = {}
+
+function TeleportAPI.FormatDistance(studs)
+    if not studs or studs ~= studs then
+        return "0 m"
+    end
+    if studs >= 1000000 then
+        return string.format("%.2fM m (%.0f studs)", studs / 1000000, studs)
+    elseif studs >= 10000 then
+        return string.format("%.2fk m (%.0f studs)", studs / 1000, studs)
+    end
+    return string.format("%.0f m", studs)
+end
+
+function TeleportAPI.DetectSubWorldName(plr, pos)
+    if plr then
+        local worldKeys = {
+            "world", "realm", "dimension", "zone", "area", "stage",
+            "floor", "region", "island", "sector", "map", "dungeon", "place"
+        }
+        local function scanContainer(container)
+            if not container then return nil end
+            local okAttr, attrs = pcall(function()
+                return container:GetAttributes()
+            end)
+            if okAttr and type(attrs) == "table" then
+                for k, v in pairs(attrs) do
+                    local lk = string.lower(tostring(k))
+                    for _, kw in ipairs(worldKeys) do
+                        if string.find(lk, kw, 1, true) and (type(v) == "string" or type(v) == "number") and tostring(v) ~= "" then
+                            return tostring(v)
+                        end
+                    end
+                end
+            end
+            for _, child in ipairs(container:GetChildren()) do
+                if child:IsA("StringValue") or child:IsA("IntValue") or child:IsA("NumberValue") then
+                    local lk = string.lower(child.Name)
+                    for _, kw in ipairs(worldKeys) do
+                        if string.find(lk, kw, 1, true) and tostring(child.Value) ~= "" then
+                            return tostring(child.Value)
+                        end
+                    end
+                end
+            end
+            return nil
+        end
+
+        local found = scanContainer(plr)
+            or scanContainer(plr:FindFirstChild("leaderstats"))
+            or scanContainer(plr:FindFirstChild("Data"))
+            or scanContainer(plr:FindFirstChild("Stats"))
+            or scanContainer(plr.Character)
+        if found then
+            return found
+        end
+    end
+
+    if pos then
+        local secX = math.floor((pos.X + 2500) / 5000)
+        local secY = math.floor((pos.Y + 2500) / 5000)
+        local secZ = math.floor((pos.Z + 2500) / 5000)
+        if secX == 0 and secY == 0 and secZ == 0 then
+            return "Main World (Pusat)"
+        end
+        return string.format("Dunia/Sektor [%d, %d, %d]", secX, secY, secZ)
+    end
+    return "Tidak Diketahui"
+end
+
+function TeleportAPI.ResolvePlayerState(plr)
+    if not plr then return nil end
+
+    local char = plr.Character
+    if not char or not char.Parent then
+        local charsFolder = workspace:FindFirstChild("Characters") or workspace:FindFirstChild("Players")
+        if charsFolder then
+            char = charsFolder:FindFirstChild(plr.Name)
+        end
+        if not char then
+            local direct = workspace:FindFirstChild(plr.Name)
+            if direct and direct:IsA("Model") then
+                char = direct
+            end
+        end
+    end
+
+    local resolvedCF = nil
+    local isStreamedIn = false
+    local rootPart = nil
+    local hum = nil
+
+    if char and char.Parent then
+        hum = char:FindFirstChildOfClass("Humanoid")
+        rootPart = char:FindFirstChild("HumanoidRootPart")
+            or char.PrimaryPart
+            or char:FindFirstChild("UpperTorso")
+            or char:FindFirstChild("Torso")
+            or char:FindFirstChild("Head")
+            or char:FindFirstChildWhichIsA("BasePart", true)
+
+        if rootPart and rootPart:IsA("BasePart") then
+            resolvedCF = rootPart.CFrame
+            isStreamedIn = true
+        else
+            local okPivot, pivotCF = pcall(function()
+                return char:GetPivot()
+            end)
+            if okPivot and typeof(pivotCF) == "CFrame" and pivotCF.Position ~= Vector3.zero then
+                resolvedCF = pivotCF
+            end
+        end
+    end
+
+    -- Fallback ke Replicated Attributes / ValueObjects jika karakter di dunia lain belum di-stream oleh server
+    if not resolvedCF then
+        local posKeys = { "position", "pos", "cframe", "cf", "coords", "location", "lastpos" }
+        local function extractPosFrom(container)
+            if not container then return nil end
+            local okAttr, attrs = pcall(function()
+                return container:GetAttributes()
+            end)
+            if okAttr and type(attrs) == "table" then
+                for k, v in pairs(attrs) do
+                    local lk = string.lower(tostring(k))
+                    for _, pk in ipairs(posKeys) do
+                        if string.find(lk, pk, 1, true) then
+                            if typeof(v) == "CFrame" then return v end
+                            if typeof(v) == "Vector3" then return CFrame.new(v) end
+                        end
+                    end
+                end
+            end
+            for _, child in ipairs(container:GetDescendants()) do
+                local lk = string.lower(child.Name)
+                for _, pk in ipairs(posKeys) do
+                    if string.find(lk, pk, 1, true) then
+                        if child:IsA("CFrameValue") then return child.Value end
+                        if child:IsA("Vector3Value") then return CFrame.new(child.Value) end
+                    end
+                end
+            end
+            return nil
+        end
+
+        resolvedCF = extractPosFrom(plr) or (char and extractPosFrom(char))
+    end
+
+    if not resolvedCF then
+        return nil
+    end
+
+    local pos = resolvedCF.Position
+    return {
+        Player = plr,
+        Character = char,
+        Humanoid = hum,
+        RootPart = rootPart,
+        CFrame = resolvedCF,
+        Position = pos,
+        IsStreamedIn = isStreamedIn,
+        WorldName = TeleportAPI.DetectSubWorldName(plr, pos),
+    }
+end
+
+function TeleportAPI.RequestStreamAt(pos, timeout)
+    if typeof(pos) ~= "Vector3" then return end
+    task.spawn(function()
+        pcall(function()
+            LocalPlayer:RequestStreamAroundAsync(pos, timeout or 5)
+        end)
+    end)
+end
+
+function TeleportAPI.EnsureRemoteViewAnchor(targetCF)
+    local anchor = State.SpectateAnchorPart
+    if not anchor or not anchor.Parent then
+        anchor = Instance.new("Part")
+        anchor.Name = "BSS_RemoteViewAnchor"
+        anchor.Size = Vector3.new(1, 1, 1)
+        anchor.Transparency = 1
+        anchor.Anchored = true
+        anchor.CanCollide = false
+        anchor.CanTouch = false
+        anchor.CanQuery = false
+        anchor.CastShadow = false
+        anchor.Parent = workspace
+        State.SpectateAnchorPart = anchor
+    end
+    if targetCF then
+        anchor.CFrame = targetCF
+    end
+    return anchor
+end
+
+function TeleportAPI.DestroyRemoteViewAnchor()
+    if State.SpectateAnchorPart then
+        pcall(function()
+            State.SpectateAnchorPart:Destroy()
+        end)
+        State.SpectateAnchorPart = nil
+    end
+    local leftover = workspace:FindFirstChild("BSS_RemoteViewAnchor")
+    if leftover then
+        pcall(function()
+            leftover:Destroy()
+        end)
+    end
+end
+
+function TeleportAPI.StartRemoteView(plr)
+    if not plr or plr == LocalPlayer then return false end
+    State.SpectatingPlayer = plr
+    State.SpectateStreamTick = 0
+
+    local info = TeleportAPI.ResolvePlayerState(plr)
+    local cam = workspace.CurrentCamera
+    if info then
+        TeleportAPI.RequestStreamAt(info.Position, 5)
+        local anchor = TeleportAPI.EnsureRemoteViewAnchor(info.CFrame * CFrame.new(0, 1.5, 0))
+        pcall(function()
+            LocalPlayer.ReplicationFocus = info.RootPart or anchor
+        end)
+        if cam then
+            cam.CameraType = Enum.CameraType.Custom
+            cam.CameraSubject = info.Humanoid or info.RootPart or anchor
+        end
+    else
+        local anchor = TeleportAPI.EnsureRemoteViewAnchor(CFrame.new(0, 10, 0))
+        if cam then
+            cam.CameraType = Enum.CameraType.Custom
+            cam.CameraSubject = anchor
+        end
+    end
+    return true, info
+end
+
+function TeleportAPI.StepRemoteView()
+    local specPlr = State.SpectatingPlayer
+    if not specPlr then return nil end
+    if not specPlr.Parent then
+        TeleportAPI.StopRemoteView(false)
+        return nil
+    end
+
+    local cam = workspace.CurrentCamera
+    local info = TeleportAPI.ResolvePlayerState(specPlr)
+    if info then
+        local anchor = TeleportAPI.EnsureRemoteViewAnchor(info.CFrame * CFrame.new(0, 1.5, 0))
+        local subject = info.Humanoid or info.RootPart or anchor
+
+        if cam and subject then
+            if cam.CameraType ~= Enum.CameraType.Custom then
+                cam.CameraType = Enum.CameraType.Custom
+            end
+            if cam.CameraSubject ~= subject then
+                cam.CameraSubject = subject
+            end
+        end
+
+        pcall(function()
+            LocalPlayer.ReplicationFocus = info.RootPart or anchor
+        end)
+
+        local now = os.clock()
+        if (now - State.SpectateStreamTick) >= 0.35 then
+            State.SpectateStreamTick = now
+            TeleportAPI.RequestStreamAt(info.Position, 4)
+        end
+    end
+    return info
+end
+
+function TeleportAPI.StopRemoteView(notifyUser)
+    State.SpectatingPlayer = nil
+    TeleportAPI.DestroyRemoteViewAnchor()
+    pcall(function()
+        LocalPlayer.ReplicationFocus = nil
+    end)
+    local cam = workspace.CurrentCamera
+    local _, myHum = Utils.GetCharacter(LocalPlayer)
+    if cam and myHum then
+        cam.CameraType = Enum.CameraType.Custom
+        cam.CameraSubject = myHum
+    end
+    if notifyUser then
+        Utils.Notify("View Dimatikan", "Kamera & fokus streaming kembali ke karakter Anda.", Theme.TextSecondary)
+    end
+end
+
+-- Pembaca Posisi Dunia Universal Tanpa Batas Jarak (Mendukung Player lintas dunia, Model, BasePart, CFrame, & Vector3)
 function Utils.GetTargetWorldPosition(target)
     if typeof(target) == "CFrame" then
         return target.Position
@@ -551,12 +850,13 @@ function Utils.GetTargetWorldPosition(target)
         return target
     elseif typeof(target) == "Instance" then
         if target:IsA("Player") then
-            local char = target.Character
-            local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart or char:FindFirstChildWhichIsA("BasePart"))
-            return root and root.Position or nil
+            local info = TeleportAPI.ResolvePlayerState(target)
+            return info and info.Position or nil
         elseif target:IsA("Model") then
-            local root = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart")
-            return root and root.Position or nil
+            local root = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart", true)
+            if root then return root.Position end
+            local okPivot, pivotCF = pcall(function() return target:GetPivot() end)
+            return (okPivot and typeof(pivotCF) == "CFrame") and pivotCF.Position or nil
         elseif target:IsA("BasePart") then
             return target.Position
         end
@@ -564,15 +864,23 @@ function Utils.GetTargetWorldPosition(target)
     return nil
 end
 
--- Teleport Jarak Tak Terbatas, Anti-Rubberband & Streaming-API Safe
-function Utils.SafeTeleport(targetCFrame)
+-- Teleport Jarak Tak Terbatas, Lintas Dunia Dalam Satu Map, Anti-Void & Streaming-API Safe
+function Utils.SafeTeleport(targetCFrame, targetPlayer)
     local char, hum, root = Utils.GetCharacter(LocalPlayer)
     if not char or not root then
         return false, 0
     end
 
     local startPos = root.Position
-    local destPos = targetCFrame.Position
+    local destCF = targetCFrame
+    if targetPlayer then
+        local liveInfo = TeleportAPI.ResolvePlayerState(targetPlayer)
+        if liveInfo then
+            destCF = liveInfo.CFrame * CFrame.new(0, 0.5, 3)
+        end
+    end
+
+    local destPos = destCF.Position
     local travelDistance = (destPos - startPos).Magnitude
     State.LastTeleportDistance = travelDistance
 
@@ -588,14 +896,10 @@ function Utils.SafeTeleport(targetCFrame)
         end
     end
 
-    -- 2. Paksa Roblox Streaming API memuat area sekitar tujuan (Jarak Tak Terbatas)
-    task.spawn(function()
-        pcall(function()
-            LocalPlayer:RequestStreamAroundAsync(destPos, 5)
-        end)
-    end)
+    -- 2. Paksa Roblox Streaming API & ReplicationFocus memuat dunia/area tujuan (Jarak Tak Terbatas)
+    TeleportAPI.RequestStreamAt(destPos, 6)
 
-    -- 3. Simpan status Anchored asli dengan aman sebelum mengunci posisi beberapa frame
+    -- 3. Simpan status Anchored asli dengan aman sebelum mengunci posisi sampai dunia tujuan selesai dimuat
     if not State.IsTeleportLocking then
         State.PreTeleportAnchored = root.Anchored
         State.IsTeleportLocking = true
@@ -609,21 +913,29 @@ function Utils.SafeTeleport(targetCFrame)
     end
 
     root.Anchored = true
-    char:PivotTo(targetCFrame)
+    char:PivotTo(destCF)
 
     task.spawn(function()
-        for step = 1, 10 do
+        local maxSteps = (travelDistance > 2500 or targetPlayer ~= nil) and 22 or 12
+        for step = 1, maxSteps do
             RunService.Heartbeat:Wait()
             if State.TeleportToken ~= myToken then
                 return
             end
-            if step == 4 then
-                task.spawn(function()
-                    pcall(function()
-                        LocalPlayer:RequestStreamAroundAsync(destPos, 3)
-                    end)
-                end)
+
+            -- Sinkronisasi ulang posisi live pemain jika target berada di dunia lain yang baru saja selesai di-stream
+            if targetPlayer and targetPlayer.Parent then
+                local updatedInfo = TeleportAPI.ResolvePlayerState(targetPlayer)
+                if updatedInfo then
+                    destCF = updatedInfo.CFrame * CFrame.new(0, 0.5, 3)
+                    destPos = destCF.Position
+                end
             end
+
+            if step == 4 or step == 10 or step == 16 then
+                TeleportAPI.RequestStreamAt(destPos, 4)
+            end
+
             if char and char.Parent and root and root.Parent then
                 for _, part in ipairs(char:GetDescendants()) do
                     if part:IsA("BasePart") then
@@ -631,9 +943,10 @@ function Utils.SafeTeleport(targetCFrame)
                         part.AssemblyAngularVelocity = Vector3.zero
                     end
                 end
-                char:PivotTo(targetCFrame)
+                char:PivotTo(destCF)
             end
         end
+
         if State.TeleportToken == myToken then
             if root and root.Parent then
                 root.Anchored = State.PreTeleportAnchored
@@ -3936,14 +4249,20 @@ do
 end
 
 -- ============================================================================
--- TAB 7: TELEPORTASI & VIEW PEMAIN (Jarak Real-Time & Remote Stream API)
+-- TAB 7: TELEPORTASI BEBAS & VIEW LINTAS DUNIA (Unlimited Distance & Stream API)
 -- ============================================================================
 do
     local page = Components.CreateTab("Teleport", "⌖", 7)
-    Components.AddSectionHeader(page, "Koordinat & Manajemen Lokasi (Waypoint)", 1)
+    local TPUI = {
+        WpDistanceLabels = {},
+        PlayerRows = {},
+    }
 
+    Components.AddSectionHeader(page, "Telemetri Dunia & Teleport Bebas Tanpa Batas Jarak", 1)
+
+    -- Kartu Telemetri Posisi & Dunia Aktif
     local posCard = Utils.Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 50),
+        Size = UDim2.new(1, 0, 0, 56),
         BackgroundColor3 = Theme.BgCard,
         BackgroundTransparency = 0.25,
         BorderSizePixel = 0,
@@ -3954,20 +4273,35 @@ do
     Utils.AddStroke(posCard, Theme.BorderSubtle, 1, 0.3)
 
     UI.TelemetryLabels.Coords = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, -112, 1, 0),
-        Position = UDim2.new(0, 12, 0, 0),
+        Size = UDim2.new(1, -112, 0, 20),
+        Position = UDim2.new(0, 12, 0, 7),
         BackgroundTransparency = 1,
         Font = Enum.Font.Code,
         Text = "XYZ: 0.0, 0.0, 0.0",
         TextColor3 = Theme.TextPrimary,
         TextSize = 12,
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         ZIndex = 15,
     }, posCard)
 
+    TPUI.WorldStatusLbl = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -112, 0, 18),
+        Position = UDim2.new(0, 12, 0, 29),
+        BackgroundTransparency = 1,
+        Font = Theme.FontFamily,
+        Text = "Lokasi: Main World | Jarak TP Terakhir: 0 m",
+        TextColor3 = Theme.TextSecondary,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 15,
+    }, posCard)
+    Utils.RegisterText(TPUI.WorldStatusLbl, false, Theme.TextSecondary)
+
     local copyPosBtn = Utils.Create("TextButton", {
-        Size = UDim2.new(0, 92, 0, 28),
-        Position = UDim2.new(1, -104, 0.5, -14),
+        Size = UDim2.new(0, 92, 0, 30),
+        Position = UDim2.new(1, -104, 0.5, -15),
         BackgroundColor3 = Theme.BgControl,
         Font = Theme.FontBold,
         Text = "Salin CFrame",
@@ -3991,12 +4325,212 @@ do
         end
     end)
 
+    -- Kontrol Jarak Teleport Bebas (Tentukan Sejauh Mana Jarak yang Ingin Ditempuh)
+    local freeDistCard = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 88),
+        BackgroundColor3 = Theme.BgCard,
+        BackgroundTransparency = 0.25,
+        BorderSizePixel = 0,
+        LayoutOrder = 3,
+        ZIndex = 14,
+    }, page)
+    Utils.AddCorner(freeDistCard, 9)
+    Utils.AddStroke(freeDistCard, Theme.BorderSubtle, 1, 0.3)
+
+    local distTitle = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -24, 0, 18),
+        Position = UDim2.new(0, 12, 0, 7),
+        BackgroundTransparency = 1,
+        Font = Theme.FontBold,
+        Text = "Teleport Bebas Sesuka Hati (Atur Jarak Tanpa Batas)",
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 15,
+    }, freeDistCard)
+    Utils.RegisterText(distTitle, true, Theme.TextPrimary)
+
+    local distInputBox = Utils.Create("TextBox", {
+        Size = UDim2.new(0.42, -10, 0, 28),
+        Position = UDim2.new(0, 10, 0, 30),
+        BackgroundColor3 = Theme.BgControl,
+        Font = Theme.FontFamily,
+        PlaceholderText = "Jarak (mis. 500, 50000)...",
+        PlaceholderColor3 = Theme.TextMuted,
+        Text = tostring(State.CustomTeleportDistance),
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 11,
+        ClearTextOnFocus = false,
+        ZIndex = 15,
+    }, freeDistCard)
+    Utils.AddCorner(distInputBox, 6)
+    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, distInputBox)
+
+    local tpForwardBtn = Utils.Create("TextButton", {
+        Size = UDim2.new(0.28, -4, 0, 28),
+        Position = UDim2.new(0.42, 4, 0, 30),
+        BackgroundColor3 = Theme.Accent,
+        Font = Theme.FontBold,
+        Text = "Maju Jarak",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 11,
+        AutoButtonColor = false,
+        ZIndex = 15,
+    }, freeDistCard)
+    Utils.AddCorner(tpForwardBtn, 6)
+    Utils.RegisterAccent(tpForwardBtn, "BackgroundColor3")
+
+    local tpLookBtn = Utils.Create("TextButton", {
+        Size = UDim2.new(0.30, -14, 0, 28),
+        Position = UDim2.new(0.70, 4, 0, 30),
+        BackgroundColor3 = Theme.Spectral,
+        Font = Theme.FontBold,
+        Text = "Arah Kamera",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 11,
+        AutoButtonColor = false,
+        ZIndex = 15,
+    }, freeDistCard)
+    Utils.AddCorner(tpLookBtn, 6)
+
+    TPUI.TargetPreviewLbl = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -24, 0, 18),
+        Position = UDim2.new(0, 12, 0, 63),
+        BackgroundTransparency = 1,
+        Font = Theme.FontFamily,
+        Text = "Jangkauan Siap: 500 m (Tanpa Batas Jarak)",
+        TextColor3 = Theme.TextSecondary,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 15,
+    }, freeDistCard)
+    Utils.RegisterText(TPUI.TargetPreviewLbl, false, Theme.TextSecondary)
+
+    local function parseCustomDistance()
+        local raw = tostring(distInputBox.Text or ""):gsub("[^%d%.%-]", "")
+        local num = tonumber(raw)
+        if num and num == num and num > 0 then
+            State.CustomTeleportDistance = num
+            return num
+        end
+        return State.CustomTeleportDistance or 500
+    end
+
+    distInputBox.FocusLost:Connect(function()
+        local d = parseCustomDistance()
+        TPUI.TargetPreviewLbl.Text = "Jangkauan Siap: " .. TeleportAPI.FormatDistance(d) .. " (Tanpa Batas Jarak)"
+    end)
+
+    tpForwardBtn.MouseButton1Click:Connect(function()
+        local _, _, root = Utils.GetCharacter()
+        local cam = workspace.CurrentCamera
+        if not root then
+            Utils.Notify("Gagal Teleport", "Karakter belum siap.", Theme.Danger)
+            return
+        end
+        local dist = parseCustomDistance()
+        local dir = cam and cam.CFrame.LookVector or root.CFrame.LookVector
+        local targetPos = root.Position + (dir * dist)
+        local destCF = CFrame.lookAt(targetPos, targetPos + dir)
+        local ok, actualDist = Utils.SafeTeleport(destCF)
+        if ok then
+            Utils.Notify("Teleport Maju", "Berpindah sejauh " .. TeleportAPI.FormatDistance(actualDist), Theme.Success)
+        end
+    end)
+
+    tpLookBtn.MouseButton1Click:Connect(function()
+        local char, _, root = Utils.GetCharacter()
+        local cam = workspace.CurrentCamera
+        if not root or not cam then
+            Utils.Notify("Gagal Teleport", "Kamera atau karakter belum siap.", Theme.Danger)
+            return
+        end
+        local maxRay = math.max(parseCustomDistance(), 15000)
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = { char }
+
+        local result = workspace:Raycast(cam.CFrame.Position, cam.CFrame.LookVector * maxRay, params)
+        local targetPos
+        if result then
+            targetPos = result.Position + Vector3.new(0, 3.2, 0)
+        else
+            targetPos = cam.CFrame.Position + (cam.CFrame.LookVector * parseCustomDistance())
+        end
+
+        local destCF = CFrame.lookAt(targetPos, targetPos + Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z))
+        local ok, actualDist = Utils.SafeTeleport(destCF)
+        if ok then
+            Utils.Notify("Teleport Arah Pandang", "Berpindah ke titik tujuan (" .. TeleportAPI.FormatDistance(actualDist) .. ")", Theme.Success)
+        end
+    end)
+
+    -- Input Koordinat Bebas (X, Y, Z) untuk lompat ke dunia/dimensi manapun di dalam map
+    local coordTpCard = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 48),
+        BackgroundColor3 = Theme.BgCard,
+        BackgroundTransparency = 0.25,
+        BorderSizePixel = 0,
+        LayoutOrder = 4,
+        ZIndex = 14,
+    }, page)
+    Utils.AddCorner(coordTpCard, 9)
+    Utils.AddStroke(coordTpCard, Theme.BorderSubtle, 1, 0.3)
+
+    local coordBox = Utils.Create("TextBox", {
+        Size = UDim2.new(1, -124, 0, 30),
+        Position = UDim2.new(0, 10, 0.5, -15),
+        BackgroundColor3 = Theme.BgControl,
+        Font = Theme.FontFamily,
+        PlaceholderText = "Koordinat XYZ bebas (mis. 12500, 450, -34000)...",
+        PlaceholderColor3 = Theme.TextMuted,
+        Text = "",
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 11,
+        ClearTextOnFocus = false,
+        ZIndex = 15,
+    }, coordTpCard)
+    Utils.AddCorner(coordBox, 6)
+    Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, coordBox)
+
+    local goCoordBtn = Utils.Create("TextButton", {
+        Size = UDim2.new(0, 96, 0, 30),
+        Position = UDim2.new(1, -106, 0.5, -15),
+        BackgroundColor3 = Theme.Success,
+        Font = Theme.FontBold,
+        Text = "TP Koordinat",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 11,
+        AutoButtonColor = false,
+        ZIndex = 15,
+    }, coordTpCard)
+    Utils.AddCorner(goCoordBtn, 6)
+
+    goCoordBtn.MouseButton1Click:Connect(function()
+        local nums = {}
+        for numStr in string.gmatch(coordBox.Text or "", "[%-]?%d+%.?%d*") do
+            local n = tonumber(numStr)
+            if n then table.insert(nums, n) end
+        end
+        if #nums >= 3 then
+            local destCF = CFrame.new(nums[1], nums[2], nums[3])
+            local ok, dist = Utils.SafeTeleport(destCF)
+            if ok then
+                Utils.Notify("Teleport Koordinat", string.format("Berpindah ke %.0f, %.0f, %.0f (%s)", nums[1], nums[2], nums[3], TeleportAPI.FormatDistance(dist)), Theme.Success)
+            end
+        else
+            Utils.Notify("Format Koordinat", "Masukkan 3 angka koordinat X, Y, Z (contoh: 5000, 120, -8500).", Theme.Warning)
+        end
+    end)
+
+    -- Simpan & Kelola Waypoint Lintas Dunia
     local wpInputCard = Utils.Create("Frame", {
         Size = UDim2.new(1, 0, 0, 48),
         BackgroundColor3 = Theme.BgCard,
         BackgroundTransparency = 0.25,
         BorderSizePixel = 0,
-        LayoutOrder = 3,
+        LayoutOrder = 5,
         ZIndex = 14,
     }, page)
     Utils.AddCorner(wpInputCard, 9)
@@ -4007,11 +4541,11 @@ do
         Position = UDim2.new(0, 10, 0.5, -15),
         BackgroundColor3 = Theme.BgControl,
         Font = Theme.FontFamily,
-        PlaceholderText = "Nama lokasi waypoint (mis. Spawn, Puncak)...",
+        PlaceholderText = "Simpan titik dunia/lokasi (mis. World 2, Dungeon)...",
         PlaceholderColor3 = Theme.TextMuted,
         Text = "",
         TextColor3 = Theme.TextPrimary,
-        TextSize = 12,
+        TextSize = 11,
         ClearTextOnFocus = false,
         ZIndex = 15,
     }, wpInputCard)
@@ -4036,15 +4570,13 @@ do
         Size = UDim2.new(1, 0, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
-        LayoutOrder = 4,
+        LayoutOrder = 6,
         ZIndex = 14,
     }, page)
     Utils.Create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, wpListHolder)
 
-    local wpDistanceLabels = {}
-
     local function renderWaypoints()
-        table.clear(wpDistanceLabels)
+        table.clear(TPUI.WpDistanceLabels)
         for _, child in ipairs(wpListHolder:GetChildren()) do
             if child:IsA("Frame") then child:Destroy() end
         end
@@ -4072,7 +4604,7 @@ do
                 TextTruncate = Enum.TextTruncate.AtEnd,
                 ZIndex = 16,
             }, row)
-            wpDistanceLabels[idx] = { Label = infoLbl, Waypoint = wp }
+            TPUI.WpDistanceLabels[idx] = { Label = infoLbl, Waypoint = wp }
 
             local tpBtn = Utils.Create("TextButton", {
                 Size = UDim2.new(0, 68, 0, 24),
@@ -4104,7 +4636,7 @@ do
             tpBtn.MouseButton1Click:Connect(function()
                 local ok, dist = Utils.SafeTeleport(wp.CFrame)
                 if ok then
-                    Utils.Notify("Teleportasi Berhasil", string.format("Berpindah ke %s (Jarak: %.0f m)", wp.Name, dist), Theme.Success)
+                    Utils.Notify("Teleportasi Berhasil", string.format("Berpindah ke %s (%s)", wp.Name, TeleportAPI.FormatDistance(dist)), Theme.Success)
                 end
             end)
 
@@ -4128,34 +4660,121 @@ do
         Utils.Notify("Waypoint Tersimpan", "Lokasi '" .. name .. "' berhasil disimpan.", Theme.Success)
     end)
 
-    Components.AddSectionHeader(page, "Teleportasi & View Pemain Lain (Jarak Real-Time)", 5)
+    -- ========================================================================
+    -- VIEW & TELEPORT PEMAIN LAIN LINTAS DUNIA DALAM SATU MAP (UNLIMITED STREAM API)
+    -- ========================================================================
+    Components.AddSectionHeader(page, "View & Teleport Pemain Lintas Dunia (Tanpa Batas Jarak)", 7)
+
+    -- Banner Pemantau Aktif saat View Pemain di Dunia Lain
+    TPUI.ActiveViewCard = Utils.Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 74),
+        BackgroundColor3 = Theme.BgSecondary,
+        BackgroundTransparency = 0.16,
+        BorderSizePixel = 0,
+        Visible = false,
+        LayoutOrder = 8,
+        ZIndex = 15,
+    }, page)
+    Utils.AddCorner(TPUI.ActiveViewCard, 9)
+    local viewStroke = Utils.AddStroke(TPUI.ActiveViewCard, Theme.Warning, 1.3, 0.15)
+
+    TPUI.ActiveViewTitle = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -20, 0, 18),
+        Position = UDim2.new(0, 10, 0, 6),
+        BackgroundTransparency = 1,
+        Font = Theme.FontBold,
+        Text = "👁 Sedang Melihat: -",
+        TextColor3 = Theme.Warning,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 16,
+    }, TPUI.ActiveViewCard)
+
+    TPUI.ActiveViewDetail = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, -20, 0, 16),
+        Position = UDim2.new(0, 10, 0, 24),
+        BackgroundTransparency = 1,
+        Font = Theme.FontFamily,
+        Text = "Dunia: - | Jarak: -",
+        TextColor3 = Theme.TextSecondary,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 16,
+    }, TPUI.ActiveViewCard)
+
+    local tpViewedBtn = Utils.Create("TextButton", {
+        Size = UDim2.new(0.54, -12, 0, 24),
+        Position = UDim2.new(0, 10, 0, 44),
+        BackgroundColor3 = Theme.Success,
+        Font = Theme.FontBold,
+        Text = "⚡ Teleport ke Pemain Ini",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 11,
+        AutoButtonColor = false,
+        ZIndex = 16,
+    }, TPUI.ActiveViewCard)
+    Utils.AddCorner(tpViewedBtn, 6)
+
+    local unviewBannerBtn = Utils.Create("TextButton", {
+        Size = UDim2.new(0.46, -12, 0, 24),
+        Position = UDim2.new(0.54, 2, 0, 44),
+        BackgroundColor3 = Theme.Danger,
+        Font = Theme.FontBold,
+        Text = "✕ Stop View",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 11,
+        AutoButtonColor = false,
+        ZIndex = 16,
+    }, TPUI.ActiveViewCard)
+    Utils.AddCorner(unviewBannerBtn, 6)
 
     local playerListHolder = Utils.Create("Frame", {
         Size = UDim2.new(1, 0, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
-        LayoutOrder = 6,
+        LayoutOrder = 9,
         ZIndex = 14,
     }, page)
     Utils.Create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, playerListHolder)
 
-    local playerDistanceRows = {}
-
     local function stopSpectating(notifyUser)
-        State.SpectatingPlayer = nil
-        local cam = workspace.CurrentCamera
-        local _, myHum = Utils.GetCharacter(LocalPlayer)
-        if cam and myHum then
-            cam.CameraType = Enum.CameraType.Custom
-            cam.CameraSubject = myHum
-        end
-        if notifyUser then
-            Utils.Notify("View Dimatikan", "Kamera kembali ke karakter Anda.", Theme.TextSecondary)
+        TeleportAPI.StopRemoteView(notifyUser)
+        if TPUI.ActiveViewCard then
+            TPUI.ActiveViewCard.Visible = false
         end
     end
 
+    local function teleportToTargetPlayer(plr)
+        if not plr or not plr.Parent then
+            Utils.Notify("Pemain Keluar", "Pemain sudah meninggalkan server.", Theme.Warning)
+            return
+        end
+        local info = TeleportAPI.ResolvePlayerState(plr)
+        if info then
+            local destCF = info.CFrame * CFrame.new(0, 0.5, 3)
+            local ok, dist = Utils.SafeTeleport(destCF, plr)
+            if ok then
+                Utils.Notify(
+                    "Teleport Lintas Dunia",
+                    string.format("Menuju %s [%s] (%s)", plr.DisplayName, info.WorldName, TeleportAPI.FormatDistance(dist)),
+                    Theme.Success
+                )
+            end
+        else
+            Utils.Notify("Menunggu Data Posisi", "Pemain " .. plr.DisplayName .. " belum spawn di dunia manapun.", Theme.Warning)
+        end
+    end
+
+    tpViewedBtn.MouseButton1Click:Connect(function()
+        if State.SpectatingPlayer then
+            teleportToTargetPlayer(State.SpectatingPlayer)
+        end
+    end)
+
     local function refreshPlayerList()
-        table.clear(playerDistanceRows)
+        table.clear(TPUI.PlayerRows)
         for _, child in ipairs(playerListHolder:GetChildren()) do
             if child:IsA("Frame") then child:Destroy() end
         end
@@ -4163,8 +4782,9 @@ do
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 count = count + 1
+                local isSpec = (State.SpectatingPlayer == plr)
                 local row = Utils.Create("Frame", {
-                    Size = UDim2.new(1, 0, 0, 48),
+                    Size = UDim2.new(1, 0, 0, 56),
                     BackgroundColor3 = Theme.BgCard,
                     BackgroundTransparency = 0.25,
                     BorderSizePixel = 0,
@@ -4172,7 +4792,7 @@ do
                     ZIndex = 15,
                 }, playerListHolder)
                 Utils.AddCorner(row, 8)
-                Utils.AddStroke(row, Theme.BorderSubtle, 1, 0.3)
+                Utils.AddStroke(row, isSpec and Theme.Warning or Theme.BorderSubtle, isSpec and 1.3 or 1, 0.25)
 
                 Utils.Create("TextLabel", {
                     Size = UDim2.new(1, -158, 0, 18),
@@ -4188,23 +4808,23 @@ do
                 }, row)
 
                 local distLbl = Utils.Create("TextLabel", {
-                    Size = UDim2.new(1, -158, 0, 16),
-                    Position = UDim2.new(0, 10, 0, 25),
+                    Size = UDim2.new(1, -158, 0, 26),
+                    Position = UDim2.new(0, 10, 0, 24),
                     BackgroundTransparency = 1,
                     Font = Theme.FontFamily,
-                    Text = "Jarak: Menghitung...",
+                    Text = "Membaca posisi & dunia pemain...",
                     TextColor3 = Theme.TextSecondary,
                     TextSize = 10,
+                    TextWrapped = true,
                     TextXAlignment = Enum.TextXAlignment.Left,
-                    TextTruncate = Enum.TextTruncate.AtEnd,
                     ZIndex = 16,
                 }, row)
 
-                playerDistanceRows[plr] = distLbl
+                TPUI.PlayerRows[plr] = distLbl
 
                 local tpBtn = Utils.Create("TextButton", {
-                    Size = UDim2.new(0, 68, 0, 26),
-                    Position = UDim2.new(1, -142, 0.5, -13),
+                    Size = UDim2.new(0, 68, 0, 28),
+                    Position = UDim2.new(1, -142, 0.5, -14),
                     BackgroundColor3 = Theme.Accent,
                     Font = Theme.FontBold,
                     Text = "Teleport",
@@ -4216,10 +4836,9 @@ do
                 Utils.AddCorner(tpBtn, 5)
                 Utils.RegisterAccent(tpBtn, "BackgroundColor3")
 
-                local isSpec = (State.SpectatingPlayer == plr)
                 local viewBtn = Utils.Create("TextButton", {
-                    Size = UDim2.new(0, 62, 0, 26),
-                    Position = UDim2.new(1, -68, 0.5, -13),
+                    Size = UDim2.new(0, 62, 0, 28),
+                    Position = UDim2.new(1, -68, 0.5, -14),
                     BackgroundColor3 = isSpec and Theme.Warning or Theme.BgControl,
                     Font = Theme.FontBold,
                     Text = isSpec and "Unview" or "View",
@@ -4231,44 +4850,24 @@ do
                 Utils.AddCorner(viewBtn, 5)
 
                 tpBtn.MouseButton1Click:Connect(function()
-                    local targetPos = Utils.GetTargetWorldPosition(plr)
-                    if targetPos then
-                        local targetRoot = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                        local destCF = targetRoot and (targetRoot.CFrame * CFrame.new(0, 0.5, 3)) or CFrame.new(targetPos + Vector3.new(0, 1.5, 3))
-                        local ok, dist = Utils.SafeTeleport(destCF)
-                        if ok then
-                            Utils.Notify("Teleportasi Pemain", string.format("Berpindah ke %s (Jarak: %.0f m)", plr.DisplayName, dist), Theme.Success)
-                        end
-                    else
-                        Utils.Notify("Target Belum Terdeteksi", "Karakter target belum spawn atau berada di luar zona.", Theme.Warning)
-                    end
+                    teleportToTargetPlayer(plr)
                 end)
 
                 viewBtn.MouseButton1Click:Connect(function()
                     if State.SpectatingPlayer == plr then
                         stopSpectating(true)
                     else
-                        State.SpectatingPlayer = plr
-                        local targetPos = Utils.GetTargetWorldPosition(plr)
-                        if targetPos then
-                            task.spawn(function()
-                                pcall(function()
-                                    LocalPlayer:RequestStreamAroundAsync(targetPos, 4)
-                                end)
-                            end)
-                        end
-                        local cam = workspace.CurrentCamera
-                        local targetHum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-                        local targetRoot = plr.Character and (plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character.PrimaryPart)
-                        if cam and (targetHum or targetRoot) then
-                            cam.CameraType = Enum.CameraType.Custom
-                            cam.CameraSubject = targetHum or targetRoot
-                        end
+                        local _, info = TeleportAPI.StartRemoteView(plr)
                         local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
-                        local distStr = (targetPos and myRoot)
-                            and string.format(" (Jarak: %.0f m)", (targetPos - myRoot.Position).Magnitude)
+                        local distStr = (info and myRoot)
+                            and (" | Jarak: " .. TeleportAPI.FormatDistance((info.Position - myRoot.Position).Magnitude))
                             or ""
-                        Utils.Notify("Mode View Aktif", "Memantau " .. plr.DisplayName .. distStr, Theme.Warning)
+                        local worldStr = info and (" [" .. info.WorldName .. "]") or ""
+                        if TPUI.ActiveViewCard then
+                            TPUI.ActiveViewCard.Visible = true
+                            TPUI.ActiveViewTitle.Text = "👁 Sedang Melihat: " .. plr.DisplayName .. worldStr
+                        end
+                        Utils.Notify("Remote View Aktif", "Melihat " .. plr.DisplayName .. worldStr .. distStr, Theme.Warning)
                     end
                     refreshPlayerList()
                 end)
@@ -4296,67 +4895,85 @@ do
         end
     end
 
-    -- Sinkronisasi Jarak Teleport & Remote View Stream API Real-Time
+    unviewBannerBtn.MouseButton1Click:Connect(function()
+        stopSpectating(true)
+        refreshPlayerList()
+    end)
+
+    -- Sinkronisasi Real-Time Jarak Tanpa Batas, Dunia Pemain Lain & Remote View Stream API
     Utils.Track(RunService.Heartbeat:Connect(function()
         local _, _, myRoot = Utils.GetCharacter(LocalPlayer)
         local myPos = myRoot and myRoot.Position
 
-        -- 1. Update jarak ke semua Waypoint tersimpan
-        for _, item in pairs(wpDistanceLabels) do
+        if myPos and TPUI.WorldStatusLbl and TPUI.WorldStatusLbl.Parent then
+            local myWorld = TeleportAPI.DetectSubWorldName(LocalPlayer, myPos)
+            TPUI.WorldStatusLbl.Text = string.format("Lokasi: %s | TP Terakhir: %s", myWorld, TeleportAPI.FormatDistance(State.LastTeleportDistance))
+        end
+
+        -- 1. Update jarak ke semua Waypoint tersimpan (tanpa batas jarak)
+        for _, item in pairs(TPUI.WpDistanceLabels) do
             if item.Label and item.Label.Parent then
                 if myPos then
                     local d = (item.Waypoint.CFrame.Position - myPos).Magnitude
-                    item.Label.Text = string.format("%s | Jarak: %.0f m", item.Waypoint.Name, d)
+                    item.Label.Text = string.format("%s | Jarak: %s", item.Waypoint.Name, TeleportAPI.FormatDistance(d))
                 else
                     item.Label.Text = string.format("%s (%.0f, %.0f, %.0f)", item.Waypoint.Name, item.Waypoint.CFrame.X, item.Waypoint.CFrame.Y, item.Waypoint.CFrame.Z)
                 end
             end
         end
 
-        -- 2. Update jarak ke semua pemain lain secara real-time
-        for plr, lbl in pairs(playerDistanceRows) do
+        -- 2. Baca posisi, sub-dunia, status stream & jarak real-time semua pemain lain di map yang sama
+        for plr, lbl in pairs(TPUI.PlayerRows) do
             if lbl and lbl.Parent then
-                local tPos = Utils.GetTargetWorldPosition(plr)
-                if tPos and myPos then
-                    local dist = (tPos - myPos).Magnitude
-                    lbl.Text = string.format("Jarak: %.0f m  |  XYZ: %.0f, %.0f, %.0f", dist, tPos.X, tPos.Y, tPos.Z)
+                local info = TeleportAPI.ResolvePlayerState(plr)
+                if info and myPos then
+                    local dist = (info.Position - myPos).Magnitude
+                    local streamTag = info.IsStreamedIn and "Terlihat" or "Lintas Dunia"
+                    lbl.Text = string.format(
+                        "Jarak: %s (%s)
+%s | XYZ: %.0f, %.0f, %.0f",
+                        TeleportAPI.FormatDistance(dist),
+                        streamTag,
+                        info.WorldName,
+                        info.Position.X,
+                        info.Position.Y,
+                        info.Position.Z
+                    )
+                elseif info then
+                    lbl.Text = string.format("%s | XYZ: %.0f, %.0f, %.0f", info.WorldName, info.Position.X, info.Position.Y, info.Position.Z)
                 else
-                    lbl.Text = "Jarak: Menunggu karakter spawn..."
+                    lbl.Text = "Jarak: Menunggu pemain spawn di map..."
                 end
             end
         end
 
-        -- 3. Jaga kamera & Streaming API tetap terkunci saat View pemain jarak jauh
+        -- 3. Jaga kamera & Streaming API terus memuat dunia pemain yang sedang dilihat
         local specPlr = State.SpectatingPlayer
         if specPlr then
             if not specPlr.Parent then
                 stopSpectating(false)
                 refreshPlayerList()
             else
-                local cam = workspace.CurrentCamera
-                local targetChar = specPlr.Character
-                local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
-                local targetRoot = targetChar and (targetChar:FindFirstChild("HumanoidRootPart") or targetChar.PrimaryPart)
-                local subject = targetHum or targetRoot
-
-                if cam and subject and cam.CameraSubject ~= subject then
-                    cam.CameraType = Enum.CameraType.Custom
-                    cam.CameraSubject = subject
-                end
-
-                local now = os.clock()
-                if (now - State.SpectateStreamTick) >= 0.75 then
-                    State.SpectateStreamTick = now
-                    local tPos = Utils.GetTargetWorldPosition(specPlr)
-                    if tPos then
-                        task.spawn(function()
-                            pcall(function()
-                                LocalPlayer:RequestStreamAroundAsync(tPos, 3)
-                            end)
-                        end)
+                local info = TeleportAPI.StepRemoteView()
+                if TPUI.ActiveViewCard and TPUI.ActiveViewCard.Visible then
+                    if info and myPos then
+                        local dist = (info.Position - myPos).Magnitude
+                        TPUI.ActiveViewTitle.Text = string.format("👁 Melihat: %s [%s]", specPlr.DisplayName, info.WorldName)
+                        TPUI.ActiveViewDetail.Text = string.format(
+                            "Jarak: %s | XYZ: %.0f, %.0f, %.0f",
+                            TeleportAPI.FormatDistance(dist),
+                            info.Position.X,
+                            info.Position.Y,
+                            info.Position.Z
+                        )
+                    else
+                        TPUI.ActiveViewTitle.Text = "👁 Melihat: " .. specPlr.DisplayName
+                        TPUI.ActiveViewDetail.Text = "Menyinkronkan dunia & posisi pemain..."
                     end
                 end
             end
+        elseif TPUI.ActiveViewCard and TPUI.ActiveViewCard.Visible then
+            TPUI.ActiveViewCard.Visible = false
         end
     end))
 
@@ -4574,6 +5191,8 @@ do
         Carry.Stop()
         Emotes.Stop()
         Protection.RestoreEnemyHitboxes()
+
+        TeleportAPI.StopRemoteView(false)
 
         local _, hum, root = Utils.GetCharacter()
         if root and State.IsTeleportLocking then

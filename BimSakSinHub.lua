@@ -14,8 +14,7 @@
 - Melee Immunity + Disaster & Total Hazard Immunity + Hunger & Thirst Guard
 - Interactive Replicated Carry System (Visible to Other Players + Carry/Lepas Buttons)
 - Integrated Anti-Detect & Stealth Engine (GUI Cloaking, Instance Name Randomizer,
-      Metamethod Property Spoofing, Local Anti-Kick, Anti-Cheat Remote Guard,
-      Anti-Detect Fly & Anti-Detect Teleport Bypass)
+      Metamethod Property Spoofing, Local Anti-Kick & Anti-Cheat Remote Guard)
 - Interactive Replicated R6 & R15 Dance/Emote Studio (Visible on All Devices)
 - Zero-Rubberband Universal Safe Teleport ("Click") & Waypoint Manager
 - Smooth Admin-Style Free-Flight & Analog-Safe NoClip Geometry Inspector
@@ -649,10 +648,6 @@ GeoLangAPI.FeatureDictionary = {
         ["Tahan panggilan LocalPlayer:Kick() lokal & blokir remote pelaporan mencurigakan"] = "Intercept local LocalPlayer:Kick() calls & block suspicious anti-cheat remotes",
         ["Physics & Camera Instance Stealth"] = "Physics & Camera Instance Stealth",
         ["Sembunyikan objek Fly, Laser & Anchor ke CurrentCamera dengan nama bawaan"] = "Hide Fly, Laser & Anchor objects inside CurrentCamera with native names",
-        ["Anti-Detect Fly (CFrame Stealth & State Spoof)"] = "Anti-Detect Fly (CFrame Stealth & State Spoof)",
-        ["Terbang tanpa objek BodyMover/Constraint serta menyamarkan status & kecepatan karakter"] = "Fly without BodyMover/Constraint instances while spoofing character state & velocity",
-        ["Anti-Detect Teleport (Bypass Rubberband & Pos Spoof)"] = "Anti-Detect Teleport (Bypass Rubberband & Pos Spoof)",
-        ["Teleport bertahap anti-rubberband dengan penyamaran kecepatan & pelindung tarik-balik server"] = "Stepped anti-rubberband teleport with velocity spoofing & server setback protection",
 
         -- Buttons & Chip Selectors
         ["Salin ID Server (Place & Job ID)"] = "Copy Server ID (Place & Job ID)",
@@ -1216,8 +1211,6 @@ local AntiDetect = {
     AntiKickHookEnabled = true,
     RemoteSanitizerEnabled = true,
     PhysicsStealthEnabled = true,
-    FlyStealthEnabled = true,
-    TeleportStealthEnabled = true,
     SpoofedReads = 0,
     BlockedKicks = 0,
     BlockedReports = 0,
@@ -1478,8 +1471,6 @@ do
             table.insert(layers, string.format("Guard (%d Kick / %d Report)", AntiDetect.BlockedKicks, AntiDetect.BlockedReports))
         end
         if AntiDetect.PhysicsStealthEnabled then table.insert(layers, "CamStealth") end
-        if AntiDetect.FlyStealthEnabled then table.insert(layers, "FlyStealth") end
-        if AntiDetect.TeleportStealthEnabled then table.insert(layers, "TPStealth") end
         local activeStr = (#layers > 0) and table.concat(layers, " • ") or "Standby"
         UI.AntiDetectStatusLabel.Text = "  Anti-Detect AKTIF [" .. AntiDetect.HookSupportLabel .. "] • " .. activeStr
     end
@@ -1498,33 +1489,17 @@ do
             "anticheat", "anti_cheat", "cheatdetect", "exploitdetect",
             "banplayer", "banreport", "reportexploit", "flagcheat",
             "tamperdetect", "speedhack", "flyhack", "noclipdetect",
-            "securityviolation", "kickexploit", "tphack", "teleporthack",
-            "poscheck", "positioncheck", "speedcheck", "flycheck",
-            "aircheck", "movementcheck", "rubberband"
-        }
-
-        local hiddenFlyChildNames = {
-            ["LinearVelocity"] = true,
-            ["AlignOrientation"] = true,
-            ["BodyVelocity"] = true,
-            ["BodyGyro"] = true,
-            ["VectorForce"] = true,
-            ["BSS_FlyLinearVel"] = true,
-            ["BSS_FlyAlignOri"] = true,
-            ["BSS_FlyAttachment"] = true,
-            ["LinearVelocityConstraint"] = true,
-            ["AlignOrientationConstraint"] = true,
-            ["RootRigAttachment_Aux"] = true,
+            "securityviolation", "kickexploit"
         }
 
         if canMetamethod then
             local okIndex = pcall(function()
                 local oldIndex
                 oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-                    if AntiDetect.Enabled and not checkcaller() and typeof(self) == "Instance" then
-                        local char = LocalPlayer.Character
-                        if self:IsA("Humanoid") and char and self:IsDescendantOf(char) then
-                            if AntiDetect.PropertySpoofEnabled then
+                    if AntiDetect.Enabled and AntiDetect.PropertySpoofEnabled and not checkcaller() and typeof(self) == "Instance" then
+                        if self:IsA("Humanoid") then
+                            local char = LocalPlayer.Character
+                            if char and self:IsDescendantOf(char) then
                                 if key == "WalkSpeed" and State.WalkSpeed ~= 16 then
                                     AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
                                     return 16
@@ -1539,27 +1514,10 @@ do
                                     return false
                                 end
                             end
-                            if AntiDetect.FlyStealthEnabled and State.FlyEnabled then
-                                if key == "PlatformStand" then
-                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
-                                    return false
-                                elseif key == "FloorMaterial" then
-                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
-                                    return Enum.Material.Plastic
-                                end
-                            end
-                        elseif self:IsA("BasePart") and char and self:IsDescendantOf(char) then
-                            if (AntiDetect.FlyStealthEnabled and State.FlyEnabled)
-                                or (AntiDetect.TeleportStealthEnabled and State.IsTeleportLocking) then
-                                if key == "AssemblyLinearVelocity" or key == "Velocity" then
-                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
-                                    return Vector3.zero
-                                end
-                            end
-                        elseif AntiDetect.PropertySpoofEnabled and self == workspace and key == "Gravity" and workspace.Gravity ~= State.OriginalGravity then
+                        elseif self == workspace and key == "Gravity" and workspace.Gravity ~= State.OriginalGravity then
                             AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
                             return State.OriginalGravity
-                        elseif AntiDetect.PropertySpoofEnabled and self == workspace.CurrentCamera and key == "FieldOfView" and workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView ~= 70 then
+                        elseif self == workspace.CurrentCamera and key == "FieldOfView" and workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView ~= 70 then
                             AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
                             return 70
                         end
@@ -1583,21 +1541,6 @@ do
                                 if string.find(rName, kw, 1, true) then
                                     AntiDetect.BlockedReports = AntiDetect.BlockedReports + 1
                                     return nil
-                                end
-                            end
-                        end
-                        if AntiDetect.FlyStealthEnabled and State.FlyEnabled then
-                            local char = LocalPlayer.Character
-                            if char and self:IsDescendantOf(char) then
-                                if method == "GetState" and self:IsA("Humanoid") then
-                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
-                                    return Enum.HumanoidStateType.Running
-                                elseif (method == "FindFirstChild" or method == "FindFirstChildWhichIsA" or method == "FindFirstChildOfClass") then
-                                    local targetArg = select(1, ...)
-                                    if type(targetArg) == "string" and hiddenFlyChildNames[targetArg] then
-                                        AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
-                                        return nil
-                                    end
                                 end
                             end
                         end
@@ -1629,259 +1572,6 @@ do
         AntiDetect.HooksInstalled = true
     end
 
-    function AntiDetect.StepFlyStealth(dt)
-        local _, hum, root = Utils.GetCharacter()
-        local cam = workspace.CurrentCamera
-        if not State.FlyEnabled or not hum or not root or not cam then
-            return false
-        end
-
-        -- Hapus seluruh BodyMover/Constraint agar tidak terdeteksi scanner child pada HumanoidRootPart
-        if Physics.FlyLV or Physics.FlyAO or Physics.FlyAttachment or Physics.FlyBV or Physics.FlyBG then
-            for _, inst in ipairs({ Physics.FlyLV, Physics.FlyAO, Physics.FlyAttachment, Physics.FlyBV, Physics.FlyBG }) do
-                if inst then
-                    pcall(function() inst:Destroy() end)
-                end
-            end
-            Physics.FlyLV = nil
-            Physics.FlyAO = nil
-            Physics.FlyAttachment = nil
-            Physics.FlyBV = nil
-            Physics.FlyBG = nil
-        end
-
-        if hum.Sit then
-            hum.Sit = false
-        end
-
-        -- Jaga PlatformStand tetap false & state Running agar server/klien tidak mendeteksi status terbang
-        if hum.PlatformStand then
-            hum.PlatformStand = false
-        end
-        hum.AutoRotate = false
-        local curState = hum:GetState()
-        if curState == Enum.HumanoidStateType.Freefall or curState == Enum.HumanoidStateType.Physics then
-            pcall(function()
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end)
-        end
-
-        local forward = 0
-        local right = 0
-        local up = 0
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then forward = forward + 1 end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then forward = forward - 1 end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then right = right + 1 end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then right = right - 1 end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then up = up + 1 end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-            up = up - 1
-        end
-
-        if forward == 0 and right == 0 and hum.MoveDirection.Magnitude > 0.05 then
-            local camCF = cam.CFrame
-            local flatLook = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
-            local flatRight = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
-            if flatLook.Magnitude > 0.001 then
-                forward = hum.MoveDirection:Dot(flatLook.Unit)
-            else
-                local flatUp = Vector3.new(camCF.UpVector.X, 0, camCF.UpVector.Z)
-                if flatUp.Magnitude > 0.001 then
-                    forward = hum.MoveDirection:Dot(flatUp.Unit) * (camCF.LookVector.Y < 0 and 1 or -1)
-                end
-            end
-            if flatRight.Magnitude > 0.001 then
-                right = hum.MoveDirection:Dot(flatRight.Unit)
-            end
-        end
-
-        local desiredDir = (cam.CFrame.LookVector * forward) + (cam.CFrame.RightVector * right) + Vector3.new(0, up, 0)
-        local targetVel = Vector3.zero
-        if desiredDir.Magnitude > 0.01 then
-            targetVel = desiredDir.Unit * State.FlySpeed
-        end
-
-        local safeDt = math.clamp(dt or 0.016, 0.001, 0.1)
-        local alpha = math.clamp(safeDt * 14, 0.15, 1)
-        Physics.FlyCurrentVel = Physics.FlyCurrentVel:Lerp(targetVel, alpha)
-        if Physics.FlyCurrentVel.Magnitude < 0.05 and targetVel == Vector3.zero then
-            Physics.FlyCurrentVel = Vector3.zero
-        end
-
-        local nextPos = root.Position + (Physics.FlyCurrentVel * safeDt)
-        local lookDir = cam.CFrame.LookVector
-        if lookDir.Magnitude < 0.001 then
-            lookDir = root.CFrame.LookVector
-        end
-
-        root.CFrame = CFrame.lookAt(nextPos, nextPos + lookDir)
-        root.AssemblyLinearVelocity = Vector3.new(0, 0.01, 0)
-        root.AssemblyAngularVelocity = Vector3.zero
-        return true
-    end
-
-    function AntiDetect.ExecuteStealthTeleport(targetCFrame, targetPlayer)
-        local char, hum, root = Utils.GetCharacter(LocalPlayer)
-        if not char or not root then
-            return false, 0
-        end
-
-        local startPos = root.Position
-        local destCF = targetCFrame
-        if targetPlayer then
-            local liveInfo = TeleportAPI.ResolvePlayerState(targetPlayer)
-            if liveInfo then
-                destCF = liveInfo.CFrame * CFrame.new(0, 0.5, 3)
-            end
-        end
-
-        local destPos = destCF.Position
-        local travelDistance = (destPos - startPos).Magnitude
-        State.LastTeleportDistance = travelDistance
-
-        State.TeleportToken = State.TeleportToken + 1
-        local myToken = State.TeleportToken
-
-        if hum then
-            hum.Sit = false
-            if hum.SeatPart then
-                local weld = hum.SeatPart:FindFirstChild("SeatWeld")
-                if weld then weld:Destroy() end
-            end
-            pcall(function()
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end)
-        end
-
-        TeleportAPI.RequestStreamAt(destPos, 6)
-
-        if not State.IsTeleportLocking then
-            State.PreTeleportAnchored = root.Anchored
-            State.IsTeleportLocking = true
-        end
-
-        local savedCollide = {}
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                savedCollide[part] = part.CanCollide
-                part.CanCollide = false
-                part.AssemblyLinearVelocity = Vector3.zero
-                part.AssemblyAngularVelocity = Vector3.zero
-            end
-        end
-
-        local function restorePartCollisions()
-            for part, orig in pairs(savedCollide) do
-                if part and part.Parent and part:IsA("BasePart") then
-                    part.CanCollide = orig
-                end
-            end
-            table.clear(savedCollide)
-        end
-
-        task.spawn(function()
-            -- Tahap 1: Micro-stepped transit agar melewati batas jarak per-frame anti-teleport
-            if travelDistance > 1 and travelDistance <= 3500 then
-                local stepCount = math.clamp(math.ceil(travelDistance / 110), 2, 14)
-                local rotOnly = destCF - destCF.Position
-                for s = 1, stepCount do
-                    RunService.Heartbeat:Wait()
-                    if State.TeleportToken ~= myToken or not char or not char.Parent or not root or not root.Parent then
-                        restorePartCollisions()
-                        return
-                    end
-                    if targetPlayer and targetPlayer.Parent then
-                        local updatedInfo = TeleportAPI.ResolvePlayerState(targetPlayer)
-                        if updatedInfo then
-                            destCF = updatedInfo.CFrame * CFrame.new(0, 0.5, 3)
-                            destPos = destCF.Position
-                            rotOnly = destCF - destCF.Position
-                        end
-                    end
-                    local frac = s / stepCount
-                    local interpPos = startPos:Lerp(destPos, frac)
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.AssemblyLinearVelocity = Vector3.zero
-                            part.AssemblyAngularVelocity = Vector3.zero
-                        end
-                    end
-                    char:PivotTo(CFrame.new(interpPos) * rotOnly)
-                end
-            end
-
-            if not char or not char.Parent or not root or not root.Parent then
-                restorePartCollisions()
-                return
-            end
-
-            -- Tahap 2: Stabilisasi posisi & stream area tujuan
-            root.Anchored = true
-            char:PivotTo(destCF)
-            Combat.LastSafePosition = destPos
-            Combat.LastSafeCFrame = destCF
-
-            local holdSteps = (travelDistance > 2500 or targetPlayer ~= nil) and 18 or 10
-            for step = 1, holdSteps do
-                RunService.Heartbeat:Wait()
-                if State.TeleportToken ~= myToken or not char or not char.Parent or not root or not root.Parent then
-                    restorePartCollisions()
-                    return
-                end
-                if targetPlayer and targetPlayer.Parent then
-                    local updatedInfo = TeleportAPI.ResolvePlayerState(targetPlayer)
-                    if updatedInfo then
-                        destCF = updatedInfo.CFrame * CFrame.new(0, 0.5, 3)
-                        destPos = destCF.Position
-                    end
-                end
-                if step == 3 or step == 8 or step == 14 then
-                    TeleportAPI.RequestStreamAt(destPos, 4)
-                end
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.AssemblyLinearVelocity = Vector3.zero
-                        part.AssemblyAngularVelocity = Vector3.zero
-                    end
-                end
-                char:PivotTo(destCF)
-            end
-
-            restorePartCollisions()
-            if root and root.Parent then
-                root.Anchored = State.PreTeleportAnchored
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-                Combat.LastSafePosition = root.Position
-                Combat.LastSafeCFrame = root.CFrame
-            end
-            if hum and hum.Parent then
-                pcall(function()
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end)
-            end
-            State.IsTeleportLocking = false
-
-            -- Tahap 3: Penjaga anti-rubberband pasca-teleport (menolak tarik-balik dari server)
-            for _ = 1, 18 do
-                RunService.Heartbeat:Wait()
-                if State.TeleportToken ~= myToken or not char or not char.Parent or not root or not root.Parent then
-                    return
-                end
-                if (root.Position - destPos).Magnitude > 45 and not targetPlayer then
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
-                    char:PivotTo(destCF)
-                    Combat.LastSafePosition = destPos
-                    Combat.LastSafeCFrame = destCF
-                end
-            end
-        end)
-
-        return true, travelDistance
-    end
-
     function AntiDetect.RestoreAll()
         AntiDetect.Enabled = false
         AntiDetect.GuiCloakEnabled = false
@@ -1889,8 +1579,6 @@ do
         AntiDetect.AntiKickHookEnabled = false
         AntiDetect.RemoteSanitizerEnabled = false
         AntiDetect.PhysicsStealthEnabled = false
-        AntiDetect.FlyStealthEnabled = false
-        AntiDetect.TeleportStealthEnabled = false
     end
 end
 
@@ -2384,9 +2072,6 @@ function Utils.GetTargetWorldPosition(target)
 end
 
 function Utils.SafeTeleport(targetCFrame, targetPlayer)
-    if AntiDetect.Enabled and AntiDetect.TeleportStealthEnabled then
-        return AntiDetect.ExecuteStealthTeleport(targetCFrame, targetPlayer)
-    end
     local char, hum, root = Utils.GetCharacter(LocalPlayer)
     if not char or not root then
         return false, 0
@@ -2809,11 +2494,6 @@ function Physics.CleanupFly()
 end
 
 function Physics.StepSmoothFly(dt)
-    if State.FlyEnabled and AntiDetect.Enabled and AntiDetect.FlyStealthEnabled then
-        if AntiDetect.StepFlyStealth(dt) then
-            return
-        end
-    end
     local _, hum, root = Utils.GetCharacter()
     local cam = workspace.CurrentCamera
     if not State.FlyEnabled or not hum or not root or not cam then
@@ -6846,22 +6526,7 @@ do
         Utils.Notify("Physics Stealth", on and "Objek Fly/Laser disembunyikan ke CurrentCamera." or "Physics Stealth dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
 
-    Components.AddToggle(page, "Anti-Detect Fly (CFrame Stealth & State Spoof)", "Terbang tanpa objek BodyMover/Constraint serta menyamarkan status & kecepatan karakter", true, 8, function(on)
-        AntiDetect.FlyStealthEnabled = on
-        if on and State.FlyEnabled then
-            Physics.CleanupFly()
-        end
-        AntiDetect.UpdateStatusBanner()
-        Utils.Notify("Anti-Detect Fly", on and "Anti-Detect Fly (Stealth CFrame & State Spoof) AKTIF." or "Anti-Detect Fly dimatikan (mode Fly standar).", on and Theme.Success or Theme.TextSecondary)
-    end)
-
-    Components.AddToggle(page, "Anti-Detect Teleport (Bypass Rubberband & Pos Spoof)", "Teleport bertahap anti-rubberband dengan penyamaran kecepatan & pelindung tarik-balik server", true, 9, function(on)
-        AntiDetect.TeleportStealthEnabled = on
-        AntiDetect.UpdateStatusBanner()
-        Utils.Notify("Anti-Detect Teleport", on and "Anti-Detect Teleport (Bypass Rubberband) AKTIF." or "Anti-Detect Teleport dimatikan (mode Teleport standar).", on and Theme.Success or Theme.TextSecondary)
-    end)
-
-    Components.AddButton(page, "Acak Ulang Identitas GUI & Objek (Re-Cloak Now)", "Perbarui nama acak seluruh container GUI & helper secara instan", "Re-Cloak", 10, function()
+    Components.AddButton(page, "Acak Ulang Identitas GUI & Objek (Re-Cloak Now)", "Perbarui nama acak seluruh container GUI & helper secara instan", "Re-Cloak", 8, function()
         AntiDetect.RefreshCloak(true)
         Utils.Notify("Stealth Re-Cloak", "Seluruh identitas GUI & helper berhasil diacak ulang!", Theme.Success)
     end)

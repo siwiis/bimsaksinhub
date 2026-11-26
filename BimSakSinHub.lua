@@ -1,10 +1,10 @@
 --[[
 ================================================================================
-  BimSakSin Hub v3.0 | Universal Halloween Luxury Edition
+  BimSakSin Hub v3.0 | Universal Luxury Skull 3D HD Edition
   Creator     : BimSakSin
   Environment : Roblox Luau (Universal / All-Map & R6/R15 Compatible)
   Features    :
-- Transparent Luxury Halloween UI + 4 Corner 3D Pumpkins + 3D Pumpkin Toggle
+- Transparent Luxury Skull 3D HD UI + 4 Corner 3D Skulls + 3D Skull Toggle
 - Universal Adaptive Player ESP (Team/Enemy/Random, Distance, Health,
       Transparent Avatar Highlight, Custom Font + Adaptive Translucent Backdrop)
 - Universal Item ESP (Unlimited Distance, Name + Distance, No Background,
@@ -116,7 +116,7 @@ local LocalPlayer = Players.LocalPlayer
 local App = {
     Name = "BimSakSin Hub v3.0",
     Subtitle = "semoga hari-hari kalian menyenangkan",
-    Version = "v3.0 Halloween",
+    Version = "v3.0 Skull 3D HD",
     GuiName = "BimSakSinHub_v3",
     IsOpen = true,
     IsMinimized = false,
@@ -129,7 +129,7 @@ local App = {
 }
 
 local Theme = {
-    -- Palet Halloween Mewah & Transparan
+    -- Palet Luxury Skull 3D HD Mewah & Transparan
     BgPrimary = Color3.fromRGB(13, 11, 19),
     BgSecondary = Color3.fromRGB(20, 16, 30),
     BgCard = Color3.fromRGB(28, 22, 41),
@@ -321,7 +321,7 @@ local UI = {
     FullbrightToggle = nil,
     NoFogToggle = nil,
     StatusLabel = nil,
-    Pumpkins = {},
+    Skulls = {},
 }
 
 local Utils = {}
@@ -961,142 +961,304 @@ function Utils.SafeTeleport(targetCFrame, targetPlayer)
 end
 
 -- ============================================================================
--- 4. 3D LIFELIKE HALLOWEEN PUMPKIN LOGO BUILDER (Pure Procedural 3D UI)
+-- 4. 3D HD LUXURY SKULL LOGO BUILDER (Pure Procedural 3D High-Detail UI)
 -- ============================================================================
-function Utils.CreatePumpkin3D(parent, pixelSize, position, anchorPoint, zIndex, isHero, isMenuPumpkin)
+function Utils.CreateSkull3D(parent, pixelSize, position, anchorPoint, zIndex, isHero, isMenuSkull, phaseOffset)
     local z = zIndex or 20
+    local basePos = position or UDim2.new(0, 0, 0, 0)
     local holder = Utils.Create("Frame", {
-        Name = "Pumpkin3D",
+        Name = "Skull3D_HD",
         Size = UDim2.new(0, pixelSize, 0, pixelSize),
-        Position = position or UDim2.new(0, 0, 0, 0),
+        Position = basePos,
         AnchorPoint = anchorPoint or Vector2.new(0, 0),
         BackgroundTransparency = 1,
         ZIndex = z,
     }, parent)
 
+    -- Outer Luxury Ambient Halo
     local aura = Utils.Create("Frame", {
-        Size = UDim2.new(1.16, 0, 1.16, 0),
-        Position = UDim2.new(0.5, 0, 0.52, 0),
+        Size = UDim2.new(1.24, 0, 1.24, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0),
         AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundColor3 = Color3.fromRGB(255, 115, 20),
+        BackgroundColor3 = Color3.fromRGB(255, 168, 58),
         BackgroundTransparency = isHero and 0.68 or 0.78,
         BorderSizePixel = 0,
         ZIndex = z,
     }, holder)
-    Utils.AddCorner(aura, math.floor(pixelSize * 0.6))
+    Utils.AddCorner(aura, math.floor(pixelSize * 0.65))
 
-    local stem = Utils.Create("Frame", {
-        Size = UDim2.new(0.18, 0, 0.24, 0),
-        Position = UDim2.new(0.52, 0, 0.04, 0),
-        AnchorPoint = Vector2.new(0.5, 0),
-        Rotation = 12,
-        BackgroundColor3 = Color3.fromRGB(62, 112, 44),
+    -- Inner Gold-Platinum Rim Ring
+    local haloRing = Utils.Create("Frame", {
+        Size = UDim2.new(1.06, 0, 1.06, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ZIndex = z + 1,
     }, holder)
-    Utils.AddCorner(stem, 4)
-    Utils.Create("UIGradient", {
-        Rotation = 45,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(115, 175, 72)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(36, 68, 26)),
-        }),
-    }, stem)
+    Utils.AddCorner(haloRing, math.floor(pixelSize * 0.55))
+    local ringStroke = Utils.AddStroke(haloRing, Color3.fromRGB(255, 206, 108), isHero and 1.35 or 1.0, 0.32)
 
-    local function makeRib(wScale, hScale, xScale, rot, cTop, cBot, ribZ)
-        local rib = Utils.Create("Frame", {
-            Size = UDim2.new(wScale, 0, hScale, 0),
-            Position = UDim2.new(xScale, 0, 0.56, 0),
+    -- Luxury Golden Crown Accent on Cranium Top (HD Detail)
+    local crownBase = Utils.Create("Frame", {
+        Size = UDim2.new(0.42, 0, 0.11, 0),
+        Position = UDim2.new(0.5, 0, 0.08, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        ZIndex = z + 6,
+    }, holder)
+    Utils.AddCorner(crownBase, 3)
+    Utils.Create("UIGradient", {
+        Rotation = 0,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(198, 142, 42)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 232, 138)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(184, 126, 34)),
+        }),
+    }, crownBase)
+    Utils.AddStroke(crownBase, Color3.fromRGB(92, 58, 12), 0.8, 0.35)
+
+    for _, spikeCfg in ipairs({
+        { x = 0.22, h = 0.95, rot = -10 },
+        { x = 0.50, h = 1.25, rot = 0 },
+        { x = 0.78, h = 0.95, rot = 10 },
+    }) do
+        local spike = Utils.Create("Frame", {
+            Size = UDim2.new(0.18, 0, spikeCfg.h, 0),
+            Position = UDim2.new(spikeCfg.x, 0, -0.35, 0),
             AnchorPoint = Vector2.new(0.5, 0.5),
-            Rotation = rot,
-            BackgroundColor3 = Color3.new(1, 1, 1),
+            Rotation = spikeCfg.rot,
+            BackgroundColor3 = Color3.fromRGB(255, 218, 106),
             BorderSizePixel = 0,
-            ZIndex = ribZ,
-        }, holder)
-        Utils.AddCorner(rib, math.floor(pixelSize * 0.45))
-        Utils.Create("UIGradient", {
-            Rotation = 90,
-            Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, cTop),
-                ColorSequenceKeypoint.new(0.55, cTop:Lerp(cBot, 0.35)),
-                ColorSequenceKeypoint.new(1, cBot),
-            }),
-        }, rib)
-        if isHero then
-            Utils.AddStroke(rib, Color3.fromRGB(70, 24, 4), 1, 0.45)
-        end
-        return rib
+            ZIndex = z + 6,
+        }, crownBase)
+        Utils.AddCorner(spike, 2)
     end
 
-    makeRib(0.36, 0.66, 0.21, -10, Color3.fromRGB(196, 74, 12), Color3.fromRGB(102, 32, 4), z + 1)
-    makeRib(0.36, 0.66, 0.79, 10, Color3.fromRGB(196, 74, 12), Color3.fromRGB(102, 32, 4), z + 1)
-    makeRib(0.40, 0.73, 0.33, -5, Color3.fromRGB(238, 102, 18), Color3.fromRGB(132, 44, 6), z + 2)
-    makeRib(0.40, 0.73, 0.67, 5, Color3.fromRGB(238, 102, 18), Color3.fromRGB(132, 44, 6), z + 2)
-    makeRib(0.44, 0.78, 0.50, 0, Color3.fromRGB(255, 162, 48), Color3.fromRGB(178, 62, 10), z + 3)
+    -- 3D Cranium Depth Shadow Layer (Back Hemisphere)
+    local craniumShadow = Utils.Create("Frame", {
+        Size = UDim2.new(0.76, 0, 0.62, 0),
+        Position = UDim2.new(0.5, 0, 0.42, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.fromRGB(122, 114, 136),
+        BorderSizePixel = 0,
+        ZIndex = z + 2,
+    }, holder)
+    Utils.AddCorner(craniumShadow, math.floor(pixelSize * 0.42))
 
-    local shine = Utils.Create("Frame", {
-        Size = UDim2.new(0.16, 0, 0.12, 0),
-        Position = UDim2.new(0.44, 0, 0.27, 0),
+    -- Main 3D Sculpted Ivory-Platinum Cranium Dome
+    local cranium = Utils.Create("Frame", {
+        Size = UDim2.new(0.72, 0, 0.58, 0),
+        Position = UDim2.new(0.5, 0, 0.40, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        ZIndex = z + 3,
+    }, holder)
+    Utils.AddCorner(cranium, math.floor(pixelSize * 0.4))
+    Utils.Create("UIGradient", {
+        Rotation = 115,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 253, 248)),
+            ColorSequenceKeypoint.new(0.48, Color3.fromRGB(232, 226, 238)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(148, 138, 162)),
+        }),
+    }, cranium)
+    Utils.AddStroke(cranium, Color3.fromRGB(88, 76, 104), isHero and 1.1 or 0.85, 0.35)
+
+    -- Cranium Specular Highlight (3D Gloss)
+    local specular = Utils.Create("Frame", {
+        Size = UDim2.new(0.34, 0, 0.16, 0),
+        Position = UDim2.new(0.38, 0, 0.20, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = -16,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 0.32,
+        BorderSizePixel = 0,
+        ZIndex = z + 4,
+    }, cranium)
+    Utils.AddCorner(specular, 99)
+
+    -- Temple Contour Shadows (Left & Right 3D Shading)
+    for _, side in ipairs({ -1, 1 }) do
+        local temple = Utils.Create("Frame", {
+            Size = UDim2.new(0.14, 0, 0.34, 0),
+            Position = UDim2.new(0.5 + (side * 0.38), 0, 0.56, 0),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Rotation = side * 12,
+            BackgroundColor3 = Color3.fromRGB(140, 130, 154),
+            BackgroundTransparency = 0.25,
+            BorderSizePixel = 0,
+            ZIndex = z + 4,
+        }, cranium)
+        Utils.AddCorner(temple, 6)
+    end
+
+    -- 3D Sculpted Cheekbones (Zygomatic Arches)
+    local cheekLeft = Utils.Create("Frame", {
+        Size = UDim2.new(0.26, 0, 0.21, 0),
+        Position = UDim2.new(0.28, 0, 0.59, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
         Rotation = -18,
-        BackgroundColor3 = Color3.fromRGB(255, 232, 180),
-        BackgroundTransparency = 0.45,
+        BackgroundColor3 = Color3.new(1, 1, 1),
         BorderSizePixel = 0,
         ZIndex = z + 4,
     }, holder)
-    Utils.AddCorner(shine, 8)
+    Utils.AddCorner(cheekLeft, 6)
+    Utils.Create("UIGradient", {
+        Rotation = 90,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(246, 242, 250)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(154, 144, 168)),
+        }),
+    }, cheekLeft)
+
+    local cheekRight = Utils.Create("Frame", {
+        Size = UDim2.new(0.26, 0, 0.21, 0),
+        Position = UDim2.new(0.72, 0, 0.59, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = 18,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        ZIndex = z + 4,
+    }, holder)
+    Utils.AddCorner(cheekRight, 6)
+    Utils.Create("UIGradient", {
+        Rotation = 90,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(246, 242, 250)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(154, 144, 168)),
+        }),
+    }, cheekRight)
+
+    -- Brow Ridge (Alis Tengkorak Tegas)
+    local browRidge = Utils.Create("Frame", {
+        Size = UDim2.new(0.58, 0, 0.08, 0),
+        Position = UDim2.new(0.5, 0, 0.40, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.fromRGB(186, 176, 200),
+        BorderSizePixel = 0,
+        ZIndex = z + 5,
+    }, holder)
+    Utils.AddCorner(browRidge, 4)
+
+    -- Deep Eye Sockets + Glowing Spectral/Gold Pupils
+    local socketLeft = Utils.Create("Frame", {
+        Size = UDim2.new(0.21, 0, 0.19, 0),
+        Position = UDim2.new(0.35, 0, 0.49, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = -10,
+        BackgroundColor3 = Color3.fromRGB(18, 12, 26),
+        BorderSizePixel = 0,
+        ZIndex = z + 6,
+    }, holder)
+    Utils.AddCorner(socketLeft, math.max(4, math.floor(pixelSize * 0.14)))
+    Utils.AddStroke(socketLeft, Color3.fromRGB(115, 102, 130), 0.9, 0.25)
 
     local eyeLeft = Utils.Create("Frame", {
-        Size = UDim2.new(0.15, 0, 0.13, 0),
-        Position = UDim2.new(0.36, 0, 0.47, 0),
+        Size = UDim2.new(0.56, 0, 0.56, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0),
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Rotation = -14,
-        BackgroundColor3 = Color3.fromRGB(255, 224, 92),
+        BackgroundColor3 = Color3.fromRGB(255, 198, 72),
         BorderSizePixel = 0,
-        ZIndex = z + 5,
+        ZIndex = z + 7,
+    }, socketLeft)
+    Utils.AddCorner(eyeLeft, 99)
+
+    local socketRight = Utils.Create("Frame", {
+        Size = UDim2.new(0.21, 0, 0.19, 0),
+        Position = UDim2.new(0.65, 0, 0.49, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = 10,
+        BackgroundColor3 = Color3.fromRGB(18, 12, 26),
+        BorderSizePixel = 0,
+        ZIndex = z + 6,
     }, holder)
-    Utils.AddCorner(eyeLeft, 3)
+    Utils.AddCorner(socketRight, math.max(4, math.floor(pixelSize * 0.14)))
+    Utils.AddStroke(socketRight, Color3.fromRGB(115, 102, 130), 0.9, 0.25)
 
     local eyeRight = Utils.Create("Frame", {
-        Size = UDim2.new(0.15, 0, 0.13, 0),
-        Position = UDim2.new(0.64, 0, 0.47, 0),
+        Size = UDim2.new(0.56, 0, 0.56, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0),
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Rotation = 14,
-        BackgroundColor3 = Color3.fromRGB(255, 224, 92),
+        BackgroundColor3 = Color3.fromRGB(255, 198, 72),
         BorderSizePixel = 0,
-        ZIndex = z + 5,
-    }, holder)
-    Utils.AddCorner(eyeRight, 3)
+        ZIndex = z + 7,
+    }, socketRight)
+    Utils.AddCorner(eyeRight, 99)
 
+    -- Nasal Cavity (Rongga Hidung 3D)
+    local noseCavity = Utils.Create("Frame", {
+        Size = UDim2.new(0.11, 0, 0.13, 0),
+        Position = UDim2.new(0.5, 0, 0.61, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.fromRGB(22, 16, 30),
+        BorderSizePixel = 0,
+        ZIndex = z + 6,
+    }, holder)
+    Utils.AddCorner(noseCavity, 3)
+
+    -- Articulated 3D Jaw & Maxilla (Rahang Atas & Bawah)
+    local jawBasePos = UDim2.new(0.5, 0, 0.77, 0)
+    local jaw = Utils.Create("Frame", {
+        Size = UDim2.new(0.46, 0, 0.22, 0),
+        Position = jawBasePos,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        ZIndex = z + 4,
+    }, holder)
+    Utils.AddCorner(jaw, 6)
+    Utils.Create("UIGradient", {
+        Rotation = 90,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(234, 228, 240)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(142, 132, 156)),
+        }),
+    }, jaw)
+    Utils.AddStroke(jaw, Color3.fromRGB(88, 76, 104), 0.85, 0.35)
+
+    -- Dark Mouth Cavity & Detailed Teeth Grid
     local mouth = Utils.Create("Frame", {
-        Size = UDim2.new(0.42, 0, 0.12, 0),
-        Position = UDim2.new(0.50, 0, 0.68, 0),
+        Size = UDim2.new(0.76, 0, 0.44, 0),
+        Position = UDim2.new(0.5, 0, 0.48, 0),
         AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundColor3 = Color3.fromRGB(255, 200, 64),
+        BackgroundColor3 = Color3.fromRGB(24, 16, 32),
         BorderSizePixel = 0,
         ZIndex = z + 5,
-    }, holder)
-    Utils.AddCorner(mouth, 5)
+    }, jaw)
+    Utils.AddCorner(mouth, 3)
 
-    if pixelSize >= 32 then
+    local toothCount = (pixelSize >= 32) and 4 or 3
+    for tIdx = 1, toothCount do
+        local xRatio = (tIdx - 0.5) / toothCount
         local tooth = Utils.Create("Frame", {
-            Size = UDim2.new(0.22, 0, 0.45, 0),
-            Position = UDim2.new(0.35, 0, 0, 0),
-            BackgroundColor3 = Color3.fromRGB(168, 56, 8),
+            Size = UDim2.new((0.76 / toothCount), 0, 0.84, 0),
+            Position = UDim2.new(xRatio, 0, 0.5, 0),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundColor3 = Color3.fromRGB(248, 244, 252),
             BorderSizePixel = 0,
             ZIndex = z + 6,
         }, mouth)
         Utils.AddCorner(tooth, 2)
     end
 
-    table.insert(UI.Pumpkins, {
+    table.insert(UI.Skulls, {
         Holder = holder,
         Aura = aura,
+        HaloRing = haloRing,
+        RingStroke = ringStroke,
+        Crown = crownBase,
         EyeLeft = eyeLeft,
         EyeRight = eyeRight,
+        Jaw = jaw,
+        JawBasePos = jawBasePos,
         Mouth = mouth,
-        BasePos = position or UDim2.new(0, 0, 0, 0),
+        BasePos = basePos,
+        Phase = phaseOffset or 0,
         IsHero = isHero == true,
-        IsMenuPumpkin = isMenuPumpkin == true,
+        IsMenuSkull = isMenuSkull == true,
     })
 
     return holder
@@ -1341,12 +1503,12 @@ function Utils.Notify(title, message, color)
 end
 
 -- ============================================================================
--- 7. BUILD MAIN WINDOW (HALLOWEEN LUXURY TRANSPARENT + 4 CORNER PUMPKINS)
+-- 7. BUILD MAIN WINDOW (LUXURY SKULL 3D HD TRANSPARENT + 4 CORNER SKULLS)
 -- ============================================================================
 do
-    -- Floating Toggle: Logo Labu Halloween 3D Hidup (Selalu terlihat saat menu ditutup)
+    -- Floating Toggle: Logo Tengkorak 3D HD Mewah (Selalu terlihat saat menu ditutup)
     UI.FloatingToggle = Utils.Create("TextButton", {
-        Name = "FloatingPumpkinToggle",
+        Name = "FloatingSkullToggle",
         Size = UDim2.new(0, 56, 0, 56),
         Position = UDim2.new(0, 18, 0.5, -28),
         BackgroundColor3 = Color3.fromRGB(18, 14, 28),
@@ -1359,14 +1521,15 @@ do
     local floatStroke = Utils.AddStroke(UI.FloatingToggle, Theme.Accent, 1.6, 0.15)
     Utils.RegisterAccent(floatStroke, "Color")
 
-    Utils.CreatePumpkin3D(
+    Utils.CreateSkull3D(
         UI.FloatingToggle,
         44,
         UDim2.new(0.5, 0, 0.5, 0),
         Vector2.new(0.5, 0.5),
         46,
         true,
-        false
+        false,
+        0
     )
 
     local initVp = UI.ScreenGui.AbsoluteSize
@@ -1390,7 +1553,7 @@ do
     local mainStroke = Utils.AddStroke(UI.MainFrame, Theme.Accent, 1.5, 0.15)
     Utils.RegisterAccent(mainStroke, "Color")
 
-    -- Gradien Kemewahan Halloween di Latar Belakang Panel
+    -- Gradien Kemewahan Luxury Skull 3D HD di Latar Belakang Panel
     local bgGradient = Utils.Create("UIGradient", {
         Rotation = 135,
         Color = ColorSequence.new({
@@ -1399,13 +1562,13 @@ do
             ColorSequenceKeypoint.new(1, Color3.fromRGB(42, 22, 16)),
         }),
     }, UI.MainFrame)
-    bgGradient.Name = "HalloweenLuxuryGradient"
+    bgGradient.Name = "LuxurySkullGradient"
 
-    -- 4 Logo Labu Halloween 3D di Setiap Sudut Panel Menu
-    Utils.CreatePumpkin3D(UI.MainFrame, 28, UDim2.new(0, -8, 0, -8), Vector2.new(0, 0), 30, false, true)
-    Utils.CreatePumpkin3D(UI.MainFrame, 28, UDim2.new(1, 8, 0, -8), Vector2.new(1, 0), 30, false, true)
-    Utils.CreatePumpkin3D(UI.MainFrame, 28, UDim2.new(0, -8, 1, 8), Vector2.new(0, 1), 30, false, true)
-    Utils.CreatePumpkin3D(UI.MainFrame, 28, UDim2.new(1, 8, 1, 8), Vector2.new(1, 1), 30, false, true)
+    -- 4 Logo Tengkorak 3D HD Mewah di Setiap Sudut Panel Menu
+    Utils.CreateSkull3D(UI.MainFrame, 30, UDim2.new(0, -9, 0, -9), Vector2.new(0, 0), 30, false, true, 0.0)
+    Utils.CreateSkull3D(UI.MainFrame, 30, UDim2.new(1, 9, 0, -9), Vector2.new(1, 0), 30, false, true, 1.57)
+    Utils.CreateSkull3D(UI.MainFrame, 30, UDim2.new(0, -9, 1, 9), Vector2.new(0, 1), 30, false, true, 3.14)
+    Utils.CreateSkull3D(UI.MainFrame, 30, UDim2.new(1, 9, 1, 9), Vector2.new(1, 1), 30, false, true, 4.71)
 
     -- Inner Clipping Frame
     UI.InnerClip = Utils.Create("Frame", {
@@ -1436,8 +1599,8 @@ do
         ZIndex = 13,
     }, UI.Topbar)
 
-    -- Emblem Labu 3D di Header Kiri
-    Utils.CreatePumpkin3D(UI.Topbar, 32, UDim2.new(0, 32, 0.5, 0), Vector2.new(0.5, 0.5), 14, true, true)
+    -- Emblem Tengkorak 3D HD Mewah di Header Kiri
+    Utils.CreateSkull3D(UI.Topbar, 34, UDim2.new(0, 32, 0.5, 0), Vector2.new(0.5, 0.5), 14, true, true, 0.8)
 
     -- Judul Utama ("BimSakSin Hub v3.0") & Ucapan di bawahnya
     local titleLbl = Utils.Create("TextLabel", {
@@ -1743,7 +1906,7 @@ function Components.AddSectionHeader(parent, title, order)
         Size = UDim2.new(1, 0, 0, 20),
         BackgroundTransparency = 1,
         Font = Theme.FontBold,
-        Text = "🎃 " .. string.upper(title),
+        Text = "💀 " .. string.upper(title),
         TextColor3 = Theme.Accent,
         TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -5161,7 +5324,7 @@ do
 
     Components.AddSectionHeader(page, "Kontrol Pintasan & Pembersihan Panel", 9)
 
-    Components.AddButton(page, "Pintasan Sembunyikan UI (RightShift)", "Atau ketuk logo labu 3D di layar kapan saja", "Hide UI", 10, function()
+    Components.AddButton(page, "Pintasan Sembunyikan UI (RightShift)", "Atau ketuk logo tengkorak 3D di layar kapan saja", "Hide UI", 10, function()
         App.IsOpen = false
         UI.MainFrame.Visible = false
     end)
@@ -5273,7 +5436,7 @@ do
         Position = UDim2.new(0, 12, 0, 8),
         BackgroundTransparency = 1,
         Font = Theme.FontBold,
-        Text = "🎃 " .. App.Name .. " — Universal Edition",
+        Text = "💀 " .. App.Name .. " — Universal Edition",
         TextColor3 = Theme.TextPrimary,
         TextSize = 14,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -5327,7 +5490,7 @@ do
     UI.CloseBtn.MouseButton1Click:Connect(function()
         App.IsOpen = false
         UI.MainFrame.Visible = false
-        Utils.Notify("Disembunyikan", "Ketuk logo labu 3D atau tekan RightShift untuk membuka.", Theme.Accent)
+        Utils.Notify("Disembunyikan", "Ketuk logo tengkorak 3D atau tekan RightShift untuk membuka.", Theme.Accent)
     end)
 
     local function getTitleFittedMinWidth()
@@ -5488,7 +5651,7 @@ do
         end)
     end))
 
-    -- Unified RenderStepped Loop: Smooth Admin Fly, Aimbot + RGB Gun Laser, Animasi Labu 3D, & Throttled Telemetry/ESP
+    -- Unified RenderStepped Loop: Smooth Admin Fly, Aimbot + RGB Gun Laser, Animasi Tengkorak 3D HD, & Throttled Telemetry/ESP
     local frameCount = 0
     local lastTick = os.clock()
     local lastWorldScan = 0
@@ -5497,17 +5660,43 @@ do
         local tNow = os.clock()
 
         SafeEngine.Run("RenderSteppedLoop", function()
-            -- 1. Animasi Hidup pada Logo Labu 3D (Lewati labu menu jika panel disembunyikan)
-            local pulse = (math.sin(tNow * 3.4) + 1) * 0.5
-            local eyeGlow = Color3.fromRGB(255, math.floor(195 + pulse * 60), math.floor(55 + pulse * 95))
-            for _, pData in ipairs(UI.Pumpkins) do
-                if (App.IsOpen or not pData.IsMenuPumpkin) and pData.Holder and pData.Holder.Parent then
-                    pData.EyeLeft.BackgroundColor3 = eyeGlow
-                    pData.EyeRight.BackgroundColor3 = eyeGlow
-                    pData.Mouth.BackgroundColor3 = eyeGlow
-                    if pData.IsHero then
-                        pData.Aura.BackgroundTransparency = 0.62 + (1 - pulse) * 0.18
-                        pData.Holder.Rotation = math.sin(tNow * 2.2) * 5.5
+            -- 1. Animasi Halus & Mewah pada Logo Tengkorak 3D HD (Lewati tengkorak menu jika panel disembunyikan)
+            for _, sData in ipairs(UI.Skulls) do
+                if (App.IsOpen or not sData.IsMenuSkull) and sData.Holder and sData.Holder.Parent then
+                    local phase = sData.Phase or 0
+                    local pulse = (math.sin((tNow * 2.8) + phase) + 1) * 0.5
+                    local floatY = math.sin((tNow * 2.1) + phase) * (sData.IsHero and 2.2 or 1.6)
+                    local swayRot = math.sin((tNow * 1.75) + phase) * (sData.IsHero and 5.2 or 4.0)
+                    local eyeColor = Color3.fromRGB(
+                        255,
+                        math.floor(188 + pulse * 62),
+                        math.floor(64 + pulse * 96)
+                    )
+
+                    sData.EyeLeft.BackgroundColor3 = eyeColor
+                    sData.EyeRight.BackgroundColor3 = eyeColor
+                    sData.Holder.Rotation = swayRot
+                    sData.Holder.Position = UDim2.new(
+                        sData.BasePos.X.Scale,
+                        sData.BasePos.X.Offset,
+                        sData.BasePos.Y.Scale,
+                        sData.BasePos.Y.Offset + floatY
+                    )
+
+                    if sData.Aura then
+                        sData.Aura.BackgroundTransparency = (sData.IsHero and 0.60 or 0.72) + (1 - pulse) * 0.16
+                    end
+                    if sData.RingStroke then
+                        sData.RingStroke.Transparency = 0.22 + (1 - pulse) * 0.34
+                    end
+                    if sData.Jaw and sData.JawBasePos then
+                        local jawDrop = pulse * 0.024
+                        sData.Jaw.Position = UDim2.new(
+                            sData.JawBasePos.X.Scale,
+                            sData.JawBasePos.X.Offset,
+                            sData.JawBasePos.Y.Scale + jawDrop,
+                            sData.JawBasePos.Y.Offset
+                        )
                     end
                 end
             end
@@ -5652,4 +5841,4 @@ end
 
 -- Inisialisasi Tab Awal & Notifikasi Selamat Datang
 Components.SwitchTab("Dashboard")
-Utils.Notify(App.Name, "Semoga hari-hari kalian menyenangkan! 🎃", Theme.Accent)
+Utils.Notify(App.Name, "Semoga hari-hari kalian menyenangkan! 💀", Theme.Accent)

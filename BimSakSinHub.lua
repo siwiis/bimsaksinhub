@@ -13,6 +13,8 @@
 - Precision Auto Aimbot + Conditional RGB Weapon Laser + Auto Parry
 - Melee Immunity + Disaster & Total Hazard Immunity + Hunger & Thirst Guard
 - Interactive Replicated Carry System (Visible to Other Players + Carry/Lepas Buttons)
+- Integrated Anti-Detect & Stealth Engine (GUI Cloaking, Instance Name Randomizer,
+      Metamethod Property Spoofing, Local Anti-Kick & Anti-Cheat Remote Guard)
 - Interactive Replicated R6 & R15 Dance/Emote Studio (Visible on All Devices)
 - Zero-Rubberband Universal Safe Teleport ("Click") & Waypoint Manager
 - Smooth Admin-Style Free-Flight & Analog-Safe NoClip Geometry Inspector
@@ -40,6 +42,14 @@ do
         ["BSS_ItemESP_Folder"] = true,
         ["BSS_GenESP_Folder"] = true,
     }
+    if typeof(getgenv) == "function" and type(getgenv().BSS_RuntimeNames) == "table" then
+        for dynName, active in pairs(getgenv().BSS_RuntimeNames) do
+            if active and type(dynName) == "string" then
+                existingNames[dynName] = true
+            end
+        end
+        getgenv().BSS_RuntimeNames = {}
+    end
     local function cleanupContainer(container)
         if not container then return end
         pcall(function()
@@ -54,7 +64,14 @@ do
     if typeof(gethui) == "function" then
         cleanupContainer(gethui())
     end
-    cleanupContainer(game:GetService("CoreGui"))
+    local coreGuiSvc = game:GetService("CoreGui")
+    cleanupContainer(coreGuiSvc)
+    if coreGuiSvc then
+        cleanupContainer(coreGuiSvc:FindFirstChild("RobloxGui"))
+    end
+    if workspace and workspace.CurrentCamera then
+        cleanupContainer(workspace.CurrentCamera)
+    end
 
     local lp = game:GetService("Players").LocalPlayer
     if lp then
@@ -68,6 +85,9 @@ do
                 "BSS_FlyLinearVel",
                 "BSS_FlyAlignOri",
                 "BSS_FlyAttachment",
+                "LinearVelocityConstraint",
+                "AlignOrientationConstraint",
+                "RootRigAttachment_Aux",
                 "BSS_CarryVelocity",
                 "BSS_CarryWeld",
             }) do
@@ -618,6 +638,16 @@ GeoLangAPI.FeatureDictionary = {
         ["Mencegah error pada setiap fitur dan memulihkannya otomatis saat terganggu"] = "Prevent errors across all features and auto-repair if disrupted",
         ["Proteksi Koneksi: Anti-Kick Diam (Anti-AFK)"] = "Connection Protection: Anti-AFK Kick Guard",
         ["Mencegah terputus dari server otomatis saat karakter diam lebih dari 20 menit"] = "Prevent automatic server disconnect when idle for over 20 minutes",
+        ["Master Anti-Detect & Stealth Mode"] = "Master Anti-Detect & Stealth Mode",
+        ["Aktifkan perlindungan anti-deteksi terpadu (GUI Cloak, Spoof & Anti-Kick)"] = "Enable unified anti-detection protection (GUI Cloak, Spoof & Anti-Kick)",
+        ["GUI Cloaking & Acak Nama Objek (Hidden UI)"] = "GUI Cloaking & Object Name Randomizer (Hidden UI)",
+        ["Sembunyikan UI ke container tersembunyi & acak nama instance agar lolos scan"] = "Hide UI inside stealth container & randomize instance names against scans",
+        ["Spoofing Properti Karakter (Speed / Jump / Gravity)"] = "Character Property Spoofing (Speed / Jump / Gravity)",
+        ["Samarkan WalkSpeed, JumpPower, Gravity & FOV agar terbaca normal oleh game"] = "Mask WalkSpeed, JumpPower, Gravity & FOV to appear default to local scripts",
+        ["Anti-Kick Lokal & Blokir Remote Laporan Anti-Cheat"] = "Local Anti-Kick & Anti-Cheat Report Remote Blocker",
+        ["Tahan panggilan LocalPlayer:Kick() lokal & blokir remote pelaporan mencurigakan"] = "Intercept local LocalPlayer:Kick() calls & block suspicious anti-cheat remotes",
+        ["Physics & Camera Instance Stealth"] = "Physics & Camera Instance Stealth",
+        ["Sembunyikan objek Fly, Laser & Anchor ke CurrentCamera dengan nama bawaan"] = "Hide Fly, Laser & Anchor objects inside CurrentCamera with native names",
 
         -- Buttons & Chip Selectors
         ["Salin ID Server (Place & Job ID)"] = "Copy Server ID (Place & Job ID)",
@@ -1174,6 +1204,22 @@ local Protection = {
     HungerThirstValues = {},
 }
 
+local AntiDetect = {
+    Enabled = true,
+    GuiCloakEnabled = true,
+    PropertySpoofEnabled = true,
+    AntiKickHookEnabled = true,
+    RemoteSanitizerEnabled = true,
+    PhysicsStealthEnabled = true,
+    SpoofedReads = 0,
+    BlockedKicks = 0,
+    BlockedReports = 0,
+    CloakedInstances = 0,
+    HooksInstalled = false,
+    HookSupportLabel = "Standar (Cloak + Stealth)",
+    InstanceNames = {},
+}
+
 local Connections = {}
 local UI = {
     Tabs = {},
@@ -1222,7 +1268,10 @@ function SafeEngine.AutoRepair(contextName, errMsg)
             end
         end
         if root and not State.FlyEnabled then
-            for _, name in ipairs({ "BSS_FlyLinearVel", "BSS_FlyAlignOri", "BSS_FlyVelocity", "BSS_FlyGyro" }) do
+            for _, name in ipairs({
+                "BSS_FlyLinearVel", "BSS_FlyAlignOri", "BSS_FlyVelocity", "BSS_FlyGyro",
+                "LinearVelocityConstraint", "AlignOrientationConstraint", "RootRigAttachment_Aux"
+            }) do
                 local inst = root:FindFirstChild(name)
                 if inst then inst:Destroy() end
             end
@@ -1234,6 +1283,303 @@ function SafeEngine.AutoRepair(contextName, errMsg)
             UI.StatusLabel.Text = string.format("Anti-Bug Aktif (%d Fix)", Protection.AutoRepairs)
         end
     end)
+end
+
+-- ============================================================================
+-- 2B. INTEGRATED ANTI-DETECT & STEALTH ENGINE (AntiDetect)
+-- ============================================================================
+do
+    local namePrefixes = {
+        "RobloxGui_Cache_",
+        "CoreOverlay_",
+        "ViewportLayer_",
+        "StudioWidget_",
+        "InputController_",
+        "CameraRig_",
+        "RenderNode_",
+    }
+
+    function AntiDetect.RegisterRuntimeName(name)
+        if type(name) ~= "string" or name == "" then return end
+        if typeof(getgenv) == "function" then
+            local env = getgenv()
+            if type(env.BSS_RuntimeNames) ~= "table" then
+                env.BSS_RuntimeNames = {}
+            end
+            env.BSS_RuntimeNames[name] = true
+        end
+    end
+
+    function AntiDetect.GenerateCrypticName(key)
+        if key and AntiDetect.InstanceNames[key] then
+            return AntiDetect.InstanceNames[key]
+        end
+        local prefix = namePrefixes[(math.abs((key and #key or 0) + math.floor(os.clock() * 1000)) % #namePrefixes) + 1]
+        local hex = ""
+        local okGuid, guid = pcall(function()
+            return HttpService:GenerateGUID(false)
+        end)
+        if okGuid and type(guid) == "string" then
+            hex = string.sub(string.gsub(guid, "-", ""), 1, 10)
+        else
+            hex = string.format("%06x%04x", math.random(0, 0xFFFFFF), math.random(0, 0xFFFF))
+        end
+        local fullName = prefix .. hex
+        if key then
+            AntiDetect.InstanceNames[key] = fullName
+        end
+        AntiDetect.RegisterRuntimeName(fullName)
+        return fullName
+    end
+
+    function AntiDetect.GetStealthName(key, fallbackName)
+        if AntiDetect.Enabled and AntiDetect.GuiCloakEnabled then
+            return AntiDetect.GenerateCrypticName(key)
+        end
+        return fallbackName
+    end
+
+    function AntiDetect.GetFlyInstanceNames()
+        if AntiDetect.Enabled and AntiDetect.PhysicsStealthEnabled then
+            return {
+                Attachment = "RootRigAttachment_Aux",
+                LinearVelocity = "LinearVelocityConstraint",
+                AlignOrientation = "AlignOrientationConstraint",
+            }
+        end
+        return {
+            Attachment = "BSS_FlyAttachment",
+            LinearVelocity = "BSS_FlyLinearVel",
+            AlignOrientation = "BSS_FlyAlignOri",
+        }
+    end
+
+    function AntiDetect.GetStealthGuiParent()
+        if AntiDetect.Enabled and AntiDetect.GuiCloakEnabled then
+            if typeof(gethui) == "function" then
+                local ok, hiddenGui = pcall(gethui)
+                if ok and typeof(hiddenGui) == "Instance" then
+                    return hiddenGui
+                end
+            end
+            local okCore, coreGui = pcall(function()
+                return game:GetService("CoreGui")
+            end)
+            if okCore and coreGui then
+                local robloxGui = coreGui:FindFirstChild("RobloxGui")
+                if robloxGui then
+                    return robloxGui
+                end
+                return coreGui
+            end
+        end
+        local okCore, coreGui = pcall(function()
+            return game:GetService("CoreGui")
+        end)
+        if okCore and coreGui then
+            return coreGui
+        end
+        return LocalPlayer:WaitForChild("PlayerGui")
+    end
+
+    function AntiDetect.GetWorldHelperParent()
+        if AntiDetect.Enabled and AntiDetect.PhysicsStealthEnabled and workspace.CurrentCamera then
+            return workspace.CurrentCamera
+        end
+        return workspace
+    end
+
+    function AntiDetect.ProtectInstance(inst, key, fallbackName)
+        if not inst then return end
+        pcall(function()
+            inst.Archivable = false
+            inst.Name = AntiDetect.GetStealthName(key, fallbackName)
+            if AntiDetect.Enabled and AntiDetect.GuiCloakEnabled then
+                if typeof(syn) == "table" and typeof(syn.protect_gui) == "function" and inst:IsA("GuiBase") then
+                    pcall(syn.protect_gui, inst)
+                elseif typeof(protect_gui) == "function" and inst:IsA("GuiBase") then
+                    pcall(protect_gui, inst)
+                end
+            end
+        end)
+    end
+
+    function AntiDetect.RefreshCloak(regenerateNames)
+        if regenerateNames then
+            table.clear(AntiDetect.InstanceNames)
+        end
+        local cloakedCount = 0
+
+        if UI.ScreenGui and UI.ScreenGui.Parent then
+            local targetParent = AntiDetect.GetStealthGuiParent()
+            pcall(function()
+                if UI.ScreenGui.Parent ~= targetParent then
+                    UI.ScreenGui.Parent = targetParent
+                end
+            end)
+            AntiDetect.ProtectInstance(UI.ScreenGui, "MainScreenGui", App.GuiName)
+            cloakedCount = cloakedCount + 1
+        end
+
+        if ESP.Folder and ESP.Folder.Parent then
+            AntiDetect.ProtectInstance(ESP.Folder, "PlayerESPFolder", "BSS_ESP_Folder")
+            cloakedCount = cloakedCount + 1
+        end
+        if ItemESP.Folder and ItemESP.Folder.Parent then
+            AntiDetect.ProtectInstance(ItemESP.Folder, "ItemESPFolder", "BSS_ItemESP_Folder")
+            cloakedCount = cloakedCount + 1
+        end
+        if GeneratorESP.Folder and GeneratorESP.Folder.Parent then
+            AntiDetect.ProtectInstance(GeneratorESP.Folder, "GenESPFolder", "BSS_GenESP_Folder")
+            cloakedCount = cloakedCount + 1
+        end
+        if Combat.FOVCircle and Combat.FOVCircle.Parent then
+            AntiDetect.ProtectInstance(Combat.FOVCircle, "AimFOVCircle", "BSS_AimFOV")
+            cloakedCount = cloakedCount + 1
+        end
+        if Combat.LaserPart and Combat.LaserPart.Parent then
+            pcall(function()
+                Combat.LaserPart.Parent = AntiDetect.GetWorldHelperParent()
+            end)
+            AntiDetect.ProtectInstance(Combat.LaserPart, "AimLaserPart", "BSS_RGB_AimLaser")
+            cloakedCount = cloakedCount + 1
+        end
+        if State.SpectateAnchorPart and State.SpectateAnchorPart.Parent then
+            pcall(function()
+                State.SpectateAnchorPart.Parent = AntiDetect.GetWorldHelperParent()
+            end)
+            AntiDetect.ProtectInstance(State.SpectateAnchorPart, "RemoteViewAnchor", "BSS_RemoteViewAnchor")
+            cloakedCount = cloakedCount + 1
+        end
+
+        AntiDetect.CloakedInstances = (AntiDetect.Enabled and AntiDetect.GuiCloakEnabled) and cloakedCount or 0
+        AntiDetect.UpdateStatusBanner()
+    end
+
+    function AntiDetect.UpdateStatusBanner()
+        if not UI.AntiDetectStatusLabel or not UI.AntiDetectStatusLabel.Parent then
+            return
+        end
+        if not AntiDetect.Enabled then
+            UI.AntiDetectStatusLabel.Text = "  Status Anti-Detect: NONAKTIF (Mode Terbuka)"
+            return
+        end
+        local layers = {}
+        if AntiDetect.GuiCloakEnabled then table.insert(layers, "GUI Cloak (" .. tostring(AntiDetect.CloakedInstances) .. ")") end
+        if AntiDetect.PropertySpoofEnabled then table.insert(layers, "Spoof (" .. tostring(AntiDetect.SpoofedReads) .. ")") end
+        if AntiDetect.AntiKickHookEnabled or AntiDetect.RemoteSanitizerEnabled then
+            table.insert(layers, string.format("Guard (%d Kick / %d Report)", AntiDetect.BlockedKicks, AntiDetect.BlockedReports))
+        end
+        if AntiDetect.PhysicsStealthEnabled then table.insert(layers, "CamStealth") end
+        local activeStr = (#layers > 0) and table.concat(layers, " • ") or "Standby"
+        UI.AntiDetectStatusLabel.Text = "  Anti-Detect AKTIF [" .. AntiDetect.HookSupportLabel .. "] • " .. activeStr
+    end
+
+    function AntiDetect.InstallHooks()
+        if AntiDetect.HooksInstalled then
+            return
+        end
+
+        local canMetamethod = (typeof(hookmetamethod) == "function")
+            and (typeof(getnamecallmethod) == "function")
+            and (typeof(newcclosure) == "function")
+            and (typeof(checkcaller) == "function")
+
+        local suspiciousRemoteKeywords = {
+            "anticheat", "anti_cheat", "cheatdetect", "exploitdetect",
+            "banplayer", "banreport", "reportexploit", "flagcheat",
+            "tamperdetect", "speedhack", "flyhack", "noclipdetect",
+            "securityviolation", "kickexploit"
+        }
+
+        if canMetamethod then
+            local okIndex = pcall(function()
+                local oldIndex
+                oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+                    if AntiDetect.Enabled and AntiDetect.PropertySpoofEnabled and not checkcaller() and typeof(self) == "Instance" then
+                        if self:IsA("Humanoid") then
+                            local char = LocalPlayer.Character
+                            if char and self:IsDescendantOf(char) then
+                                if key == "WalkSpeed" and State.WalkSpeed ~= 16 then
+                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
+                                    return 16
+                                elseif key == "JumpPower" and State.JumpPower ~= 50 then
+                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
+                                    return 50
+                                elseif key == "JumpHeight" and State.JumpPower ~= 50 then
+                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
+                                    return 7.2
+                                elseif key == "PlatformStand" and State.FlyEnabled then
+                                    AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
+                                    return false
+                                end
+                            end
+                        elseif self == workspace and key == "Gravity" and workspace.Gravity ~= State.OriginalGravity then
+                            AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
+                            return State.OriginalGravity
+                        elseif self == workspace.CurrentCamera and key == "FieldOfView" and workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView ~= 70 then
+                            AntiDetect.SpoofedReads = AntiDetect.SpoofedReads + 1
+                            return 70
+                        end
+                    end
+                    return oldIndex(self, key)
+                end))
+            end)
+
+            local okNamecall = pcall(function()
+                local oldNamecall
+                oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+                    if AntiDetect.Enabled and not checkcaller() and typeof(self) == "Instance" then
+                        local method = getnamecallmethod()
+                        if (method == "Kick" or method == "kick") and self == LocalPlayer and AntiDetect.AntiKickHookEnabled then
+                            AntiDetect.BlockedKicks = AntiDetect.BlockedKicks + 1
+                            return nil
+                        end
+                        if (method == "FireServer" or method == "InvokeServer") and AntiDetect.RemoteSanitizerEnabled then
+                            local rName = string.lower(self.Name)
+                            for _, kw in ipairs(suspiciousRemoteKeywords) do
+                                if string.find(rName, kw, 1, true) then
+                                    AntiDetect.BlockedReports = AntiDetect.BlockedReports + 1
+                                    return nil
+                                end
+                            end
+                        end
+                    end
+                    return oldNamecall(self, ...)
+                end))
+            end)
+
+            if okIndex and okNamecall then
+                AntiDetect.HookSupportLabel = "Full Hook + Cloak"
+            elseif okIndex or okNamecall then
+                AntiDetect.HookSupportLabel = "Partial Hook + Cloak"
+            end
+        end
+
+        if typeof(hookfunction) == "function" and typeof(checkcaller) == "function" and typeof(newcclosure) == "function" then
+            pcall(function()
+                local oldKick
+                oldKick = hookfunction(LocalPlayer.Kick, newcclosure(function(self, ...)
+                    if AntiDetect.Enabled and AntiDetect.AntiKickHookEnabled and not checkcaller() and self == LocalPlayer then
+                        AntiDetect.BlockedKicks = AntiDetect.BlockedKicks + 1
+                        return nil
+                    end
+                    return oldKick(self, ...)
+                end))
+            end)
+        end
+
+        AntiDetect.HooksInstalled = true
+    end
+
+    function AntiDetect.RestoreAll()
+        AntiDetect.Enabled = false
+        AntiDetect.GuiCloakEnabled = false
+        AntiDetect.PropertySpoofEnabled = false
+        AntiDetect.AntiKickHookEnabled = false
+        AntiDetect.RemoteSanitizerEnabled = false
+        AntiDetect.PhysicsStealthEnabled = false
+    end
 end
 
 -- ============================================================================
@@ -1591,7 +1937,8 @@ function TeleportAPI.EnsureRemoteViewAnchor(targetCF)
     local anchor = State.SpectateAnchorPart
     if not anchor or not anchor.Parent then
         anchor = Instance.new("Part")
-        anchor.Name = "BSS_RemoteViewAnchor"
+        anchor.Name = AntiDetect.GetStealthName("RemoteViewAnchor", "BSS_RemoteViewAnchor")
+        anchor.Archivable = false
         anchor.Size = Vector3.new(1, 1, 1)
         anchor.Transparency = 1
         anchor.Anchored = true
@@ -1599,7 +1946,7 @@ function TeleportAPI.EnsureRemoteViewAnchor(targetCF)
         anchor.CanTouch = false
         anchor.CanQuery = false
         anchor.CastShadow = false
-        anchor.Parent = workspace
+        anchor.Parent = AntiDetect.GetWorldHelperParent()
         State.SpectateAnchorPart = anchor
     end
     if targetCF then
@@ -2128,7 +2475,10 @@ function Physics.CleanupFly()
 
     local _, hum, root = Utils.GetCharacter()
     if root then
-        for _, objName in ipairs({ "BSS_FlyLinearVel", "BSS_FlyAlignOri", "BSS_FlyAttachment", "BSS_FlyVelocity", "BSS_FlyGyro" }) do
+        for _, objName in ipairs({
+            "BSS_FlyLinearVel", "BSS_FlyAlignOri", "BSS_FlyAttachment", "BSS_FlyVelocity", "BSS_FlyGyro",
+            "LinearVelocityConstraint", "AlignOrientationConstraint", "RootRigAttachment_Aux"
+        }) do
             local old = root:FindFirstChild(objName)
             if old then old:Destroy() end
         end
@@ -2159,13 +2509,16 @@ function Physics.StepSmoothFly(dt)
 
     if not Physics.FlyAttachment or Physics.FlyAttachment.Parent ~= root then
         Physics.CleanupFly()
+        local flyNames = AntiDetect.GetFlyInstanceNames()
         local att = Instance.new("Attachment")
-        att.Name = "BSS_FlyAttachment"
+        att.Name = flyNames.Attachment
+        att.Archivable = false
         att.Parent = root
         Physics.FlyAttachment = att
 
         local lv = Instance.new("LinearVelocity")
-        lv.Name = "BSS_FlyLinearVel"
+        lv.Name = flyNames.LinearVelocity
+        lv.Archivable = false
         lv.Attachment0 = att
         lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
         lv.RelativeTo = Enum.ActuatorRelativeTo.World
@@ -2175,7 +2528,8 @@ function Physics.StepSmoothFly(dt)
         Physics.FlyLV = lv
 
         local ao = Instance.new("AlignOrientation")
-        ao.Name = "BSS_FlyAlignOri"
+        ao.Name = flyNames.AlignOrientation
+        ao.Archivable = false
         ao.Attachment0 = att
         ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
         ao.RigidityEnabled = false
@@ -2261,12 +2615,15 @@ local function getGuiParent()
 end
 
 do
+    AntiDetect.InstallHooks()
     UI.ScreenGui = Utils.Create("ScreenGui", {
-        Name = App.GuiName,
+        Name = AntiDetect.GetStealthName("MainScreenGui", App.GuiName),
+        Archivable = false,
         ResetOnSpawn = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         IgnoreGuiInset = true,
-    }, getGuiParent())
+    }, AntiDetect.GetStealthGuiParent())
+    AntiDetect.ProtectInstance(UI.ScreenGui, "MainScreenGui", App.GuiName)
 
     UI.ToastContainer = Utils.Create("Frame", {
         Name = "ToastContainer",
@@ -3301,7 +3658,8 @@ end
 -- ============================================================================
 do
     ESP.Folder = Utils.Create("Folder", {
-        Name = "BSS_ESP_Folder",
+        Name = AntiDetect.GetStealthName("PlayerESPFolder", "BSS_ESP_Folder"),
+        Archivable = false,
     }, UI.ScreenGui)
 
     function ESP.GetRandomPlayerColor(plr)
@@ -3535,8 +3893,8 @@ end
 -- 11. UNIVERSAL ITEM ESP & GENERATOR ESP (Unlimited Distance, Map-Adaptive)
 -- ============================================================================
 do
-    ItemESP.Folder = Utils.Create("Folder", { Name = "BSS_ItemESP_Folder" }, UI.ScreenGui)
-    GeneratorESP.Folder = Utils.Create("Folder", { Name = "BSS_GenESP_Folder" }, UI.ScreenGui)
+    ItemESP.Folder = Utils.Create("Folder", { Name = AntiDetect.GetStealthName("ItemESPFolder", "BSS_ItemESP_Folder"), Archivable = false }, UI.ScreenGui)
+    GeneratorESP.Folder = Utils.Create("Folder", { Name = AntiDetect.GetStealthName("GenESPFolder", "BSS_GenESP_Folder"), Archivable = false }, UI.ScreenGui)
 
     local function isPlayerDescendant(inst)
         for _, plr in ipairs(Players:GetPlayers()) do
@@ -3992,7 +4350,8 @@ end
 -- ============================================================================
 do
     Combat.FOVCircle = Utils.Create("Frame", {
-        Name = "BSS_AimFOV",
+        Name = AntiDetect.GetStealthName("AimFOVCircle", "BSS_AimFOV"),
+        Archivable = false,
         Size = UDim2.new(0, Combat.FOVRadius * 2, 0, Combat.FOVRadius * 2),
         Position = UDim2.new(0.5, 0, 0.5, 0),
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -4042,7 +4401,8 @@ do
     function Combat.UpdateLaser(startPos, endPos)
         if not Combat.LaserPart or not Combat.LaserPart.Parent then
             Combat.LaserPart = Utils.Create("Part", {
-                Name = "BSS_RGB_AimLaser",
+                Name = AntiDetect.GetStealthName("AimLaserPart", "BSS_RGB_AimLaser"),
+                Archivable = false,
                 Anchored = true,
                 CanCollide = false,
                 CanTouch = false,
@@ -4051,7 +4411,7 @@ do
                 Material = Enum.Material.Neon,
                 Transparency = 0.15,
                 Size = Vector3.new(0.08, 0.08, 1),
-            }, workspace)
+            }, AntiDetect.GetWorldHelperParent())
         end
 
         local dist = (endPos - startPos).Magnitude
@@ -4538,7 +4898,7 @@ do
         if Players:GetPlayerFromCharacter(part.Parent) or (part.Parent and Players:GetPlayerFromCharacter(part.Parent.Parent)) then
             return false
         end
-        if part.Name == "BSS_RGB_AimLaser" or part.Name == "BSS_RemoteViewAnchor" then
+        if part == Combat.LaserPart or part == State.SpectateAnchorPart or part.Name == "BSS_RGB_AimLaser" or part.Name == "BSS_RemoteViewAnchor" then
             return false
         end
 
@@ -6111,13 +6471,69 @@ do
 end
 
 -- ============================================================================
--- TAB 9: PENGATURAN (ANTI-BUG, ANTI-AFK, BAHASA IP, FONT & WARNA MENU)
+-- TAB 9: PENGATURAN (ANTI-DETECT, ANTI-BUG, ANTI-AFK, BAHASA IP, FONT & WARNA)
 -- ============================================================================
 do
     local page = Components.CreateTab("Settings", "⚙", 9)
-    Components.AddSectionHeader(page, "Sistem Anti-Bug / Error & Anti-AFK", 1)
 
-    Components.AddToggle(page, "Proteksi Sistem: Anti-Bug & Pemulihan Otomatis", "Mencegah error pada setiap fitur dan memulihkannya otomatis saat terganggu", true, 2, function(on)
+    Components.AddSectionHeader(page, "Sistem Anti-Detect & Stealth Mode (Terpadu)", 1)
+
+    local antiDetectBanner = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 26),
+        BackgroundColor3 = Theme.BgCard,
+        BackgroundTransparency = 0.25,
+        Font = Theme.FontBold,
+        Text = "  Anti-Detect AKTIF • Memindai dukungan executor...",
+        TextColor3 = Theme.Success,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        LayoutOrder = 2,
+        ZIndex = 14,
+    }, page)
+    Utils.AddCorner(antiDetectBanner, 7)
+    Utils.AddStroke(antiDetectBanner, Theme.BorderSubtle, 1, 0.3)
+    UI.AntiDetectStatusLabel = antiDetectBanner
+
+    Components.AddToggle(page, "Master Anti-Detect & Stealth Mode", "Aktifkan perlindungan anti-deteksi terpadu (GUI Cloak, Spoof & Anti-Kick)", true, 3, function(on)
+        AntiDetect.Enabled = on
+        AntiDetect.RefreshCloak(false)
+        Utils.Notify("Anti-Detect Engine", on and "Master Anti-Detect & Stealth Mode AKTIF." or "Anti-Detect dimatikan sementara.", on and Theme.Success or Theme.Warning)
+    end)
+
+    Components.AddToggle(page, "GUI Cloaking & Acak Nama Objek (Hidden UI)", "Sembunyikan UI ke container tersembunyi & acak nama instance agar lolos scan", true, 4, function(on)
+        AntiDetect.GuiCloakEnabled = on
+        AntiDetect.RefreshCloak(on)
+        Utils.Notify("GUI Cloaking", on and "GUI disembunyikan & nama objek diacak." or "GUI Cloaking dimatikan.", on and Theme.Success or Theme.TextSecondary)
+    end)
+
+    Components.AddToggle(page, "Spoofing Properti Karakter (Speed / Jump / Gravity)", "Samarkan WalkSpeed, JumpPower, Gravity & FOV agar terbaca normal oleh game", true, 5, function(on)
+        AntiDetect.PropertySpoofEnabled = on
+        AntiDetect.UpdateStatusBanner()
+        Utils.Notify("Property Spoofer", on and "Spoofing WalkSpeed/Jump/Gravity AKTIF." or "Property Spoofer dimatikan.", on and Theme.Success or Theme.TextSecondary)
+    end)
+
+    Components.AddToggle(page, "Anti-Kick Lokal & Blokir Remote Laporan Anti-Cheat", "Tahan panggilan LocalPlayer:Kick() lokal & blokir remote pelaporan mencurigakan", true, 6, function(on)
+        AntiDetect.AntiKickHookEnabled = on
+        AntiDetect.RemoteSanitizerEnabled = on
+        AntiDetect.UpdateStatusBanner()
+        Utils.Notify("Anti-Kick & Remote Guard", on and "Penahan Kick lokal & filter remote AKTIF." or "Anti-Kick & Remote Guard dimatikan.", on and Theme.Success or Theme.TextSecondary)
+    end)
+
+    Components.AddToggle(page, "Physics & Camera Instance Stealth", "Sembunyikan objek Fly, Laser & Anchor ke CurrentCamera dengan nama bawaan", true, 7, function(on)
+        AntiDetect.PhysicsStealthEnabled = on
+        AntiDetect.RefreshCloak(false)
+        Utils.Notify("Physics Stealth", on and "Objek Fly/Laser disembunyikan ke CurrentCamera." or "Physics Stealth dimatikan.", on and Theme.Success or Theme.TextSecondary)
+    end)
+
+    Components.AddButton(page, "Acak Ulang Identitas GUI & Objek (Re-Cloak Now)", "Perbarui nama acak seluruh container GUI & helper secara instan", "Re-Cloak", 8, function()
+        AntiDetect.RefreshCloak(true)
+        Utils.Notify("Stealth Re-Cloak", "Seluruh identitas GUI & helper berhasil diacak ulang!", Theme.Success)
+    end)
+
+    Components.AddSectionHeader(page, "Sistem Anti-Bug / Error & Anti-AFK", 9)
+
+    Components.AddToggle(page, "Proteksi Sistem: Anti-Bug & Pemulihan Otomatis", "Mencegah error pada setiap fitur dan memulihkannya otomatis saat terganggu", true, 10, function(on)
         Protection.AntiBugEnabled = on
         if UI.StatusLabel and UI.StatusLabel.Parent then
             UI.StatusLabel.Text = on and "Anti-Bug: AKTIF" or "Anti-Bug: OFF"
@@ -6125,12 +6541,12 @@ do
         Utils.Notify("Anti-Bug Engine", on and "Proteksi anti-bug & auto-recovery AKTIF." or "Proteksi anti-bug dimatikan.", on and Theme.Success or Theme.Warning)
     end)
 
-    Components.AddToggle(page, "Proteksi Koneksi: Anti-Kick Diam (Anti-AFK)", "Mencegah terputus dari server otomatis saat karakter diam lebih dari 20 menit", true, 3, function(on)
+    Components.AddToggle(page, "Proteksi Koneksi: Anti-Kick Diam (Anti-AFK)", "Mencegah terputus dari server otomatis saat karakter diam lebih dari 20 menit", true, 11, function(on)
         Protection.AntiAFKEnabled = on
         Utils.Notify("Anti-AFK", on and "Anti-AFK aktif." or "Anti-AFK dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
 
-    Components.AddSectionHeader(page, GeoLangAPI.T("lang_section"), 4)
+    Components.AddSectionHeader(page, GeoLangAPI.T("lang_section"), 12)
 
     local langStatusBanner = Utils.Create("TextLabel", {
         Size = UDim2.new(1, 0, 0, 26),
@@ -6149,7 +6565,7 @@ do
         TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
-        LayoutOrder = 5,
+        LayoutOrder = 13,
         ZIndex = 14,
     }, page)
     Utils.AddCorner(langStatusBanner, 7)
@@ -6170,7 +6586,7 @@ do
         GeoLangAPI.T("lang_selector"),
         langChipOptions,
         GeoLangAPI.CurrentLang,
-        6,
+        14,
         function(selectedCode)
             GeoLangAPI.SetLanguage(selectedCode, true)
             Utils.Notify(
@@ -6186,7 +6602,7 @@ do
         GeoLangAPI.T("lang_auto_btn"),
         GeoLangAPI.T("lang_auto_sub"),
         GeoLangAPI.T("lang_sync_now"),
-        7,
+        15,
         function()
             GeoLangAPI.ManualOverride = false
             GeoLangAPI.FetchRealTimeGeoIP(true)
@@ -6205,7 +6621,7 @@ do
         end
     end)
 
-    Components.AddSectionHeader(page, "Kustomisasi Font & Warna Panel Menu", 8)
+    Components.AddSectionHeader(page, "Kustomisasi Font & Warna Panel Menu", 16)
 
     Components.AddChipSelector(page, "Gaya Font Seluruh Panel Menu", {
         { Label = "Gotham Semi", Value = Enum.Font.GothamSemibold, Font = Enum.Font.GothamSemibold },
@@ -6214,7 +6630,7 @@ do
         { Label = "Creepster", Value = Enum.Font.Creepster, Font = Enum.Font.Creepster },
         { Label = "Roboto Mono", Value = Enum.Font.RobotoMono, Font = Enum.Font.RobotoMono },
         { Label = "Merriweather", Value = Enum.Font.Merriweather, Font = Enum.Font.Merriweather },
-    }, Enum.Font.GothamSemibold, 9, function(val)
+    }, Enum.Font.GothamSemibold, 17, function(val)
         Theme.FontFamily = val
         Theme.FontBold = (val == Enum.Font.Creepster or val == Enum.Font.FredokaOne) and val or Enum.Font.GothamBold
         Utils.ApplyMenuFontAndColors()
@@ -6228,7 +6644,7 @@ do
         { Label = "Hijau Neon", Value = Color3.fromRGB(46, 213, 115), Color = Color3.fromRGB(46, 213, 115) },
         { Label = "Biru Elektrik", Value = Color3.fromRGB(52, 152, 219), Color = Color3.fromRGB(52, 152, 219) },
         { Label = "Pink Neon", Value = Color3.fromRGB(255, 105, 180), Color = Color3.fromRGB(255, 105, 180) },
-    }, Color3.fromRGB(255, 118, 26), 10, function(val)
+    }, Color3.fromRGB(255, 118, 26), 18, function(val)
         Utils.SetAccentColor(val, val)
         Utils.Notify("Warna Aksen Menu", "Warna aksen panel menu diperbarui.", val)
     end)
@@ -6240,7 +6656,7 @@ do
         { Label = "Cyan Es", Value = Color3.fromRGB(115, 238, 255), Color = Color3.fromRGB(115, 238, 255) },
         { Label = "Hijau Mint", Value = Color3.fromRGB(120, 250, 175), Color = Color3.fromRGB(120, 250, 175) },
         { Label = "Hitam Pekat", Value = Color3.fromRGB(18, 14, 24), Color = Color3.fromRGB(18, 14, 24) },
-    }, "Auto", 11, function(val)
+    }, "Auto", 19, function(val)
         Theme.FontColorMode = val
         Utils.ApplyMenuFontAndColors()
         Utils.Notify("Warna Teks Menu", "Warna teks panel menu diperbarui.", Theme.Accent)
@@ -6253,7 +6669,7 @@ do
         { Label = "Coklat Labu", Value = Color3.fromRGB(54, 26, 12), Color = Color3.fromRGB(54, 26, 12) },
         { Label = "Terang Kabut", Value = Color3.fromRGB(238, 234, 246), Color = Color3.fromRGB(238, 234, 246) },
         { Label = "Emas Gelap", Value = Color3.fromRGB(56, 38, 10), Color = Color3.fromRGB(56, 38, 10) },
-    }, "None", 12, function(val)
+    }, "None", 20, function(val)
         if val == "None" then
             Theme.FontBgEnabled = false
         else
@@ -6265,14 +6681,14 @@ do
         Utils.Notify("Latar Teks Menu", "Latar belakang teks menu diperbarui.", Theme.Accent)
     end)
 
-    Components.AddSectionHeader(page, "Kontrol Pintasan & Pembersihan Panel", 13)
+    Components.AddSectionHeader(page, "Kontrol Pintasan & Pembersihan Panel", 21)
 
-    Components.AddButton(page, "Sembunyikan Panel Menu (RightShift)", "Atau ketuk ikon tengkorak 3D di layar kapan saja", "Sembunyi", 14, function()
+    Components.AddButton(page, "Sembunyikan Panel Menu (RightShift)", "Atau ketuk ikon tengkorak 3D di layar kapan saja", "Sembunyi", 22, function()
         App.IsOpen = false
         UI.MainFrame.Visible = false
     end)
 
-    Components.AddButton(page, "Matikan & Hapus Script (Unload Hub)", "Putus semua loop, pulihkan karakter/map, dan tutup GUI", "Unload", 15, function()
+    Components.AddButton(page, "Matikan & Hapus Script (Unload Hub)", "Putus semua loop, pulihkan karakter/map, dan tutup GUI", "Unload", 23, function()
         if typeof(getgenv) == "function" and type(getgenv().BSS_UnloadOld) == "function" then
             getgenv().BSS_UnloadOld()
         end
@@ -6755,6 +7171,8 @@ do
                 UI.TelemetryLabels.Players.Text = tostring(#Players:GetPlayers()) .. " / " .. tostring(Players.MaxPlayers)
             end
 
+            AntiDetect.UpdateStatusBanner()
+
             if UI.TelemetryLabels.WorldCoord then
                 local _, _, root = Utils.GetCharacter(LocalPlayer)
                 if root then
@@ -6776,6 +7194,7 @@ end
 -- 18. UNLOAD CLEANUP REGISTRY & INITIALIZATION
 -- ============================================================================
 local function unloadHub()
+    AntiDetect.RestoreAll()
     State.TeleportToken = State.TeleportToken + 1
     State.IsTeleportLocking = false
     State.FlyEnabled = false
@@ -6890,6 +7309,7 @@ do
     end
 end
 
+AntiDetect.RefreshCloak(false)
 Components.SwitchTab("Dashboard")
 Utils.ApplyMenuFontAndColors()
 GeoLangAPI.RefreshBannerText()

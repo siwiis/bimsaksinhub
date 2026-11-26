@@ -100,6 +100,8 @@ local Lighting = game:GetService("Lighting")
 local Stats = game:GetService("Stats")
 local TeleportService = game:GetService("TeleportService")
 local Teams = game:GetService("Teams")
+local HttpService = game:GetService("HttpService")
+local LocalizationService = game:GetService("LocalizationService")
 
 local VirtualUser = nil
 pcall(function()
@@ -115,7 +117,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local App = {
     Name = "BimSakSin Hub v3.0",
-    Subtitle = "semoga hari-hari kalian menyenangkan",
+    Subtitle = "Mendeteksi IP & Lokasi Pemain...",
     Version = "v3.0 Skull 3D HD",
     GuiName = "BimSakSinHub_v3",
     IsOpen = true,
@@ -127,6 +129,501 @@ local App = {
     DiscordUrl = "https://discord.gg/YwMCBq22f2",
     DonationUrl = "https://linktr.ee/bimsaksin",
 }
+
+-- ============================================================================
+-- GEO-IP & REAL-TIME MULTI-LANGUAGE ENGINE (GeoLangAPI)
+-- ============================================================================
+local GeoLangAPI = {
+    CurrentLang = "id",
+    AutoDetectedLang = "id",
+    ManualOverride = false,
+    IPAddress = "Detecting...",
+    City = "-",
+    Region = "-",
+    Country = "-",
+    CountryCode = "ID",
+    StatusText = "🌐 IP: Mendeteksi... | Lokasi: Memuat...",
+    Listeners = {},
+}
+
+GeoLangAPI.Languages = {
+    { Code = "id", Label = "🇮🇩 Indonesia", CountryCodes = { ID = true } },
+    { Code = "en", Label = "🇺🇸 English", CountryCodes = { US = true, GB = true, CA = true, AU = true, NZ = true, SG = true } },
+    { Code = "ms", Label = "🇲🇾 Melayu", CountryCodes = { MY = true, BN = true } },
+    { Code = "jp", Label = "🇯🇵 日本語 (JP)", CountryCodes = { JP = true } },
+    { Code = "kr", Label = "🇰🇷 한국어 (KR)", CountryCodes = { KR = true } },
+    { Code = "cn", Label = "🇨🇳 中文 (CN)", CountryCodes = { CN = true, TW = true, HK = true } },
+    { Code = "es", Label = "🇪🇸 Español", CountryCodes = { ES = true, MX = true, AR = true, CO = true, CL = true, PE = true } },
+    { Code = "pt", Label = "🇧🇷 Português", CountryCodes = { BR = true, PT = true } },
+    { Code = "ru", Label = "🇷🇺 Русский", CountryCodes = { RU = true, BY = true, KZ = true } },
+    { Code = "ar", Label = "🇸🇦 العربية", CountryCodes = { SA = true, AE = true, EG = true, QA = true, KW = true } },
+    { Code = "fr", Label = "🇫🇷 Français", CountryCodes = { FR = true, BE = true, CH = true } },
+    { Code = "de", Label = "🇩🇪 Deutsch", CountryCodes = { DE = true, AT = true } },
+    { Code = "th", Label = "🇹🇭 ไทย (TH)", CountryCodes = { TH = true } },
+    { Code = "vi", Label = "🇻🇳 Tiếng Việt", CountryCodes = { VN = true } },
+    { Code = "tl", Label = "🇵🇭 Filipino", CountryCodes = { PH = true } },
+}
+
+GeoLangAPI.Dictionary = {
+    id = {
+        detecting = "🌐 IP: Mendeteksi... | Lokasi: Memuat...",
+        ip_fmt = "🌐 IP: %s | Lokasi: %s, %s (%s)",
+        tab_Dashboard = "Dashboard",
+        tab_ESPRadar = "ESP Radar",
+        tab_Combat = "Combat",
+        tab_Carry = "Carry",
+        tab_Dances = "Dances",
+        tab_Movement = "Movement",
+        tab_Teleport = "Teleport",
+        tab_Visuals = "Visuals",
+        tab_Settings = "Settings",
+        tab_Informasi = "Informasi",
+        lang_section = "Bahasa & Deteksi Region IP Real-Time",
+        lang_selector = "Pilih Bahasa Negara (Auto Region IP / Manual)",
+        lang_auto_btn = "Sinkronisasi Otomatis Region IP",
+        lang_auto_sub = "Baca ulang IP publik, negara & bahasa pemain secara real-time",
+        lang_sync_now = "Sync IP",
+        lang_changed = "Bahasa diubah ke: ",
+        welcome = "Selamat datang! Lokasi & bahasa disesuaikan secara real-time. 💀",
+    },
+    en = {
+        detecting = "🌐 IP: Detecting... | Location: Loading...",
+        ip_fmt = "🌐 IP: %s | Location: %s, %s (%s)",
+        tab_Dashboard = "Dashboard",
+        tab_ESPRadar = "ESP Radar",
+        tab_Combat = "Combat",
+        tab_Carry = "Carry",
+        tab_Dances = "Dances",
+        tab_Movement = "Movement",
+        tab_Teleport = "Teleport",
+        tab_Visuals = "Visuals",
+        tab_Settings = "Settings",
+        tab_Informasi = "Information",
+        lang_section = "Language & Real-Time IP Region Detection",
+        lang_selector = "Select Country Language (Auto IP Region / Manual)",
+        lang_auto_btn = "Auto-Sync IP Region & Language",
+        lang_auto_sub = "Re-detect public IP, country & player language in real-time",
+        lang_sync_now = "Sync IP",
+        lang_changed = "Language switched to: ",
+        welcome = "Welcome! Player IP location & language synced in real-time. 💀",
+    },
+    ms = {
+        detecting = "🌐 IP: Mengesan... | Lokasi: Memuatkan...",
+        ip_fmt = "🌐 IP: %s | Lokasi: %s, %s (%s)",
+        tab_Dashboard = "Papan Utama",
+        tab_ESPRadar = "Radar ESP",
+        tab_Combat = "Tempur",
+        tab_Carry = "Dukung",
+        tab_Dances = "Tarian",
+        tab_Movement = "Pergerakan",
+        tab_Teleport = "Teleport",
+        tab_Visuals = "Visual",
+        tab_Settings = "Tetapan",
+        tab_Informasi = "Maklumat",
+        lang_section = "Bahasa & Pengesanan Wilayah IP Masa Nyata",
+        lang_selector = "Pilih Bahasa Negara (Auto Wilayah IP / Manual)",
+        lang_auto_btn = "Segerak Auto Wilayah IP",
+        lang_auto_sub = "Baca semula IP awam, negara & bahasa pemain secara masa nyata",
+        lang_sync_now = "Segerak IP",
+        lang_changed = "Bahasa ditukar kepada: ",
+        welcome = "Selamat datang! Lokasi IP & bahasa disegerakkan secara masa nyata. 💀",
+    },
+    jp = {
+        detecting = "🌐 IP: 検出中... | 地域: 読み込み中...",
+        ip_fmt = "🌐 IP: %s | 場所: %s, %s (%s)",
+        tab_Dashboard = "ダッシュボード",
+        tab_ESPRadar = "ESPレーダー",
+        tab_Combat = "戦闘・エイム",
+        tab_Carry = "キャリー",
+        tab_Dances = "ダンス",
+        tab_Movement = "移動・速度",
+        tab_Teleport = "テレポート",
+        tab_Visuals = "ビジュアル",
+        tab_Settings = "設定",
+        tab_Informasi = "情報",
+        lang_section = "言語＆リアルタイムIP地域検出",
+        lang_selector = "国の言語を選択（IP自動検出 / 手動）",
+        lang_auto_btn = "IP地域と自動同期",
+        lang_auto_sub = "パブリックIP・国・言語をリアルタイムで再取得します",
+        lang_sync_now = "IP同期",
+        lang_changed = "言語を変更しました: ",
+        welcome = "ようこそ！IP地域と言語をリアルタイムで同期しました。💀",
+    },
+    kr = {
+        detecting = "🌐 IP: 감지 중... | 위치: 불러오는 중...",
+        ip_fmt = "🌐 IP: %s | 위치: %s, %s (%s)",
+        tab_Dashboard = "대시보드",
+        tab_ESPRadar = "ESP 레이더",
+        tab_Combat = "전투 / 에임",
+        tab_Carry = "캐리",
+        tab_Dances = "댄스",
+        tab_Movement = "이동 / 속도",
+        tab_Teleport = "텔레포트",
+        tab_Visuals = "비주얼",
+        tab_Settings = "설정",
+        tab_Informasi = "정보",
+        lang_section = "언어 및 실시간 IP 지역 감지",
+        lang_selector = "국가 언어 선택 (IP 자동 감지 / 수동)",
+        lang_auto_btn = "IP 지역 자동 동기화",
+        lang_auto_sub = "공인 IP, 국가 및 언어를 실시간으로 다시 감지합니다",
+        lang_sync_now = "IP 동기화",
+        lang_changed = "언어가 변경되었습니다: ",
+        welcome = "환영합니다! IP 위치와 언어가 실시간으로 동기화되었습니다. 💀",
+    },
+    cn = {
+        detecting = "🌐 IP: 检测中... | 位置: 加载中...",
+        ip_fmt = "🌐 IP: %s | 位置: %s, %s (%s)",
+        tab_Dashboard = "仪表盘",
+        tab_ESPRadar = "透视雷达",
+        tab_Combat = "战斗自瞄",
+        tab_Carry = "背人互动",
+        tab_Dances = "舞蹈动作",
+        tab_Movement = "移动速度",
+        tab_Teleport = "传送系统",
+        tab_Visuals = "视觉环境",
+        tab_Settings = "系统设置",
+        tab_Informasi = "关于信息",
+        lang_section = "语言与实时IP地区检测",
+        lang_selector = "选择国家语言（IP自动识别 / 手动）",
+        lang_auto_btn = "自动同步IP地区",
+        lang_auto_sub = "实时重新读取玩家公网IP、国家与语言",
+        lang_sync_now = "同步IP",
+        lang_changed = "语言已切换为: ",
+        welcome = "欢迎使用！已实时同步玩家IP位置与语言。💀",
+    },
+    es = {
+        detecting = "🌐 IP: Detectando... | Ubicación: Cargando...",
+        ip_fmt = "🌐 IP: %s | Ubicación: %s, %s (%s)",
+        tab_Dashboard = "Panel",
+        tab_ESPRadar = "Radar ESP",
+        tab_Combat = "Combate",
+        tab_Carry = "Cargar",
+        tab_Dances = "Bailes",
+        tab_Movement = "Movimiento",
+        tab_Teleport = "Teletransporte",
+        tab_Visuals = "Visuales",
+        tab_Settings = "Ajustes",
+        tab_Informasi = "Información",
+        lang_section = "Idioma y Detección de Región IP en Tiempo Real",
+        lang_selector = "Seleccionar Idioma del País (Auto IP / Manual)",
+        lang_auto_btn = "Sincronizar Región IP Automática",
+        lang_auto_sub = "Volver a detectar IP pública, país e idioma en tiempo real",
+        lang_sync_now = "Sinc. IP",
+        lang_changed = "Idioma cambiado a: ",
+        welcome = "¡Bienvenido! Ubicación IP e idioma sincronizados en tiempo real. 💀",
+    },
+    pt = {
+        detecting = "🌐 IP: Detectando... | Localização: Carregando...",
+        ip_fmt = "🌐 IP: %s | Localização: %s, %s (%s)",
+        tab_Dashboard = "Painel",
+        tab_ESPRadar = "Radar ESP",
+        tab_Combat = "Combate",
+        tab_Carry = "Carregar",
+        tab_Dances = "Danças",
+        tab_Movement = "Movimento",
+        tab_Teleport = "Teleporte",
+        tab_Visuals = "Visuais",
+        tab_Settings = "Configurações",
+        tab_Informasi = "Informações",
+        lang_section = "Idioma e Detecção de Região IP em Tempo Real",
+        lang_selector = "Selecionar Idioma do País (Auto IP / Manual)",
+        lang_auto_btn = "Sincronizar Região IP Automaticamente",
+        lang_auto_sub = "Detectar novamente IP público, país e idioma em tempo real",
+        lang_sync_now = "Sinc. IP",
+        lang_changed = "Idioma alterado para: ",
+        welcome = "Bem-vindo! Localização IP e idioma sincronizados em tempo real. 💀",
+    },
+    ru = {
+        detecting = "🌐 IP: Определение... | Локация: Загрузка...",
+        ip_fmt = "🌐 IP: %s | Локация: %s, %s (%s)",
+        tab_Dashboard = "Панель",
+        tab_ESPRadar = "ESP Радар",
+        tab_Combat = "Бой / Аим",
+        tab_Carry = "Носить",
+        tab_Dances = "Танцы",
+        tab_Movement = "Движение",
+        tab_Teleport = "Телепорт",
+        tab_Visuals = "Визуал",
+        tab_Settings = "Настройки",
+        tab_Informasi = "Инфо",
+        lang_section = "Язык и определение региона по IP в реальном времени",
+        lang_selector = "Выберите язык страны (Авто IP / Вручную)",
+        lang_auto_btn = "Авто-синхронизация региона IP",
+        lang_auto_sub = "Повторно определить публичный IP, страну и язык",
+        lang_sync_now = "Синхр. IP",
+        lang_changed = "Язык изменен на: ",
+        welcome = "Добро пожаловать! IP-локация и язык синхронизированы. 💀",
+    },
+    ar = {
+        detecting = "🌐 IP: جاري الكشف... | الموقع: جاري التحميل...",
+        ip_fmt = "🌐 IP: %s | الموقع: %s, %s (%s)",
+        tab_Dashboard = "لوحة التحكم",
+        tab_ESPRadar = "رادار ESP",
+        tab_Combat = "القتال",
+        tab_Carry = "حمل اللاعب",
+        tab_Dances = "الرقصات",
+        tab_Movement = "الحركة",
+        tab_Teleport = "الانتقال",
+        tab_Visuals = "المرئيات",
+        tab_Settings = "الإعدادات",
+        tab_Informasi = "معلومات",
+        lang_section = "اللغة واكتشاف منطقة IP في الوقت الفعلي",
+        lang_selector = "اختر لغة الدولة (تلقائي حسب IP / يدوي)",
+        lang_auto_btn = "مزامنة منطقة IP تلقائياً",
+        lang_auto_sub = "إعادة قراءة عنوان IP والدولة واللغة في الوقت الفعلي",
+        lang_sync_now = "مزامنة IP",
+        lang_changed = "تم تغيير اللغة إلى: ",
+        welcome = "مرحباً بك! تمت مزامنة موقع IP واللغة في الوقت الفعلي. 💀",
+    },
+    fr = {
+        detecting = "🌐 IP: Détection... | Lieu: Chargement...",
+        ip_fmt = "🌐 IP: %s | Lieu: %s, %s (%s)",
+        tab_Dashboard = "Tableau",
+        tab_ESPRadar = "Radar ESP",
+        tab_Combat = "Combat",
+        tab_Carry = "Porter",
+        tab_Dances = "Danses",
+        tab_Movement = "Mouvement",
+        tab_Teleport = "Téléport",
+        tab_Visuals = "Visuels",
+        tab_Settings = "Paramètres",
+        tab_Informasi = "Infos",
+        lang_section = "Langue et Détection Régionale IP en Temps Réel",
+        lang_selector = "Choisir la Langue du Pays (Auto IP / Manuel)",
+        lang_auto_btn = "Synchroniser Auto la Région IP",
+        lang_auto_sub = "Relire l'IP publique, le pays et la langue en temps réel",
+        lang_sync_now = "Sync IP",
+        lang_changed = "Langue changée en : ",
+        welcome = "Bienvenue ! Localisation IP et langue synchronisées en temps réel. 💀",
+    },
+    de = {
+        detecting = "🌐 IP: Erkennung... | Standort: Wird geladen...",
+        ip_fmt = "🌐 IP: %s | Standort: %s, %s (%s)",
+        tab_Dashboard = "Dashboard",
+        tab_ESPRadar = "ESP-Radar",
+        tab_Combat = "Kampf",
+        tab_Carry = "Tragen",
+        tab_Dances = "Tänze",
+        tab_Movement = "Bewegung",
+        tab_Teleport = "Teleport",
+        tab_Visuals = "Visuell",
+        tab_Settings = "Einstellungen",
+        tab_Informasi = "Info",
+        lang_section = "Sprache & Echtzeit-IP-Regionserkennung",
+        lang_selector = "Ländersprache wählen (Auto-IP / Manuell)",
+        lang_auto_btn = "IP-Region automatisch synchronisieren",
+        lang_auto_sub = "Öffentliche IP, Land und Sprache in Echtzeit neu erkennen",
+        lang_sync_now = "IP Sync",
+        lang_changed = "Sprache geändert zu: ",
+        welcome = "Willkommen! IP-Standort & Sprache in Echtzeit synchronisiert. 💀",
+    },
+    th = {
+        detecting = "🌐 IP: กำลังตรวจจับ... | ตำแหน่ง: กำลังโหลด...",
+        ip_fmt = "🌐 IP: %s | ตำแหน่ง: %s, %s (%s)",
+        tab_Dashboard = "แดชบอร์ด",
+        tab_ESPRadar = "เรดาร์ ESP",
+        tab_Combat = "ต่อสู้ / เล็ง",
+        tab_Carry = "อุ้มผู้เล่น",
+        tab_Dances = "ท่าเต้น",
+        tab_Movement = "การเคลื่อนที่",
+        tab_Teleport = "เทเลพอร์ต",
+        tab_Visuals = "ภาพและแสง",
+        tab_Settings = "ตั้งค่า",
+        tab_Informasi = "ข้อมูล",
+        lang_section = "ภาษาและการตรวจจับภูมิภาค IP แบบเรียลไทม์",
+        lang_selector = "เลือกภาษาประเทศ (ตรวจจับ IP อัตโนมัติ / เลือกเอง)",
+        lang_auto_btn = "ซิงค์ภูมิภาค IP อัตโนมัติ",
+        lang_auto_sub = "อ่านค่า IP สาธารณะ ประเทศ และภาษาแบบเรียลไทม์อีกครั้ง",
+        lang_sync_now = "ซิงค์ IP",
+        lang_changed = "เปลี่ยนภาษาเป็น: ",
+        welcome = "ยินดีต้อนรับ! ซิงค์ตำแหน่ง IP และภาษาแบบเรียลไทม์แล้ว 💀",
+    },
+    vi = {
+        detecting = "🌐 IP: Đang dò... | Vị trí: Đang tải...",
+        ip_fmt = "🌐 IP: %s | Vị trí: %s, %s (%s)",
+        tab_Dashboard = "Bảng chính",
+        tab_ESPRadar = "Radar ESP",
+        tab_Combat = "Chiến đấu",
+        tab_Carry = "Bế / Cõng",
+        tab_Dances = "Nhảy múa",
+        tab_Movement = "Di chuyển",
+        tab_Teleport = "Dịch chuyển",
+        tab_Visuals = "Hình ảnh",
+        tab_Settings = "Cài đặt",
+        tab_Informasi = "Thông tin",
+        lang_section = "Ngôn ngữ & Nhận diện Vùng IP Thời gian thực",
+        lang_selector = "Chọn Ngôn ngữ Quốc gia (Tự động IP / Thủ công)",
+        lang_auto_btn = "Tự động đồng bộ Vùng IP",
+        lang_auto_sub = "Đọc lại IP công khai, quốc gia và ngôn ngữ theo thời gian thực",
+        lang_sync_now = "Đồng bộ IP",
+        lang_changed = "Đã đổi ngôn ngữ sang: ",
+        welcome = "Chào mừng! Đã đồng bộ vị trí IP và ngôn ngữ theo thời gian thực. 💀",
+    },
+    tl = {
+        detecting = "🌐 IP: Tinutukoy... | Lokasyon: Naglo-load...",
+        ip_fmt = "🌐 IP: %s | Lokasyon: %s, %s (%s)",
+        tab_Dashboard = "Dashboard",
+        tab_ESPRadar = "ESP Radar",
+        tab_Combat = "Labanan",
+        tab_Carry = "Buhat",
+        tab_Dances = "Sayaw",
+        tab_Movement = "Galaw",
+        tab_Teleport = "Teleport",
+        tab_Visuals = "Biswal",
+        tab_Settings = "Settings",
+        tab_Informasi = "Impormasyon",
+        lang_section = "Wika at Real-Time na Pagbasa ng IP Region",
+        lang_selector = "Pumili ng Wika ng Bansa (Auto IP Region / Manual)",
+        lang_auto_btn = "Auto-Sync ng IP Region at Wika",
+        lang_auto_sub = "Basahin muli ang pampublikong IP, bansa at wika nang real-time",
+        lang_sync_now = "Sync IP",
+        lang_changed = "Pinalitan ang wika sa: ",
+        welcome = "Maligayang pagdating! Na-sync ang lokasyon ng IP at wika nang real-time. 💀",
+    },
+}
+
+function GeoLangAPI.T(key)
+    local pack = GeoLangAPI.Dictionary[GeoLangAPI.CurrentLang] or GeoLangAPI.Dictionary.en
+    return pack[key] or GeoLangAPI.Dictionary.en[key] or key
+end
+
+function GeoLangAPI.HttpGetRaw(url)
+    local reqFn = (typeof(request) == "function" and request)
+        or (typeof(http_request) == "function" and http_request)
+        or (syn and type(syn) == "table" and syn.request)
+        or (http and type(http) == "table" and http.request)
+    if reqFn then
+        local ok, res = pcall(reqFn, { Url = url, Method = "GET" })
+        if ok and type(res) == "table" and res.Body and res.Body ~= "" then
+            return res.Body
+        end
+    end
+    local okGame, body = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if okGame and type(body) == "string" and body ~= "" then
+        return body
+    end
+    return nil
+end
+
+function GeoLangAPI.MapCountryToLang(countryCode)
+    local cc = string.upper(tostring(countryCode or ""))
+    for _, langEntry in ipairs(GeoLangAPI.Languages) do
+        if langEntry.CountryCodes and langEntry.CountryCodes[cc] then
+            return langEntry.Code
+        end
+    end
+    return "en"
+end
+
+function GeoLangAPI.OnLanguageChanged(cb)
+    table.insert(GeoLangAPI.Listeners, cb)
+end
+
+function GeoLangAPI.RefreshBannerText()
+    if GeoLangAPI.IPAddress == "Detecting..." then
+        GeoLangAPI.StatusText = GeoLangAPI.T("detecting")
+    else
+        GeoLangAPI.StatusText = string.format(
+            GeoLangAPI.T("ip_fmt"),
+            GeoLangAPI.IPAddress,
+            GeoLangAPI.City,
+            GeoLangAPI.Country,
+            GeoLangAPI.CountryCode
+        )
+    end
+    App.Subtitle = GeoLangAPI.StatusText
+    if UI.SubLabel and UI.SubLabel.Parent then
+        UI.SubLabel.Text = GeoLangAPI.StatusText
+    end
+end
+
+function GeoLangAPI.SetLanguage(langCode, isManual)
+    if not GeoLangAPI.Dictionary[langCode] then
+        langCode = "en"
+    end
+    GeoLangAPI.CurrentLang = langCode
+    if isManual ~= nil then
+        GeoLangAPI.ManualOverride = isManual
+    end
+    GeoLangAPI.RefreshBannerText()
+    for i = #GeoLangAPI.Listeners, 1, -1 do
+        local cb = GeoLangAPI.Listeners[i]
+        local ok = pcall(cb, langCode)
+        if not ok then
+            table.remove(GeoLangAPI.Listeners, i)
+        end
+    end
+end
+
+function GeoLangAPI.FetchRealTimeGeoIP(forceAutoLang)
+    task.spawn(function()
+        GeoLangAPI.IPAddress = "Detecting..."
+        GeoLangAPI.RefreshBannerText()
+
+        local endpoints = {
+            "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,query",
+            "https://ipwho.is/",
+            "https://ipapi.co/json/",
+        }
+
+        local parsedData = nil
+        for _, url in ipairs(endpoints) do
+            local raw = GeoLangAPI.HttpGetRaw(url)
+            if raw then
+                local okJson, decoded = pcall(function()
+                    return HttpService:JSONDecode(raw)
+                end)
+                if okJson and type(decoded) == "table" then
+                    local ip = decoded.query or decoded.ip
+                    local cc = decoded.countryCode or decoded.country_code
+                    local country = decoded.country or decoded.country_name
+                    local region = decoded.regionName or decoded.region
+                    local city = decoded.city
+                    if ip and tostring(ip) ~= "" then
+                        parsedData = {
+                            IP = tostring(ip),
+                            CountryCode = string.upper(tostring(cc or "US")),
+                            Country = tostring(country or "Unknown"),
+                            Region = tostring(region or "-"),
+                            City = tostring(city or "-"),
+                        }
+                        break
+                    end
+                end
+            end
+        end
+
+        if parsedData then
+            GeoLangAPI.IPAddress = parsedData.IP
+            GeoLangAPI.CountryCode = parsedData.CountryCode
+            GeoLangAPI.Country = parsedData.Country
+            GeoLangAPI.Region = parsedData.Region
+            GeoLangAPI.City = parsedData.City
+        else
+            local localeStr = "en-us"
+            pcall(function()
+                localeStr = string.lower(LocalizationService.RobloxLocaleId or "en-us")
+            end)
+            local ccGuess = string.upper(string.match(localeStr, "%-(%a%a)$") or "ID")
+            GeoLangAPI.IPAddress = "Protected / Local"
+            GeoLangAPI.CountryCode = ccGuess
+            GeoLangAPI.Country = ccGuess
+            GeoLangAPI.Region = "Roblox Region"
+            GeoLangAPI.City = "Client"
+        end
+
+        local detectedLang = GeoLangAPI.MapCountryToLang(GeoLangAPI.CountryCode)
+        GeoLangAPI.AutoDetectedLang = detectedLang
+
+        if forceAutoLang or not GeoLangAPI.ManualOverride then
+            GeoLangAPI.SetLanguage(detectedLang, false)
+        else
+            GeoLangAPI.RefreshBannerText()
+        end
+    end)
+end
 
 local Theme = {
     -- Palet Luxury Skull 3D HD Mewah & Transparan
@@ -1602,36 +2099,93 @@ do
     -- Emblem Tengkorak 3D HD Mewah di Header Kiri
     Utils.CreateSkull3D(UI.Topbar, 34, UDim2.new(0, 32, 0.5, 0), Vector2.new(0.5, 0.5), 14, true, true, 0.8)
 
-    -- Judul Utama ("BimSakSin Hub v3.0") & Ucapan di bawahnya
-    local titleLbl = Utils.Create("TextLabel", {
+    -- Judul Utama ("BimSakSin Hub v3.0") + Centang Biru Roblox Verified & IP Lokasi Pemain
+    local titleRow = Utils.Create("Frame", {
+        Name = "TitleRow",
         Size = UDim2.new(1, -142, 0, 22),
         Position = UDim2.new(0, 54, 0, 6),
+        BackgroundTransparency = 1,
+        ZIndex = 14,
+    }, UI.Topbar)
+
+    local titleLayout = Utils.Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        Padding = UDim.new(0, 6),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, titleRow)
+
+    local titleLbl = Utils.Create("TextLabel", {
+        Size = UDim2.new(0, 0, 1, 0),
+        AutomaticSize = Enum.AutomaticSize.X,
         BackgroundTransparency = 1,
         Font = Theme.FontBold,
         Text = App.Name,
         TextColor3 = Theme.TextPrimary,
         TextSize = 16,
-        TextTruncate = Enum.TextTruncate.AtEnd,
         TextXAlignment = Enum.TextXAlignment.Left,
+        LayoutOrder = 1,
         ZIndex = 14,
-    }, UI.Topbar)
+    }, titleRow)
     UI.TitleLabel = titleLbl
     Utils.RegisterText(titleLbl, true, Theme.TextPrimary)
 
+    -- Badge Centang Biru Roblox Verified Profesional
+    local verifiedBadge = Utils.Create("Frame", {
+        Name = "VerifiedBlueBadge",
+        Size = UDim2.new(0, 17, 0, 17),
+        BackgroundColor3 = Color3.fromRGB(0, 162, 255),
+        BorderSizePixel = 0,
+        LayoutOrder = 2,
+        ZIndex = 15,
+    }, titleRow)
+    Utils.AddCorner(verifiedBadge, 99)
+    Utils.AddStroke(verifiedBadge, Color3.fromRGB(165, 228, 255), 1.1, 0.15)
+    Utils.Create("UIGradient", {
+        Rotation = 135,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(56, 198, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 118, 235)),
+        }),
+    }, verifiedBadge)
+    Utils.Create("TextLabel", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBlack,
+        Text = "✓",
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 11,
+        ZIndex = 16,
+    }, verifiedBadge)
+    UI.VerifiedBadge = verifiedBadge
+
+    -- Alamat IP & Lokasi Pemain Real-Time dengan Animasi Warna Hitam-Putih Berjalan Halus
     local subLbl = Utils.Create("TextLabel", {
         Size = UDim2.new(1, -142, 0, 16),
         Position = UDim2.new(0, 54, 0, 29),
         BackgroundTransparency = 1,
-        Font = Theme.FontFamily,
+        Font = Theme.FontBold,
         Text = App.Subtitle,
-        TextColor3 = Color3.fromRGB(255, 198, 128),
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextStrokeColor3 = Color3.fromRGB(12, 12, 16),
+        TextStrokeTransparency = 0.35,
         TextSize = 11,
         TextTruncate = Enum.TextTruncate.AtEnd,
         TextXAlignment = Enum.TextXAlignment.Left,
         ZIndex = 14,
     }, UI.Topbar)
     UI.SubLabel = subLbl
-    Utils.RegisterText(subLbl, false, Color3.fromRGB(255, 198, 128))
+
+    UI.SubLabelGradient = Utils.Create("UIGradient", {
+        Rotation = 0,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0.00, Color3.fromRGB(35, 35, 42)),
+            ColorSequenceKeypoint.new(0.28, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.50, Color3.fromRGB(18, 18, 24)),
+            ColorSequenceKeypoint.new(0.75, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(1.00, Color3.fromRGB(35, 35, 42)),
+        }),
+    }, subLbl)
 
     -- Topbar Controls (Minimize & Close)
     local function createTopBtn(text, offsetX, hoverColor)
@@ -1892,10 +2446,19 @@ function Components.CreateTab(name, iconText, order)
         Components.SwitchTab(name)
     end)
 
+    local langKey = "tab_" .. name:gsub("%s+", "")
+    GeoLangAPI.OnLanguageChanged(function()
+        if label and label.Parent then
+            label.Text = iconText .. "  " .. GeoLangAPI.T(langKey)
+        end
+    end)
+
     UI.Tabs[name] = {
         Button = btn,
         Label = label,
         Indicator = indicator,
+        IconText = iconText,
+        LangKey = langKey,
     }
     UI.Pages[name] = page
     return page
@@ -3724,7 +4287,7 @@ do
 
     Components.AddSectionHeader(page, "Utilitas Server & Sesi", 3)
 
-    Components.AddButton(page, "Salin Place & Job ID", "PlaceId: " .. tostring(game.PlaceId), "Copy ID", 4, function()
+    Components.AddButton(page, "Salin ID Server (Place & Job ID)", "PlaceId: " .. tostring(game.PlaceId), "Copy ID", 4, function()
         local infoStr = string.format("PlaceId: %s | JobId: %s", tostring(game.PlaceId), tostring(game.JobId))
         if Utils.CopyText(infoStr) then
             Utils.Notify("Tersalin", infoStr, Theme.Success)
@@ -3733,7 +4296,7 @@ do
         end
     end)
 
-    Components.AddButton(page, "Respawn Karakter", "Segarkan kembali status karakter lokal", "Respawn", 5, function()
+    Components.AddButton(page, "Reset Karakter (Respawn Instan)", "Segarkan kembali status karakter lokal", "Respawn", 5, function()
         local _, hum = Utils.GetCharacter()
         if hum then
             hum.Health = 0
@@ -3741,7 +4304,7 @@ do
         end
     end)
 
-    Components.AddButton(page, "Rejoin Server Saat Ini", "Hubungkan ulang ke instance PlaceId yang sama", "Rejoin", 6, function()
+    Components.AddButton(page, "Hubungkan Ulang Server (Rejoin)", "Hubungkan ulang ke instance PlaceId yang sama", "Rejoin", 6, function()
         Utils.Notify("TeleportService", "Mencoba masuk kembali ke server...", Theme.Accent)
         pcall(function()
             TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
@@ -3756,7 +4319,7 @@ do
     local page = Components.CreateTab("ESP Radar", "👁", 2)
     Components.AddSectionHeader(page, "ESP Pemain & Transparansi Avatar", 1)
 
-    Components.AddToggle(page, "Universal Player ESP (Tembus Tembok)", "Tampilkan ESP jarak jauh menembus tembok di semua map", false, 2, function(on)
+    Components.AddToggle(page, "Radar Pemain Universal (Tembus Tembok)", "Tampilkan ESP jarak jauh menembus tembok di semua map", false, 2, function(on)
         ESP.Enabled = on
         if not on then
             ESP.ClearAll()
@@ -3764,15 +4327,15 @@ do
         Utils.Notify("Universal ESP", on and "ESP pemain aktif di seluruh map." or "ESP pemain dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
 
-    Components.AddToggle(page, "Highlight Avatar Transparan", "Sorot tubuh avatar pemain agar terlihat dari jarak sejauh mana pun", true, 3, function(on)
+    Components.AddToggle(page, "Sorotan Siluet Karakter (Avatar Highlight)", "Sorot tubuh avatar pemain agar terlihat dari jarak sejauh mana pun", true, 3, function(on)
         ESP.ShowAvatar = on
     end)
 
-    Components.AddToggle(page, "Indikator Jarak Pemain (Meter)", "Tampilkan jarak real-time ke setiap pemain", true, 4, function(on)
+    Components.AddToggle(page, "Penanda Jarak Pemain (Meter)", "Tampilkan jarak real-time ke setiap pemain", true, 4, function(on)
         ESP.ShowDistance = on
     end)
 
-    Components.AddToggle(page, "Indikator Darah / HP Adaptif", "Otomatis menampilkan HP jika map menggunakan sistem darah", true, 5, function(on)
+    Components.AddToggle(page, "Penanda Nyawa / HP Pemain", "Otomatis menampilkan HP jika map menggunakan sistem darah", true, 5, function(on)
         ESP.ShowHealth = on
     end)
 
@@ -3867,7 +4430,7 @@ do
     -- FITUR BARU: ESP BARANG-BARANG (TANPA LATAR BELAKANG, JARAK TAK TERBATAS)
     Components.AddSectionHeader(page, "ESP Barang-Barang (Jarak Tak Terbatas & Tanpa Latar)", 15)
 
-    Components.AddToggle(page, "Universal Item & Loot ESP (Jarak Tak Terbatas)", "Deteksi struktur barang/loot/tool sejauh mana pun (ESP, Nama, Jarak tanpa latar)", false, 16, function(on)
+    Components.AddToggle(page, "Radar Barang & Loot (Jarak Tanpa Batas)", "Deteksi struktur barang/loot/tool sejauh mana pun (ESP, Nama, Jarak tanpa latar)", false, 16, function(on)
         ItemESP.Enabled = on
         if not on then
             ItemESP.ClearAll()
@@ -3902,7 +4465,7 @@ do
     -- FITUR BARU: ESP GENERATOR (NAMA, JARAK, STATUS PROSES PEMAIN LAIN)
     Components.AddSectionHeader(page, "ESP Generator (Status Proses Real-Time)", 19)
 
-    Components.AddToggle(page, "Universal Generator ESP (Status Real-Time)", "Tampilkan ESP, Nama, Jarak & status generator (belum / sedang diproses pemain / selesai)", false, 20, function(on)
+    Components.AddToggle(page, "Radar Mesin Generator (Status Real-Time)", "Tampilkan ESP, Nama, Jarak & status generator (belum / sedang diproses pemain / selesai)", false, 20, function(on)
         GeneratorESP.Enabled = on
         if not on then
             GeneratorESP.ClearAll()
@@ -3942,7 +4505,7 @@ do
     local page = Components.CreateTab("Combat", "🎯", 3)
     Components.AddSectionHeader(page, "Auto Aimbot Presisi Tinggi", 1)
 
-    Components.AddToggle(page, "Precision Auto Aimbot", "Bidik sasaran akurat otomatis (pukulan & senjata)", false, 2, function(on)
+    Components.AddToggle(page, "Kunci Bidikan Otomatis (Auto Aimbot)", "Bidik sasaran akurat otomatis (pukulan & senjata)", false, 2, function(on)
         Combat.AimbotEnabled = on
         if not on then
             Combat.CurrentTarget = nil
@@ -3951,7 +4514,7 @@ do
         Utils.Notify("Auto Aimbot", on and "Aimbot presisi aktif." or "Aimbot dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
 
-    Components.AddToggle(page, "Conditional RGB Weapon Laser", "Tampilkan laser RGB hanya saat memegang pistol/senjata (tanpa laser saat memukul)", true, 3, function(on)
+    Components.AddToggle(page, "Laser Bidik Senjata RGB (Otomatis)", "Tampilkan laser RGB hanya saat memegang pistol/senjata (tanpa laser saat memukul)", true, 3, function(on)
         Combat.RGBLaserEnabled = on
         if not on then
             Combat.HideLaser()
@@ -3974,11 +4537,11 @@ do
         Combat.AimPart = val
     end)
 
-    Components.AddToggle(page, "Filter Tim (Abaikan Rekan Satu Tim)", "Jangan bidik teman satu tim pada map berbasis tim", true, 6, function(on)
+    Components.AddToggle(page, "Pelindung Rekan Tim (Team Check)", "Jangan bidik teman satu tim pada map berbasis tim", true, 6, function(on)
         Combat.TeamCheck = on
     end)
 
-    Components.AddToggle(page, "Visualisasi Lingkaran FOV Aimbot", "Visualisasi area jangkauan deteksi aimbot di layar", false, 7, function(on)
+    Components.AddToggle(page, "Tampilkan Lingkaran Area Bidik (FOV)", "Visualisasi area jangkauan deteksi aimbot di layar", false, 7, function(on)
         Combat.ShowFOVCircle = on
         if Combat.FOVCircle then
             Combat.FOVCircle.Visible = on
@@ -3998,7 +4561,7 @@ do
 
     Components.AddSectionHeader(page, "Auto Parry & Pertahanan Karakter", 10)
 
-    Components.AddToggle(page, "Auto Parry & Counter-Block", "Otomatis menangkis saat lawan atau teman melancarkan pukulan di dekat Anda", false, 11, function(on)
+    Components.AddToggle(page, "Tangkis Serangan Otomatis (Auto Parry)", "Otomatis menangkis saat lawan atau teman melancarkan pukulan di dekat Anda", false, 11, function(on)
         Combat.AutoParryEnabled = on
         Utils.Notify("Auto Parry", on and "Auto Parry aktif & memantau serangan sekitar!" or "Auto Parry dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
@@ -4007,7 +4570,7 @@ do
         Combat.ParryRange = val
     end)
 
-    Components.AddToggle(page, "Melee Immunity & Anti-Knockback", "Anti-knockback, anti-ragdoll, dan tahan hitbox pukulan melee lawan", false, 13, function(on)
+    Components.AddToggle(page, "Kebal Pukulan & Anti-Terpental (Melee Guard)", "Anti-knockback, anti-ragdoll, dan tahan hitbox pukulan melee lawan", false, 13, function(on)
         Combat.MeleeImmunity = on
         if not on then
             Protection.RestoreEnemyHitboxes()
@@ -4015,7 +4578,7 @@ do
         Utils.Notify("Kebal Pukulan", on and "Mode kebal pukulan & anti-mental aktif!" or "Mode kebal dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
 
-    Components.AddToggle(page, "Survival Guard (Tahan Lapar & Haus)", "Menjaga indikator lapar (Hunger) dan haus (Thirst) tetap penuh secara interaktif", false, 14, function(on)
+    Components.AddToggle(page, "Penjaga Stamina, Lapar & Haus (Auto Full)", "Menjaga indikator lapar (Hunger) dan haus (Thirst) tetap penuh secara interaktif", false, 14, function(on)
         Combat.HungerThirstGuard = on
         Utils.Notify("Survival Guard", on and "Tahan lapar & tahan haus aktif!" or "Tahan lapar & haus dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
@@ -4294,7 +4857,7 @@ do
         end
     end)
 
-    Components.AddButton(page, "Hentikan Dance / Reset Pose", "Hentikan animasi dance yang sedang aktif", "Stop Dance", 4, function()
+    Components.AddButton(page, "Hentikan Animasi Dance (Reset Pose)", "Hentikan animasi dance yang sedang aktif", "Stop Dance", 4, function()
         Emotes.Stop()
         Utils.Notify("Emote", "Dance dihentikan.", Theme.TextSecondary)
     end)
@@ -4339,26 +4902,171 @@ do
 end
 
 -- ============================================================================
--- TAB 6: MOVEMENT & PHYSICS (Smooth Fly & Analog-Safe NoClip)
+-- UNLIMITED SPEED & PHYSICS ENGINE (SpeedAPI - Tanpa Batas Maksimal)
+-- ============================================================================
+local SpeedAPI = {}
+
+function SpeedAPI.ParseUnlimitedNumber(rawText, fallbackVal)
+    local cleaned = tostring(rawText or ""):gsub("[^%d%.]", "")
+    local num = tonumber(cleaned)
+    if num and num == num and num >= 0 and num < math.huge then
+        return num
+    end
+    return fallbackVal
+end
+
+function SpeedAPI.SetWalkSpeed(speedVal)
+    local val = math.max(0, tonumber(speedVal) or 16)
+    State.WalkSpeed = val
+    local _, hum = Utils.GetCharacter()
+    if hum then
+        hum.WalkSpeed = val
+    end
+    return val
+end
+
+function SpeedAPI.SetJumpPower(jumpVal)
+    local val = math.max(0, tonumber(jumpVal) or 50)
+    State.JumpPower = val
+    local _, hum = Utils.GetCharacter()
+    if hum then
+        hum.UseJumpPower = true
+        hum.JumpPower = val
+        if hum.JumpHeight then
+            hum.JumpHeight = math.max(7.2, (val * val) / (2 * math.max(1, workspace.Gravity)))
+        end
+    end
+    return val
+end
+
+function SpeedAPI.SetFlySpeed(flyVal)
+    local val = math.max(1, tonumber(flyVal) or 65)
+    State.FlySpeed = val
+    return val
+end
+
+-- ============================================================================
+-- TAB 6: MOVEMENT & PHYSICS (Unlimited Speed API, Smooth Fly & NoClip)
 -- ============================================================================
 do
     local page = Components.CreateTab("Movement", "⚡", 6)
-    Components.AddSectionHeader(page, "Pengaturan Lokomosi Karakter", 1)
+    Components.AddSectionHeader(page, "Kecepatan Lari & Lompat Tanpa Batas (Unlimited Speed API)", 1)
 
-    local wsSlider = Components.AddSlider(page, "Kecepatan Jalan (WalkSpeed)", 16, 250, 16, 0, 2, function(val)
-        State.WalkSpeed = val
-        local _, hum = Utils.GetCharacter()
-        if hum then hum.WalkSpeed = val end
-    end)
+    local function createUnlimitedInputCard(titleText, placeholderText, defaultNum, order, onApply)
+        local card = Utils.Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 62),
+            BackgroundColor3 = Theme.BgCard,
+            BackgroundTransparency = 0.26,
+            BorderSizePixel = 0,
+            LayoutOrder = order,
+            ZIndex = 14,
+        }, page)
+        Utils.AddCorner(card, 9)
+        Utils.AddStroke(card, Theme.BorderSubtle, 1, 0.3)
 
-    local jpSlider = Components.AddSlider(page, "Daya Lompat (JumpPower)", 50, 300, 50, 0, 3, function(val)
-        State.JumpPower = val
-        local _, hum = Utils.GetCharacter()
-        if hum then
-            hum.UseJumpPower = true
-            hum.JumpPower = val
+        local lbl = Utils.Create("TextLabel", {
+            Size = UDim2.new(0.65, 0, 0, 18),
+            Position = UDim2.new(0, 12, 0, 6),
+            BackgroundTransparency = 1,
+            Font = Theme.FontBold,
+            Text = titleText,
+            TextColor3 = Theme.TextPrimary,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 15,
+        }, card)
+        Utils.RegisterText(lbl, true, Theme.TextPrimary)
+
+        local activeValLbl = Utils.Create("TextLabel", {
+            Size = UDim2.new(0.35, -12, 0, 18),
+            Position = UDim2.new(0.65, 0, 0, 6),
+            BackgroundTransparency = 1,
+            Font = Theme.FontBold,
+            Text = "Aktif: " .. tostring(defaultNum),
+            TextColor3 = Theme.Accent,
+            TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            ZIndex = 15,
+        }, card)
+        Utils.RegisterAccent(activeValLbl, "TextColor3")
+
+        local inputBox = Utils.Create("TextBox", {
+            Size = UDim2.new(1, -118, 0, 26),
+            Position = UDim2.new(0, 10, 0, 29),
+            BackgroundColor3 = Theme.BgControl,
+            Font = Theme.FontFamily,
+            PlaceholderText = placeholderText,
+            PlaceholderColor3 = Theme.TextMuted,
+            Text = tostring(defaultNum),
+            TextColor3 = Theme.TextPrimary,
+            TextSize = 11,
+            ClearTextOnFocus = false,
+            ZIndex = 15,
+        }, card)
+        Utils.AddCorner(inputBox, 6)
+        Utils.Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, inputBox)
+
+        local applyBtn = Utils.Create("TextButton", {
+            Size = UDim2.new(0, 92, 0, 26),
+            Position = UDim2.new(1, -102, 0, 29),
+            BackgroundColor3 = Theme.Accent,
+            Font = Theme.FontBold,
+            Text = "Terapkan",
+            TextColor3 = Color3.new(1, 1, 1),
+            TextSize = 11,
+            AutoButtonColor = false,
+            ZIndex = 15,
+        }, card)
+        Utils.AddCorner(applyBtn, 6)
+        Utils.RegisterAccent(applyBtn, "BackgroundColor3")
+
+        local function commitValue(newVal, silent)
+            local applied = onApply(newVal)
+            inputBox.Text = tostring(applied)
+            activeValLbl.Text = "Aktif: " .. tostring(applied)
+            if not silent then
+                Utils.Notify("Unlimited Speed", titleText .. " diatur ke: " .. tostring(applied), Theme.Success)
+            end
         end
-    end)
+
+        applyBtn.MouseButton1Click:Connect(function()
+            local parsed = SpeedAPI.ParseUnlimitedNumber(inputBox.Text, defaultNum)
+            commitValue(parsed, false)
+        end)
+
+        inputBox.FocusLost:Connect(function(enterPressed)
+            if enterPressed then
+                local parsed = SpeedAPI.ParseUnlimitedNumber(inputBox.Text, defaultNum)
+                commitValue(parsed, false)
+            end
+        end)
+
+        return {
+            SetValue = function(v, silent)
+                commitValue(v, silent)
+            end,
+        }
+    end
+
+    local wsControl = createUnlimitedInputCard(
+        "Kecepatan Lari / Jalan (WalkSpeed Unlimited)",
+        "Masukkan angka bebas (mis. 50, 500, 10000)...",
+        16,
+        2,
+        function(val)
+            return SpeedAPI.SetWalkSpeed(val)
+        end
+    )
+
+    local jpControl = createUnlimitedInputCard(
+        "Daya Lompat Tinggi (JumpPower Unlimited)",
+        "Masukkan angka bebas (mis. 120, 1000, 50000)...",
+        50,
+        3,
+        function(val)
+            return SpeedAPI.SetJumpPower(val)
+        end
+    )
 
     local maxGrav = math.max(300, math.ceil(State.OriginalGravity))
     local gravSlider = Components.AddSlider(page, "Gravitasi Dunia (Workspace Gravity)", 0, maxGrav, State.OriginalGravity, 1, 4, function(val)
@@ -4367,16 +5075,17 @@ do
     end)
 
     local origGravStr = string.format("%.1f", State.OriginalGravity)
-    Components.AddButton(page, "Reset Fisika ke Default", "Kembalikan WalkSpeed (16), JumpPower (50), Gravity (" .. origGravStr .. ")", "Reset All", 5, function()
-        wsSlider.SetValue(16, true)
-        jpSlider.SetValue(50, true)
+    Components.AddButton(page, "Reset Fisika & Kecepatan ke Default", "Kembalikan WalkSpeed (16), JumpPower (50), FlySpeed (65), Gravity (" .. origGravStr .. ")", "Reset All", 5, function()
+        wsControl.SetValue(16, true)
+        jpControl.SetValue(50, true)
+        flyControl.SetValue(65, true)
         gravSlider.SetValue(State.OriginalGravity, true)
-        Utils.Notify("Fisika Direset", "Nilai pergerakan dikembalikan ke bawaan.", Theme.Success)
+        Utils.Notify("Fisika Direset", "Nilai kecepatan & gravitasi dikembalikan ke bawaan.", Theme.Success)
     end)
 
-    Components.AddSectionHeader(page, "Mode Navigasi & Inspeksi", 6)
+    Components.AddSectionHeader(page, "Mode Terbang Bebas & Penembus Dinding", 6)
 
-    Components.AddToggle(page, "Free-Flight Inspector (Fly)", "Terbang halus seperti admin map tanpa mundur-mundur atau tersangkut (PC & Mobile)", false, 7, function(on)
+    Components.AddToggle(page, "Mode Terbang Bebas (Free-Flight Admin)", "Terbang halus ke segala arah tanpa mundur sendiri atau tersangkut (PC & Mobile)", false, 7, function(on)
         State.FlyEnabled = on
         if on then
             local _, hum = Utils.GetCharacter()
@@ -4389,13 +5098,19 @@ do
         Utils.Notify("Free-Flight", on and "Mode terbang halus aktif." or "Mode terbang dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
 
-    Components.AddSlider(page, "Kecepatan Terbang (Flight Speed)", 20, 250, 65, 0, 8, function(val)
-        State.FlySpeed = val
-    end)
+    local flyControl = createUnlimitedInputCard(
+        "Kecepatan Terbang (FlySpeed Unlimited)",
+        "Masukkan kecepatan terbang bebas (mis. 150, 2000, 50000)...",
+        65,
+        8,
+        function(val)
+            return SpeedAPI.SetFlySpeed(val)
+        end
+    )
 
     Components.AddToggle(
         page,
-        "NoClip Geometry Inspector",
+        "Mode Tembus Dinding (NoClip Inspector)",
         "tidak disarankan untuk fitur NoClip ingin menembus tetapi analog di tarik berlebihan, jika ingin menembus tarik analog secara perlahan-lahan",
         false,
         9,
@@ -4406,7 +5121,7 @@ do
         end
     )
 
-    Components.AddToggle(page, "Lompat Tanpa Batas (Infinite Jump)", "Lompat tanpa batas di udara", false, 10, function(on)
+    Components.AddToggle(page, "Lompat Udara Tanpa Batas (Infinite Jump)", "Melompat berkali-kali di udara tanpa menyentuh tanah", false, 10, function(on)
         State.InfiniteJumpEnabled = on
     end)
 end
@@ -5163,7 +5878,7 @@ do
         end
     end)
 
-    UI.FullbrightToggle = Components.AddToggle(page, "Pencahayaan Penuh (Fullbright Studio)", "Hilangkan bayangan gelap dan terangkan pencahayaan", false, 3, function(on)
+    UI.FullbrightToggle = Components.AddToggle(page, "Penerangan Maksimal (Fullbright)", "Hilangkan bayangan gelap dan terangkan pencahayaan", false, 3, function(on)
         State.FullbrightEnabled = on
         if on then
             Lighting.Brightness = 2
@@ -5182,7 +5897,7 @@ do
         Utils.Notify("Lighting", on and "Fullbright aktif." or "Pencahayaan asli dipulihkan.", Theme.Accent)
     end)
 
-    UI.NoFogToggle = Components.AddToggle(page, "Hapus Kabut Atmosfer (No Fog)", "Hapus kabut FogEnd dan Atmosphere Density modern", false, 4, function(on)
+    UI.NoFogToggle = Components.AddToggle(page, "Penghapus Kabut Jarak Pandang (No Fog)", "Hapus kabut FogEnd dan Atmosphere Density modern", false, 4, function(on)
         State.NoFogEnabled = on
         local currentAtmo = Lighting:FindFirstChildOfClass("Atmosphere")
         if on then
@@ -5205,7 +5920,7 @@ do
         Lighting.ClockTime = val
     end)
 
-    Components.AddButton(page, "Reset Kamera & Pencahayaan", "Pulihkan FOV (70), toggle, dan pencahayaan bawaan", "Reset", 6, function()
+    Components.AddButton(page, "Pulihkan Pengaturan Visual & Kamera", "Pulihkan FOV (70), toggle, dan pencahayaan bawaan", "Reset", 6, function()
         fovSlider.SetValue(70, true)
         if UI.FullbrightToggle then UI.FullbrightToggle.SetState(false, true) end
         if UI.NoFogToggle then UI.NoFogToggle.SetState(false, true) end
@@ -5236,7 +5951,7 @@ do
     local page = Components.CreateTab("Settings", "⚙", 9)
     Components.AddSectionHeader(page, "Sistem Anti-Bug / Error & Anti-AFK", 1)
 
-    Components.AddToggle(page, "Anti-Bug & Auto-Recovery Engine (AKTIF / OFF)", "Mencegah bug/error pada setiap fitur dan langsung memperbaiki otomatis jika terjadi gangguan", true, 2, function(on)
+    Components.AddToggle(page, "Sistem Anti-Bug & Pemulihan Otomatis", "Mencegah bug/error pada setiap fitur dan langsung memperbaiki otomatis jika terjadi gangguan", true, 2, function(on)
         Protection.AntiBugEnabled = on
         if UI.StatusLabel and UI.StatusLabel.Parent then
             UI.StatusLabel.Text = on and "Anti-Bug: AKTIF" or "Anti-Bug: OFF"
@@ -5244,7 +5959,7 @@ do
         Utils.Notify("Anti-Bug Engine", on and "Anti-Bug & Auto-Repair AKTIF." or "Anti-Bug dimatikan (OFF).", on and Theme.Success or Theme.Warning)
     end)
 
-    Components.AddToggle(page, "Anti-AFK Otomatis (Semua Map)", "Mencegah disconnect otomatis saat diam lebih dari 20 menit", true, 3, function(on)
+    Components.AddToggle(page, "Pencegah Kick Diam 20 Menit (Anti-AFK)", "Mencegah disconnect otomatis saat diam lebih dari 20 menit", true, 3, function(on)
         Protection.AntiAFKEnabled = on
         Utils.Notify("Anti-AFK", on and "Anti-AFK aktif." or "Anti-AFK dimatikan.", on and Theme.Success or Theme.TextSecondary)
     end)
@@ -5322,9 +6037,54 @@ do
         Utils.ApplyMenuFontAndColors()
     end)
 
-    Components.AddSectionHeader(page, "Kontrol Pintasan & Pembersihan Panel", 9)
+    Components.AddSectionHeader(page, "Bahasa Negara & Deteksi Region IP Real-Time", 9)
 
-    Components.AddButton(page, "Pintasan Sembunyikan UI (RightShift)", "Atau ketuk logo tengkorak 3D di layar kapan saja", "Hide UI", 10, function()
+    local langOptions = {}
+    for _, lEntry in ipairs(GeoLangAPI.Languages) do
+        table.insert(langOptions, { Label = lEntry.Label, Value = lEntry.Code })
+    end
+
+    local langSelector = Components.AddChipSelector(
+        page,
+        "Pilih Bahasa Negara (Auto Region IP / Manual)",
+        langOptions,
+        GeoLangAPI.CurrentLang,
+        10,
+        function(selectedCode)
+            GeoLangAPI.SetLanguage(selectedCode, true)
+            local chosenLabel = selectedCode
+            for _, lEntry in ipairs(GeoLangAPI.Languages) do
+                if lEntry.Code == selectedCode then
+                    chosenLabel = lEntry.Label
+                    break
+                end
+            end
+            Utils.Notify("Bahasa Diperbarui", GeoLangAPI.T("lang_changed") .. chosenLabel, Theme.Success)
+        end
+    )
+
+    GeoLangAPI.OnLanguageChanged(function(newCode)
+        if langSelector and langSelector.SetSelected then
+            langSelector.SetSelected(newCode)
+        end
+    end)
+
+    Components.AddButton(
+        page,
+        "Sinkronisasi Otomatis Region IP & Bahasa",
+        "Baca ulang alamat IP, negara, dan bahasa pemain secara real-time",
+        "Sync IP",
+        11,
+        function()
+            GeoLangAPI.ManualOverride = false
+            GeoLangAPI.FetchRealTimeGeoIP(true)
+            Utils.Notify("Region IP API", "Memperbarui lokasi IP & bahasa negara secara real-time...", Theme.Accent)
+        end
+    )
+
+    Components.AddSectionHeader(page, "Kontrol Pintasan & Pembersihan Panel", 12)
+
+    Components.AddButton(page, "Sembunyikan Panel Menu (RightShift)", "Atau ketuk logo tengkorak 3D di layar kapan saja", "Hide UI", 13, function()
         App.IsOpen = false
         UI.MainFrame.Visible = false
     end)
@@ -5409,7 +6169,7 @@ do
         getgenv().BSS_UnloadOld = unloadHub
     end
 
-    Components.AddButton(page, "Unload & Bersihkan Panel", "Putus semua loop, pulihkan bawaan karakter/map, dan tutup GUI", "Unload", 11, unloadHub)
+    Components.AddButton(page, "Matikan & Hapus Script (Unload Hub)", "Putus semua loop, pulihkan bawaan karakter/map, dan tutup GUI", "Unload", 14, unloadHub)
 end
 
 -- ============================================================================
@@ -5460,7 +6220,7 @@ do
 
     Components.AddSectionHeader(page, "Tautan Resmi Komunitas & Donasi", 3)
 
-    Components.AddButton(page, "Link Donasi / Dukungan Dev", App.DonationUrl, "Salin Link", 4, function()
+    Components.AddButton(page, "Tautan Donasi & Dukungan Developer", App.DonationUrl, "Salin Link", 4, function()
         if Utils.CopyText(App.DonationUrl) then
             Utils.Notify("Link Donasi Tersalin!", App.DonationUrl, Theme.Success)
         else
@@ -5468,7 +6228,7 @@ do
         end
     end)
 
-    Components.AddButton(page, "Link Server Discord Resmi", App.DiscordUrl, "Salin Link", 5, function()
+    Components.AddButton(page, "Tautan Komunitas Discord Resmi", App.DiscordUrl, "Salin Link", 5, function()
         if Utils.CopyText(App.DiscordUrl) then
             Utils.Notify("Link Discord Tersalin!", App.DiscordUrl, Theme.Success)
         else
@@ -5495,7 +6255,7 @@ do
 
     local function getTitleFittedMinWidth()
         local titleWidth = (UI.TitleLabel and UI.TitleLabel.TextBounds.X > 0) and UI.TitleLabel.TextBounds.X or 172
-        return math.max(278, math.ceil(titleWidth) + 148)
+        return math.max(302, math.ceil(titleWidth) + 172)
     end
 
     local function applyResponsiveLayout(panelWidth)
@@ -5660,6 +6420,12 @@ do
         local tNow = os.clock()
 
         SafeEngine.Run("RenderSteppedLoop", function()
+            -- 0. Animasi Warna Hitam-Putih Berjalan Secara Halus pada Alamat IP & Lokasi Pemain
+            if App.IsOpen and UI.SubLabelGradient and UI.SubLabelGradient.Parent then
+                local flowX = (math.sin(tNow * 1.45) * 0.42)
+                UI.SubLabelGradient.Offset = Vector2.new(flowX, 0)
+            end
+
             -- 1. Animasi Halus & Mewah pada Logo Tengkorak 3D HD (Lewati tengkorak menu jika panel disembunyikan)
             for _, sData in ipairs(UI.Skulls) do
                 if (App.IsOpen or not sData.IsMenuSkull) and sData.Holder and sData.Holder.Parent then
@@ -5839,6 +6605,7 @@ do
     end))
 end
 
--- Inisialisasi Tab Awal & Notifikasi Selamat Datang
+-- Inisialisasi Tab Awal, Deteksi Real-Time IP & Bahasa Region Negara, serta Notifikasi
+GeoLangAPI.FetchRealTimeGeoIP(false)
 Components.SwitchTab("Dashboard")
-Utils.Notify(App.Name, "Semoga hari-hari kalian menyenangkan! 💀", Theme.Accent)
+Utils.Notify(App.Name, GeoLangAPI.T("welcome"), Theme.Accent)

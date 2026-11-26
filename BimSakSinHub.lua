@@ -131,34 +131,38 @@ local App = {
 }
 
 -- ============================================================================
--- GEO-IP & REAL-TIME MULTI-LANGUAGE ENGINE (GeoLangAPI)
+-- GEO-IP & REAL-TIME INTERACTIVE MULTI-LANGUAGE ENGINE (GeoLangAPI)
 -- ============================================================================
 local GeoLangAPI = {
     CurrentLang = "id",
     AutoDetectedLang = "id",
     ManualOverride = false,
+    IsFetching = false,
     IPAddress = "Detecting...",
+    ISP = "-",
     City = "-",
     Region = "-",
     Country = "-",
     CountryCode = "ID",
+    DetectionSource = "Scanning",
     StatusText = "🌐 IP: Mendeteksi... | Lokasi: Memuat...",
     Listeners = {},
+    TextBindings = {},
 }
 
 GeoLangAPI.Languages = {
     { Code = "id", Label = "🇮🇩 Indonesia", CountryCodes = { ID = true } },
-    { Code = "en", Label = "🇺🇸 English", CountryCodes = { US = true, GB = true, CA = true, AU = true, NZ = true, SG = true } },
+    { Code = "en", Label = "🇺🇸 English", CountryCodes = { US = true, GB = true, CA = true, AU = true, NZ = true, SG = true, IE = true, IN = true } },
     { Code = "ms", Label = "🇲🇾 Melayu", CountryCodes = { MY = true, BN = true } },
     { Code = "jp", Label = "🇯🇵 日本語 (JP)", CountryCodes = { JP = true } },
     { Code = "kr", Label = "🇰🇷 한국어 (KR)", CountryCodes = { KR = true } },
-    { Code = "cn", Label = "🇨🇳 中文 (CN)", CountryCodes = { CN = true, TW = true, HK = true } },
-    { Code = "es", Label = "🇪🇸 Español", CountryCodes = { ES = true, MX = true, AR = true, CO = true, CL = true, PE = true } },
-    { Code = "pt", Label = "🇧🇷 Português", CountryCodes = { BR = true, PT = true } },
-    { Code = "ru", Label = "🇷🇺 Русский", CountryCodes = { RU = true, BY = true, KZ = true } },
-    { Code = "ar", Label = "🇸🇦 العربية", CountryCodes = { SA = true, AE = true, EG = true, QA = true, KW = true } },
-    { Code = "fr", Label = "🇫🇷 Français", CountryCodes = { FR = true, BE = true, CH = true } },
-    { Code = "de", Label = "🇩🇪 Deutsch", CountryCodes = { DE = true, AT = true } },
+    { Code = "cn", Label = "🇨🇳 中文 (CN)", CountryCodes = { CN = true, TW = true, HK = true, MO = true } },
+    { Code = "es", Label = "🇪🇸 Español", CountryCodes = { ES = true, MX = true, AR = true, CO = true, CL = true, PE = true, VE = true } },
+    { Code = "pt", Label = "🇧🇷 Português", CountryCodes = { BR = true, PT = true, AO = true, MZ = true } },
+    { Code = "ru", Label = "🇷🇺 Русский", CountryCodes = { RU = true, BY = true, KZ = true, UA = true } },
+    { Code = "ar", Label = "🇸🇦 العربية", CountryCodes = { SA = true, AE = true, EG = true, QA = true, KW = true, OM = true, BH = true } },
+    { Code = "fr", Label = "🇫🇷 Français", CountryCodes = { FR = true, BE = true, CH = true, LU = true } },
+    { Code = "de", Label = "🇩🇪 Deutsch", CountryCodes = { DE = true, AT = true, LI = true } },
     { Code = "th", Label = "🇹🇭 ไทย (TH)", CountryCodes = { TH = true } },
     { Code = "vi", Label = "🇻🇳 Tiếng Việt", CountryCodes = { VN = true } },
     { Code = "tl", Label = "🇵🇭 Filipino", CountryCodes = { PH = true } },
@@ -166,8 +170,11 @@ GeoLangAPI.Languages = {
 
 GeoLangAPI.Dictionary = {
     id = {
-        detecting = "🌐 IP: Mendeteksi... | Lokasi: Memuat...",
-        ip_fmt = "🌐 IP: %s | Lokasi: %s, %s (%s)",
+        detecting = "🌐 IP: Mendeteksi alamat IP & lokasi...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "Alamat IP & info lokasi disalin ke clipboard!",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUAL",
         tab_Dashboard = "Dashboard",
         tab_ESPRadar = "ESP Radar",
         tab_Combat = "Combat",
@@ -180,15 +187,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Informasi",
         lang_section = "Bahasa & Deteksi Region IP Real-Time",
         lang_selector = "Pilih Bahasa Negara (Auto Region IP / Manual)",
-        lang_auto_btn = "Sinkronisasi Otomatis Region IP",
-        lang_auto_sub = "Baca ulang IP publik, negara & bahasa pemain secara real-time",
+        lang_auto_btn = "Sinkronisasi Otomatis Region IP & Bahasa",
+        lang_auto_sub = "Baca ulang alamat IP, negara, dan bahasa pemain secara real-time",
         lang_sync_now = "Sync IP",
+        lang_status_fmt = "IP: %s | Negara: %s (%s) | Bahasa Aktif: %s [%s]",
         lang_changed = "Bahasa diubah ke: ",
-        welcome = "Selamat datang! Lokasi & bahasa disesuaikan secara real-time. 💀",
+        welcome = "Selamat datang! IP & bahasa disesuaikan secara real-time. 💀",
     },
     en = {
-        detecting = "🌐 IP: Detecting... | Location: Loading...",
-        ip_fmt = "🌐 IP: %s | Location: %s, %s (%s)",
+        detecting = "🌐 IP: Detecting public IP & location...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "IP address & location info copied to clipboard!",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUAL",
         tab_Dashboard = "Dashboard",
         tab_ESPRadar = "ESP Radar",
         tab_Combat = "Combat",
@@ -204,12 +215,16 @@ GeoLangAPI.Dictionary = {
         lang_auto_btn = "Auto-Sync IP Region & Language",
         lang_auto_sub = "Re-detect public IP, country & player language in real-time",
         lang_sync_now = "Sync IP",
+        lang_status_fmt = "IP: %s | Country: %s (%s) | Active Language: %s [%s]",
         lang_changed = "Language switched to: ",
-        welcome = "Welcome! Player IP location & language synced in real-time. 💀",
+        welcome = "Welcome! Player IP & language synced in real-time. 💀",
     },
     ms = {
-        detecting = "🌐 IP: Mengesan... | Lokasi: Memuatkan...",
-        ip_fmt = "🌐 IP: %s | Lokasi: %s, %s (%s)",
+        detecting = "🌐 IP: Mengesan alamat IP & lokasi...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "Alamat IP & maklumat lokasi disalin!",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUAL",
         tab_Dashboard = "Papan Utama",
         tab_ESPRadar = "Radar ESP",
         tab_Combat = "Tempur",
@@ -222,15 +237,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Maklumat",
         lang_section = "Bahasa & Pengesanan Wilayah IP Masa Nyata",
         lang_selector = "Pilih Bahasa Negara (Auto Wilayah IP / Manual)",
-        lang_auto_btn = "Segerak Auto Wilayah IP",
+        lang_auto_btn = "Segerak Auto Wilayah IP & Bahasa",
         lang_auto_sub = "Baca semula IP awam, negara & bahasa pemain secara masa nyata",
         lang_sync_now = "Segerak IP",
+        lang_status_fmt = "IP: %s | Negara: %s (%s) | Bahasa Aktif: %s [%s]",
         lang_changed = "Bahasa ditukar kepada: ",
         welcome = "Selamat datang! Lokasi IP & bahasa disegerakkan secara masa nyata. 💀",
     },
     jp = {
-        detecting = "🌐 IP: 検出中... | 地域: 読み込み中...",
-        ip_fmt = "🌐 IP: %s | 場所: %s, %s (%s)",
+        detecting = "🌐 IP: パブリックIPと地域を検出中...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "IPアドレスと地域情報をコピーしました！",
+        mode_auto = "自動IP",
+        mode_manual = "手動",
         tab_Dashboard = "ダッシュボード",
         tab_ESPRadar = "ESPレーダー",
         tab_Combat = "戦闘・エイム",
@@ -243,15 +262,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "情報",
         lang_section = "言語＆リアルタイムIP地域検出",
         lang_selector = "国の言語を選択（IP自動検出 / 手動）",
-        lang_auto_btn = "IP地域と自動同期",
+        lang_auto_btn = "IP地域と言語を自動同期",
         lang_auto_sub = "パブリックIP・国・言語をリアルタイムで再取得します",
         lang_sync_now = "IP同期",
+        lang_status_fmt = "IP: %s | 国: %s (%s) | 現在の言語: %s [%s]",
         lang_changed = "言語を変更しました: ",
         welcome = "ようこそ！IP地域と言語をリアルタイムで同期しました。💀",
     },
     kr = {
-        detecting = "🌐 IP: 감지 중... | 위치: 불러오는 중...",
-        ip_fmt = "🌐 IP: %s | 위치: %s, %s (%s)",
+        detecting = "🌐 IP: 공인 IP 및 위치 감지 중...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "IP 주소 및 위치 정보가 복사되었습니다!",
+        mode_auto = "자동 IP",
+        mode_manual = "수동",
         tab_Dashboard = "대시보드",
         tab_ESPRadar = "ESP 레이더",
         tab_Combat = "전투 / 에임",
@@ -264,15 +287,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "정보",
         lang_section = "언어 및 실시간 IP 지역 감지",
         lang_selector = "국가 언어 선택 (IP 자동 감지 / 수동)",
-        lang_auto_btn = "IP 지역 자동 동기화",
+        lang_auto_btn = "IP 지역 및 언어 자동 동기화",
         lang_auto_sub = "공인 IP, 국가 및 언어를 실시간으로 다시 감지합니다",
         lang_sync_now = "IP 동기화",
+        lang_status_fmt = "IP: %s | 국가: %s (%s) | 현재 언어: %s [%s]",
         lang_changed = "언어가 변경되었습니다: ",
         welcome = "환영합니다! IP 위치와 언어가 실시간으로 동기화되었습니다. 💀",
     },
     cn = {
-        detecting = "🌐 IP: 检测中... | 位置: 加载中...",
-        ip_fmt = "🌐 IP: %s | 位置: %s, %s (%s)",
+        detecting = "🌐 IP: 正在检测公网IP与地区...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "已复制IP地址与位置信息！",
+        mode_auto = "自动IP",
+        mode_manual = "手动",
         tab_Dashboard = "仪表盘",
         tab_ESPRadar = "透视雷达",
         tab_Combat = "战斗自瞄",
@@ -285,15 +312,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "关于信息",
         lang_section = "语言与实时IP地区检测",
         lang_selector = "选择国家语言（IP自动识别 / 手动）",
-        lang_auto_btn = "自动同步IP地区",
+        lang_auto_btn = "自动同步IP地区与语言",
         lang_auto_sub = "实时重新读取玩家公网IP、国家与语言",
         lang_sync_now = "同步IP",
+        lang_status_fmt = "IP: %s | 国家: %s (%s) | 当前语言: %s [%s]",
         lang_changed = "语言已切换为: ",
         welcome = "欢迎使用！已实时同步玩家IP位置与语言。💀",
     },
     es = {
-        detecting = "🌐 IP: Detectando... | Ubicación: Cargando...",
-        ip_fmt = "🌐 IP: %s | Ubicación: %s, %s (%s)",
+        detecting = "🌐 IP: Detectando IP pública y ubicación...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "¡Dirección IP y ubicación copiadas!",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUAL",
         tab_Dashboard = "Panel",
         tab_ESPRadar = "Radar ESP",
         tab_Combat = "Combate",
@@ -306,15 +337,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Información",
         lang_section = "Idioma y Detección de Región IP en Tiempo Real",
         lang_selector = "Seleccionar Idioma del País (Auto IP / Manual)",
-        lang_auto_btn = "Sincronizar Región IP Automática",
+        lang_auto_btn = "Sincronizar Región IP e Idioma",
         lang_auto_sub = "Volver a detectar IP pública, país e idioma en tiempo real",
         lang_sync_now = "Sinc. IP",
+        lang_status_fmt = "IP: %s | País: %s (%s) | Idioma Activo: %s [%s]",
         lang_changed = "Idioma cambiado a: ",
         welcome = "¡Bienvenido! Ubicación IP e idioma sincronizados en tiempo real. 💀",
     },
     pt = {
-        detecting = "🌐 IP: Detectando... | Localização: Carregando...",
-        ip_fmt = "🌐 IP: %s | Localização: %s, %s (%s)",
+        detecting = "🌐 IP: Detectando IP público e localização...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "Endereço IP e localização copiados!",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUAL",
         tab_Dashboard = "Painel",
         tab_ESPRadar = "Radar ESP",
         tab_Combat = "Combate",
@@ -327,15 +362,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Informações",
         lang_section = "Idioma e Detecção de Região IP em Tempo Real",
         lang_selector = "Selecionar Idioma do País (Auto IP / Manual)",
-        lang_auto_btn = "Sincronizar Região IP Automaticamente",
+        lang_auto_btn = "Sincronizar Região IP e Idioma",
         lang_auto_sub = "Detectar novamente IP público, país e idioma em tempo real",
         lang_sync_now = "Sinc. IP",
+        lang_status_fmt = "IP: %s | País: %s (%s) | Idioma Ativo: %s [%s]",
         lang_changed = "Idioma alterado para: ",
         welcome = "Bem-vindo! Localização IP e idioma sincronizados em tempo real. 💀",
     },
     ru = {
-        detecting = "🌐 IP: Определение... | Локация: Загрузка...",
-        ip_fmt = "🌐 IP: %s | Локация: %s, %s (%s)",
+        detecting = "🌐 IP: Определение публичного IP и региона...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "IP-адрес и локация скопированы!",
+        mode_auto = "АВТО IP",
+        mode_manual = "ВРУЧНУЮ",
         tab_Dashboard = "Панель",
         tab_ESPRadar = "ESP Радар",
         tab_Combat = "Бой / Аим",
@@ -348,15 +387,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Инфо",
         lang_section = "Язык и определение региона по IP в реальном времени",
         lang_selector = "Выберите язык страны (Авто IP / Вручную)",
-        lang_auto_btn = "Авто-синхронизация региона IP",
+        lang_auto_btn = "Авто-синхронизация региона IP и языка",
         lang_auto_sub = "Повторно определить публичный IP, страну и язык",
         lang_sync_now = "Синхр. IP",
+        lang_status_fmt = "IP: %s | Страна: %s (%s) | Язык: %s [%s]",
         lang_changed = "Язык изменен на: ",
         welcome = "Добро пожаловать! IP-локация и язык синхронизированы. 💀",
     },
     ar = {
-        detecting = "🌐 IP: جاري الكشف... | الموقع: جاري التحميل...",
-        ip_fmt = "🌐 IP: %s | الموقع: %s, %s (%s)",
+        detecting = "🌐 IP: جاري كشف عنوان IP والموقع...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "تم نسخ عنوان IP ومعلومات الموقع!",
+        mode_auto = "تلقائي IP",
+        mode_manual = "يدوي",
         tab_Dashboard = "لوحة التحكم",
         tab_ESPRadar = "رادار ESP",
         tab_Combat = "القتال",
@@ -369,15 +412,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "معلومات",
         lang_section = "اللغة واكتشاف منطقة IP في الوقت الفعلي",
         lang_selector = "اختر لغة الدولة (تلقائي حسب IP / يدوي)",
-        lang_auto_btn = "مزامنة منطقة IP تلقائياً",
+        lang_auto_btn = "مزامنة منطقة IP واللغة تلقائياً",
         lang_auto_sub = "إعادة قراءة عنوان IP والدولة واللغة في الوقت الفعلي",
         lang_sync_now = "مزامنة IP",
+        lang_status_fmt = "IP: %s | الدولة: %s (%s) | اللغة النشطة: %s [%s]",
         lang_changed = "تم تغيير اللغة إلى: ",
         welcome = "مرحباً بك! تمت مزامنة موقع IP واللغة في الوقت الفعلي. 💀",
     },
     fr = {
-        detecting = "🌐 IP: Détection... | Lieu: Chargement...",
-        ip_fmt = "🌐 IP: %s | Lieu: %s, %s (%s)",
+        detecting = "🌐 IP: Détection de l'IP publique et du lieu...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "Adresse IP et localisation copiées !",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUEL",
         tab_Dashboard = "Tableau",
         tab_ESPRadar = "Radar ESP",
         tab_Combat = "Combat",
@@ -390,15 +437,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Infos",
         lang_section = "Langue et Détection Régionale IP en Temps Réel",
         lang_selector = "Choisir la Langue du Pays (Auto IP / Manuel)",
-        lang_auto_btn = "Synchroniser Auto la Région IP",
+        lang_auto_btn = "Synchroniser Auto Région IP & Langue",
         lang_auto_sub = "Relire l'IP publique, le pays et la langue en temps réel",
         lang_sync_now = "Sync IP",
+        lang_status_fmt = "IP: %s | Pays: %s (%s) | Langue Active: %s [%s]",
         lang_changed = "Langue changée en : ",
         welcome = "Bienvenue ! Localisation IP et langue synchronisées en temps réel. 💀",
     },
     de = {
-        detecting = "🌐 IP: Erkennung... | Standort: Wird geladen...",
-        ip_fmt = "🌐 IP: %s | Standort: %s, %s (%s)",
+        detecting = "🌐 IP: Öffentliche IP & Standort werden erkannt...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "IP-Adresse & Standort kopiert!",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUELL",
         tab_Dashboard = "Dashboard",
         tab_ESPRadar = "ESP-Radar",
         tab_Combat = "Kampf",
@@ -411,15 +462,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Info",
         lang_section = "Sprache & Echtzeit-IP-Regionserkennung",
         lang_selector = "Ländersprache wählen (Auto-IP / Manuell)",
-        lang_auto_btn = "IP-Region automatisch synchronisieren",
+        lang_auto_btn = "IP-Region & Sprache synchronisieren",
         lang_auto_sub = "Öffentliche IP, Land und Sprache in Echtzeit neu erkennen",
         lang_sync_now = "IP Sync",
+        lang_status_fmt = "IP: %s | Land: %s (%s) | Aktive Sprache: %s [%s]",
         lang_changed = "Sprache geändert zu: ",
         welcome = "Willkommen! IP-Standort & Sprache in Echtzeit synchronisiert. 💀",
     },
     th = {
-        detecting = "🌐 IP: กำลังตรวจจับ... | ตำแหน่ง: กำลังโหลด...",
-        ip_fmt = "🌐 IP: %s | ตำแหน่ง: %s, %s (%s)",
+        detecting = "🌐 IP: กำลังตรวจจับ IP สาธารณะและตำแหน่ง...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "คัดลอกที่อยู่ IP และตำแหน่งแล้ว!",
+        mode_auto = "ออโต้ IP",
+        mode_manual = "เลือกเอง",
         tab_Dashboard = "แดชบอร์ด",
         tab_ESPRadar = "เรดาร์ ESP",
         tab_Combat = "ต่อสู้ / เล็ง",
@@ -432,15 +487,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "ข้อมูล",
         lang_section = "ภาษาและการตรวจจับภูมิภาค IP แบบเรียลไทม์",
         lang_selector = "เลือกภาษาประเทศ (ตรวจจับ IP อัตโนมัติ / เลือกเอง)",
-        lang_auto_btn = "ซิงค์ภูมิภาค IP อัตโนมัติ",
+        lang_auto_btn = "ซิงค์ภูมิภาค IP และภาษาอัตโนมัติ",
         lang_auto_sub = "อ่านค่า IP สาธารณะ ประเทศ และภาษาแบบเรียลไทม์อีกครั้ง",
         lang_sync_now = "ซิงค์ IP",
+        lang_status_fmt = "IP: %s | ประเทศ: %s (%s) | ภาษาที่ใช้งาน: %s [%s]",
         lang_changed = "เปลี่ยนภาษาเป็น: ",
         welcome = "ยินดีต้อนรับ! ซิงค์ตำแหน่ง IP และภาษาแบบเรียลไทม์แล้ว 💀",
     },
     vi = {
-        detecting = "🌐 IP: Đang dò... | Vị trí: Đang tải...",
-        ip_fmt = "🌐 IP: %s | Vị trí: %s, %s (%s)",
+        detecting = "🌐 IP: Đang dò địa chỉ IP công khai & vị trí...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "Đã sao chép địa chỉ IP & vị trí!",
+        mode_auto = "TỰ ĐỘNG IP",
+        mode_manual = "THỦ CÔNG",
         tab_Dashboard = "Bảng chính",
         tab_ESPRadar = "Radar ESP",
         tab_Combat = "Chiến đấu",
@@ -453,15 +512,19 @@ GeoLangAPI.Dictionary = {
         tab_Informasi = "Thông tin",
         lang_section = "Ngôn ngữ & Nhận diện Vùng IP Thời gian thực",
         lang_selector = "Chọn Ngôn ngữ Quốc gia (Tự động IP / Thủ công)",
-        lang_auto_btn = "Tự động đồng bộ Vùng IP",
+        lang_auto_btn = "Tự động đồng bộ Vùng IP & Ngôn ngữ",
         lang_auto_sub = "Đọc lại IP công khai, quốc gia và ngôn ngữ theo thời gian thực",
         lang_sync_now = "Đồng bộ IP",
+        lang_status_fmt = "IP: %s | Quốc gia: %s (%s) | Ngôn ngữ: %s [%s]",
         lang_changed = "Đã đổi ngôn ngữ sang: ",
         welcome = "Chào mừng! Đã đồng bộ vị trí IP và ngôn ngữ theo thời gian thực. 💀",
     },
     tl = {
-        detecting = "🌐 IP: Tinutukoy... | Lokasyon: Naglo-load...",
-        ip_fmt = "🌐 IP: %s | Lokasyon: %s, %s (%s)",
+        detecting = "🌐 IP: Tinutukoy ang pampublikong IP at lokasyon...",
+        ip_fmt = "🌐 IP: %s | %s, %s (%s) • %s",
+        ip_copied = "Nakopya ang IP address at lokasyon!",
+        mode_auto = "AUTO IP",
+        mode_manual = "MANUAL",
         tab_Dashboard = "Dashboard",
         tab_ESPRadar = "ESP Radar",
         tab_Combat = "Labanan",
@@ -477,6 +540,7 @@ GeoLangAPI.Dictionary = {
         lang_auto_btn = "Auto-Sync ng IP Region at Wika",
         lang_auto_sub = "Basahin muli ang pampublikong IP, bansa at wika nang real-time",
         lang_sync_now = "Sync IP",
+        lang_status_fmt = "IP: %s | Bansa: %s (%s) | Aktibong Wika: %s [%s]",
         lang_changed = "Pinalitan ang wika sa: ",
         welcome = "Maligayang pagdating! Na-sync ang lokasyon ng IP at wika nang real-time. 💀",
     },
@@ -487,22 +551,84 @@ function GeoLangAPI.T(key)
     return pack[key] or GeoLangAPI.Dictionary.en[key] or key
 end
 
-function GeoLangAPI.HttpGetRaw(url)
-    local reqFn = (typeof(request) == "function" and request)
-        or (typeof(http_request) == "function" and http_request)
-        or (syn and type(syn) == "table" and syn.request)
-        or (http and type(http) == "table" and http.request)
-    if reqFn then
-        local ok, res = pcall(reqFn, { Url = url, Method = "GET" })
-        if ok and type(res) == "table" and res.Body and res.Body ~= "" then
-            return res.Body
+function GeoLangAPI.GetLanguageLabel(code)
+    for _, entry in ipairs(GeoLangAPI.Languages) do
+        if entry.Code == code then
+            return entry.Label
         end
     end
+    return string.upper(tostring(code or "EN"))
+end
+
+function GeoLangAPI.BindText(instance, dictKey, prefix, suffix)
+    if not instance then return end
+    table.insert(GeoLangAPI.TextBindings, {
+        Instance = instance,
+        Key = dictKey,
+        Prefix = prefix or "",
+        Suffix = suffix or "",
+    })
+    instance.Text = (prefix or "") .. GeoLangAPI.T(dictKey) .. (suffix or "")
+end
+
+function GeoLangAPI.HttpGetRaw(url)
+    local reqHeaders = {
+        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) RobloxClient/1.0",
+        ["Accept"] = "application/json, text/plain, */*",
+    }
+    local reqCandidates = {}
+    if typeof(request) == "function" then table.insert(reqCandidates, request) end
+    if typeof(http_request) == "function" then table.insert(reqCandidates, http_request) end
+    if syn and type(syn) == "table" and typeof(syn.request) == "function" then table.insert(reqCandidates, syn.request) end
+    if http and type(http) == "table" and typeof(http.request) == "function" then table.insert(reqCandidates, http.request) end
+    if fluxus and type(fluxus) == "table" and typeof(fluxus.request) == "function" then table.insert(reqCandidates, fluxus.request) end
+
+    for _, reqFn in ipairs(reqCandidates) do
+        local ok, res = pcall(reqFn, {
+            Url = url,
+            Method = "GET",
+            Headers = reqHeaders,
+        })
+        if ok and type(res) == "table" then
+            local body = res.Body or res.body
+            if type(body) == "string" and body ~= "" then
+                return body
+            end
+        end
+    end
+
     local okGame, body = pcall(function()
-        return game:HttpGet(url)
+        return game:HttpGet(url, true)
     end)
     if okGame and type(body) == "string" and body ~= "" then
         return body
+    end
+
+    local okHttp, httpBody = pcall(function()
+        return HttpService:GetAsync(url, true)
+    end)
+    if okHttp and type(httpBody) == "string" and httpBody ~= "" then
+        return httpBody
+    end
+
+    return nil
+end
+
+function GeoLangAPI.ExtractValidIP(rawStr)
+    if type(rawStr) ~= "string" then return nil end
+    local trimmed = string.match(rawStr, "^%s*(.-)%s*$") or ""
+    -- Cocokkan IPv4 valid (contoh: 182.253.124.88)
+    local a, b, c, d = string.match(trimmed, "(%d+)%.(%d+)%.(%d+)%.(%d+)")
+    if a and b and c and d then
+        local na, nb, nc, nd = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
+        if na and nb and nc and nd and na <= 255 and nb <= 255 and nc <= 255 and nd <= 255 then
+            return string.format("%d.%d.%d.%d", na, nb, nc, nd)
+        end
+    end
+    -- Cocokkan IPv6 jika pengguna memakai IPv6 murni
+    local ipv6 = string.match(trimmed, "([%x:]+:[%x:]+:[%x:]+)")
+    if ipv6 and #ipv6 >= 6 and string.find(ipv6, ":", 1, true) then
+        return ipv6
     end
     return nil
 end
@@ -522,6 +648,7 @@ function GeoLangAPI.OnLanguageChanged(cb)
 end
 
 function GeoLangAPI.RefreshBannerText()
+    local langBadge = string.upper(GeoLangAPI.CurrentLang or "ID")
     if GeoLangAPI.IPAddress == "Detecting..." then
         GeoLangAPI.StatusText = GeoLangAPI.T("detecting")
     else
@@ -530,12 +657,24 @@ function GeoLangAPI.RefreshBannerText()
             GeoLangAPI.IPAddress,
             GeoLangAPI.City,
             GeoLangAPI.Country,
-            GeoLangAPI.CountryCode
+            GeoLangAPI.CountryCode,
+            langBadge
         )
     end
     App.Subtitle = GeoLangAPI.StatusText
     if UI.SubLabel and UI.SubLabel.Parent then
         UI.SubLabel.Text = GeoLangAPI.StatusText
+    end
+    if UI.LangStatusLabel and UI.LangStatusLabel.Parent then
+        local modeText = GeoLangAPI.ManualOverride and GeoLangAPI.T("mode_manual") or GeoLangAPI.T("mode_auto")
+        UI.LangStatusLabel.Text = "  " .. string.format(
+            GeoLangAPI.T("lang_status_fmt"),
+            GeoLangAPI.IPAddress,
+            GeoLangAPI.Country,
+            GeoLangAPI.CountryCode,
+            GeoLangAPI.GetLanguageLabel(GeoLangAPI.CurrentLang),
+            modeText
+        )
     end
 end
 
@@ -548,6 +687,16 @@ function GeoLangAPI.SetLanguage(langCode, isManual)
         GeoLangAPI.ManualOverride = isManual
     end
     GeoLangAPI.RefreshBannerText()
+
+    for i = #GeoLangAPI.TextBindings, 1, -1 do
+        local item = GeoLangAPI.TextBindings[i]
+        if item.Instance and item.Instance.Parent then
+            item.Instance.Text = item.Prefix .. GeoLangAPI.T(item.Key) .. item.Suffix
+        else
+            table.remove(GeoLangAPI.TextBindings, i)
+        end
+    end
+
     for i = #GeoLangAPI.Listeners, 1, -1 do
         local cb = GeoLangAPI.Listeners[i]
         local ok = pcall(cb, langCode)
@@ -557,71 +706,146 @@ function GeoLangAPI.SetLanguage(langCode, isManual)
     end
 end
 
-function GeoLangAPI.FetchRealTimeGeoIP(forceAutoLang)
-    task.spawn(function()
-        GeoLangAPI.IPAddress = "Detecting..."
-        GeoLangAPI.RefreshBannerText()
-
-        local endpoints = {
-            "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,query",
-            "https://ipwho.is/",
-            "https://ipapi.co/json/",
+function GeoLangAPI.DetectRobloxLocaleFallback()
+    local localeStr = "id-id"
+    pcall(function()
+        localeStr = string.lower(LocalizationService.RobloxLocaleId or LocalizationService.SystemLocaleId or "id-id")
+    end)
+    local ccGuess = string.upper(string.match(localeStr, "%-(%a%a)$") or "")
+    if ccGuess == "" then
+        local langPrefix = string.match(localeStr, "^(%a%a)") or "id"
+        local prefixMap = {
+            id = "ID", en = "US", ms = "MY", ja = "JP", ko = "KR",
+            zh = "CN", es = "ES", pt = "BR", ru = "RU", ar = "SA",
+            fr = "FR", de = "DE", th = "TH", vi = "VN", tl = "PH",
         }
+        ccGuess = prefixMap[langPrefix] or "ID"
+    end
+    return ccGuess
+end
 
-        local parsedData = nil
-        for _, url in ipairs(endpoints) do
-            local raw = GeoLangAPI.HttpGetRaw(url)
-            if raw then
-                local okJson, decoded = pcall(function()
-                    return HttpService:JSONDecode(raw)
-                end)
-                if okJson and type(decoded) == "table" then
-                    local ip = decoded.query or decoded.ip
-                    local cc = decoded.countryCode or decoded.country_code
-                    local country = decoded.country or decoded.country_name
-                    local region = decoded.regionName or decoded.region
-                    local city = decoded.city
-                    if ip and tostring(ip) ~= "" then
+function GeoLangAPI.FetchRealTimeGeoIP(forceAutoLang)
+    if GeoLangAPI.IsFetching then return end
+    GeoLangAPI.IsFetching = true
+
+    task.spawn(function()
+        local okExec = xpcall(function()
+            GeoLangAPI.IPAddress = "Detecting..."
+            GeoLangAPI.RefreshBannerText()
+
+            -- Tahap 1: Multi-Endpoint GeoIP JSON Lengkap (IP + Kota + Region + Negara + ISP)
+            local geoEndpoints = {
+                "https://ipwho.is/",
+                "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,query",
+                "https://ipapi.co/json/",
+                "https://freeipapi.com/api/json",
+                "https://ipinfo.io/json",
+            }
+
+            local parsedData = nil
+            for _, url in ipairs(geoEndpoints) do
+                local raw = GeoLangAPI.HttpGetRaw(url)
+                if raw then
+                    local okJson, decoded = pcall(function()
+                        return HttpService:JSONDecode(raw)
+                    end)
+                    if okJson and type(decoded) == "table" then
+                        if decoded.success == false or decoded.status == "fail" then
+                            -- Lanjut ke endpoint berikutnya jika limit/gagal
+                        else
+                            local rawIp = decoded.query or decoded.ip or decoded.ipAddress
+                            local validIp = GeoLangAPI.ExtractValidIP(tostring(rawIp or ""))
+                            local cc = decoded.countryCode or decoded.country_code
+                            local country = decoded.country or decoded.country_name or decoded.countryName
+                            local region = decoded.regionName or decoded.region or decoded.region_name
+                            local city = decoded.city or decoded.cityName
+                            local isp = decoded.isp or decoded.org or (type(decoded.connection) == "table" and decoded.connection.isp)
+
+                            if validIp then
+                                parsedData = {
+                                    IP = validIp,
+                                    CountryCode = string.upper(tostring(cc or "")),
+                                    Country = tostring(country or ""),
+                                    Region = tostring(region or "-"),
+                                    City = tostring(city or "-"),
+                                    ISP = tostring(isp or "-"),
+                                    Source = url,
+                                }
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Tahap 2: Fallback Plain-Text Public IP Resolver (Jika endpoint GeoJSON terblokir firewall/rate-limit)
+            if not parsedData then
+                local plainIpEndpoints = {
+                    "https://api.ipify.org",
+                    "https://icanhazip.com",
+                    "https://checkip.amazonaws.com",
+                    "https://ifconfig.me/ip",
+                }
+                for _, ipUrl in ipairs(plainIpEndpoints) do
+                    local rawIpText = GeoLangAPI.HttpGetRaw(ipUrl)
+                    local validIp = GeoLangAPI.ExtractValidIP(rawIpText)
+                    if validIp then
+                        local ccFallback = GeoLangAPI.DetectRobloxLocaleFallback()
                         parsedData = {
-                            IP = tostring(ip),
-                            CountryCode = string.upper(tostring(cc or "US")),
-                            Country = tostring(country or "Unknown"),
-                            Region = tostring(region or "-"),
-                            City = tostring(city or "-"),
+                            IP = validIp,
+                            CountryCode = ccFallback,
+                            Country = ccFallback,
+                            Region = "Public Net",
+                            City = "Client",
+                            ISP = "Public IP",
+                            Source = ipUrl,
                         }
                         break
                     end
                 end
             end
-        end
 
-        if parsedData then
-            GeoLangAPI.IPAddress = parsedData.IP
-            GeoLangAPI.CountryCode = parsedData.CountryCode
-            GeoLangAPI.Country = parsedData.Country
-            GeoLangAPI.Region = parsedData.Region
-            GeoLangAPI.City = parsedData.City
-        else
-            local localeStr = "en-us"
-            pcall(function()
-                localeStr = string.lower(LocalizationService.RobloxLocaleId or "en-us")
-            end)
-            local ccGuess = string.upper(string.match(localeStr, "%-(%a%a)$") or "ID")
-            GeoLangAPI.IPAddress = "Protected / Local"
-            GeoLangAPI.CountryCode = ccGuess
-            GeoLangAPI.Country = ccGuess
-            GeoLangAPI.Region = "Roblox Region"
-            GeoLangAPI.City = "Client"
-        end
+            -- Tahap 3: Fallback ke Roblox Client Locale jika executor memblokir seluruh HTTP keluar
+            if parsedData then
+                if parsedData.CountryCode == "" then
+                    parsedData.CountryCode = GeoLangAPI.DetectRobloxLocaleFallback()
+                end
+                if parsedData.Country == "" then
+                    parsedData.Country = parsedData.CountryCode
+                end
+                GeoLangAPI.IPAddress = parsedData.IP
+                GeoLangAPI.CountryCode = parsedData.CountryCode
+                GeoLangAPI.Country = parsedData.Country
+                GeoLangAPI.Region = parsedData.Region
+                GeoLangAPI.City = parsedData.City
+                GeoLangAPI.ISP = parsedData.ISP
+                GeoLangAPI.DetectionSource = "Live API"
+            else
+                local ccGuess = GeoLangAPI.DetectRobloxLocaleFallback()
+                GeoLangAPI.IPAddress = "Local Client (" .. ccGuess .. ")"
+                GeoLangAPI.CountryCode = ccGuess
+                GeoLangAPI.Country = ccGuess
+                GeoLangAPI.Region = "Roblox Locale"
+                GeoLangAPI.City = "Client"
+                GeoLangAPI.ISP = "Roblox"
+                GeoLangAPI.DetectionSource = "Locale"
+            end
 
-        local detectedLang = GeoLangAPI.MapCountryToLang(GeoLangAPI.CountryCode)
-        GeoLangAPI.AutoDetectedLang = detectedLang
+            local detectedLang = GeoLangAPI.MapCountryToLang(GeoLangAPI.CountryCode)
+            GeoLangAPI.AutoDetectedLang = detectedLang
 
-        if forceAutoLang or not GeoLangAPI.ManualOverride then
-            GeoLangAPI.SetLanguage(detectedLang, false)
-        else
+            if forceAutoLang or not GeoLangAPI.ManualOverride then
+                GeoLangAPI.SetLanguage(detectedLang, false)
+            else
+                GeoLangAPI.RefreshBannerText()
+            end
+        end, function(err)
+            Protection.ErrorsCaught = Protection.ErrorsCaught + 1
+        end)
+        if not okExec then
             GeoLangAPI.RefreshBannerText()
         end
+        GeoLangAPI.IsFetching = false
     end)
 end
 
@@ -2159,33 +2383,71 @@ do
     }, verifiedBadge)
     UI.VerifiedBadge = verifiedBadge
 
-    -- Alamat IP & Lokasi Pemain Real-Time dengan Animasi Warna Hitam-Putih Berjalan Halus
+    -- Alamat IP & Lokasi Pemain Real-Time Interaktif di Bawah Judul "BimSakSin Hub v3.0"
+    local ipBannerBtn = Utils.Create("TextButton", {
+        Name = "IPSubtitleButton",
+        Size = UDim2.new(1, -142, 0, 18),
+        Position = UDim2.new(0, 54, 0, 28),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 0.92,
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 14,
+    }, UI.Topbar)
+    Utils.AddCorner(ipBannerBtn, 5)
+    Utils.AddStroke(ipBannerBtn, Color3.fromRGB(255, 255, 255), 0.8, 0.72)
+
     local subLbl = Utils.Create("TextLabel", {
-        Size = UDim2.new(1, -142, 0, 16),
-        Position = UDim2.new(0, 54, 0, 29),
+        Size = UDim2.new(1, -10, 1, 0),
+        Position = UDim2.new(0, 6, 0, 0),
         BackgroundTransparency = 1,
         Font = Theme.FontBold,
         Text = App.Subtitle,
         TextColor3 = Color3.fromRGB(255, 255, 255),
-        TextStrokeColor3 = Color3.fromRGB(12, 12, 16),
-        TextStrokeTransparency = 0.35,
+        TextStrokeColor3 = Color3.fromRGB(10, 10, 14),
+        TextStrokeTransparency = 0.25,
         TextSize = 11,
         TextTruncate = Enum.TextTruncate.AtEnd,
         TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 14,
-    }, UI.Topbar)
+        ZIndex = 15,
+    }, ipBannerBtn)
     UI.SubLabel = subLbl
 
     UI.SubLabelGradient = Utils.Create("UIGradient", {
         Rotation = 0,
         Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0.00, Color3.fromRGB(35, 35, 42)),
+            ColorSequenceKeypoint.new(0.00, Color3.fromRGB(45, 45, 54)),
             ColorSequenceKeypoint.new(0.28, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(0.50, Color3.fromRGB(18, 18, 24)),
+            ColorSequenceKeypoint.new(0.50, Color3.fromRGB(24, 24, 30)),
             ColorSequenceKeypoint.new(0.75, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(1.00, Color3.fromRGB(35, 35, 42)),
+            ColorSequenceKeypoint.new(1.00, Color3.fromRGB(45, 45, 54)),
         }),
     }, subLbl)
+
+    ipBannerBtn.MouseEnter:Connect(function()
+        Utils.Tween(ipBannerBtn, TweenInfo.new(0.15), { BackgroundTransparency = 0.82 })
+    end)
+    ipBannerBtn.MouseLeave:Connect(function()
+        Utils.Tween(ipBannerBtn, TweenInfo.new(0.15), { BackgroundTransparency = 0.92 })
+    end)
+    ipBannerBtn.MouseButton1Click:Connect(function()
+        local copyPayload = string.format(
+            "IP: %s | Kota: %s | Region: %s | Negara: %s (%s) | Bahasa: %s",
+            GeoLangAPI.IPAddress,
+            GeoLangAPI.City,
+            GeoLangAPI.Region,
+            GeoLangAPI.Country,
+            GeoLangAPI.CountryCode,
+            GeoLangAPI.GetLanguageLabel(GeoLangAPI.CurrentLang)
+        )
+        if Utils.CopyText(copyPayload) then
+            Utils.Notify("Geo-IP Real-Time", GeoLangAPI.T("ip_copied") .. "
+" .. copyPayload, Theme.Success)
+        else
+            Utils.Notify("Geo-IP Real-Time", copyPayload, Theme.Accent)
+        end
+        GeoLangAPI.FetchRealTimeGeoIP(false)
+    end)
 
     -- Topbar Controls (Minimize & Close)
     local function createTopBtn(text, offsetX, hoverColor)
@@ -6037,7 +6299,27 @@ do
         Utils.ApplyMenuFontAndColors()
     end)
 
-    Components.AddSectionHeader(page, "Bahasa Negara & Deteksi Region IP Real-Time", 9)
+    local langSectionLbl = Components.AddSectionHeader(page, GeoLangAPI.T("lang_section"), 9)
+    GeoLangAPI.BindText(langSectionLbl, "lang_section", "💀 ")
+
+    local langLiveCard = Utils.Create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 26),
+        BackgroundColor3 = Theme.BgCard,
+        BackgroundTransparency = 0.22,
+        Font = Theme.FontBold,
+        Text = "  IP: Detecting... | Negara: - | Bahasa Aktif: -",
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        LayoutOrder = 10,
+        ZIndex = 14,
+    }, page)
+    Utils.AddCorner(langLiveCard, 7)
+    Utils.AddStroke(langLiveCard, Theme.Accent, 1, 0.35)
+    Utils.RegisterText(langLiveCard, true, Theme.TextPrimary)
+    UI.LangStatusLabel = langLiveCard
+    GeoLangAPI.RefreshBannerText()
 
     local langOptions = {}
     for _, lEntry in ipairs(GeoLangAPI.Languages) do
@@ -6046,19 +6328,13 @@ do
 
     local langSelector = Components.AddChipSelector(
         page,
-        "Pilih Bahasa Negara (Auto Region IP / Manual)",
+        GeoLangAPI.T("lang_selector"),
         langOptions,
         GeoLangAPI.CurrentLang,
-        10,
+        11,
         function(selectedCode)
             GeoLangAPI.SetLanguage(selectedCode, true)
-            local chosenLabel = selectedCode
-            for _, lEntry in ipairs(GeoLangAPI.Languages) do
-                if lEntry.Code == selectedCode then
-                    chosenLabel = lEntry.Label
-                    break
-                end
-            end
+            local chosenLabel = GeoLangAPI.GetLanguageLabel(selectedCode)
             Utils.Notify("Bahasa Diperbarui", GeoLangAPI.T("lang_changed") .. chosenLabel, Theme.Success)
         end
     )
@@ -6071,10 +6347,10 @@ do
 
     Components.AddButton(
         page,
-        "Sinkronisasi Otomatis Region IP & Bahasa",
-        "Baca ulang alamat IP, negara, dan bahasa pemain secara real-time",
-        "Sync IP",
-        11,
+        GeoLangAPI.T("lang_auto_btn"),
+        GeoLangAPI.T("lang_auto_sub"),
+        GeoLangAPI.T("lang_sync_now"),
+        12,
         function()
             GeoLangAPI.ManualOverride = false
             GeoLangAPI.FetchRealTimeGeoIP(true)
@@ -6606,6 +6882,7 @@ do
 end
 
 -- Inisialisasi Tab Awal, Deteksi Real-Time IP & Bahasa Region Negara, serta Notifikasi
-GeoLangAPI.FetchRealTimeGeoIP(false)
+GeoLangAPI.RefreshBannerText()
+GeoLangAPI.FetchRealTimeGeoIP(true)
 Components.SwitchTab("Dashboard")
 Utils.Notify(App.Name, GeoLangAPI.T("welcome"), Theme.Accent)
